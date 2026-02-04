@@ -641,6 +641,7 @@ impl Lineme {
             &file.hovered_event,
             file.scroll_offset,
             file.viewport_width,
+            file.viewport_height,
             self.modifiers,
         )
     }

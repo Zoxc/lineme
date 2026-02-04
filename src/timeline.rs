@@ -101,6 +101,7 @@ pub fn view<'a>(
     _hovered_event: &'a Option<TimelineEvent>,
     scroll_offset: Vector,
     viewport_width: f32,
+    viewport_height: f32,
     modifiers: keyboard::Modifiers,
 ) -> Element<'a, Message> {
     let total_ns = timeline_data.max_ns - timeline_data.min_ns;
@@ -149,6 +150,9 @@ pub fn view<'a>(
         max_ns: timeline_data.max_ns,
         zoom_level,
         selected_event,
+        scroll_offset,
+        viewport_width,
+        viewport_height,
     })
     .width(Length::Fixed(events_width))
     .height(Length::Fixed(total_height));
@@ -274,6 +278,9 @@ struct EventsProgram<'a> {
     max_ns: u64,
     zoom_level: f32,
     selected_event: &'a Option<TimelineEvent>,
+    scroll_offset: Vector,
+    viewport_width: f32,
+    viewport_height: f32,
 }
 
 #[derive(Default)]
@@ -350,6 +357,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
         // Draw vertical tick guide lines matching the header ticks.
         let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
+        let x_min = self.scroll_offset.x;
+        let x_max = self.scroll_offset.x + self.viewport_width;
+
         if total_ns > 0.0 {
             // ns per pixel given current zoom: 1 / zoom_level
             let ns_per_pixel = 1.0 / self.zoom_level as f64;
@@ -366,9 +376,18 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 base * 10.0
             };
 
-            let mut relative_ns = 0.0;
+            let mut relative_ns = if self.viewport_width > 0.0 {
+                (x_min as f64 / self.zoom_level as f64 / nice_interval).floor() * nice_interval
+            } else {
+                0.0
+            };
+
             while relative_ns <= total_ns {
                 let x = (relative_ns * self.zoom_level as f64) as f32;
+                if self.viewport_width > 0.0 && x > x_max {
+                    break;
+                }
+
                 // Draw faint vertical line across the events area.
                 frame.stroke(
                     &canvas::Path::line(Point::new(x, 0.0), Point::new(x, bounds.height)),
@@ -382,12 +401,23 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         }
 
         let mut y_offset = 0.0;
+        let y_min = self.scroll_offset.y;
+        let y_max = self.scroll_offset.y + self.viewport_height;
+
         for thread in self.threads {
             let lane_total_height = if thread.is_collapsed {
                 LANE_HEIGHT
             } else {
                 (thread.max_depth + 1) as f32 * LANE_HEIGHT
             };
+
+            // Skip drawing if thread is completely outside vertical viewport
+            if self.viewport_height > 0.0
+                && (y_offset + lane_total_height < y_min || y_offset > y_max)
+            {
+                y_offset += lane_total_height + LANE_SPACING;
+                continue;
+            }
 
             frame.stroke(
                 &canvas::Path::line(
@@ -414,6 +444,12 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
                 let x = (event.start_ns.saturating_sub(self.min_ns) as f64 * self.zoom_level as f64)
                     as f32;
+
+                // Skip drawing if event is completely outside horizontal viewport
+                if self.viewport_width > 0.0 && (x + width < x_min || x > x_max) {
+                    continue;
+                }
+
                 let depth = event.depth as usize;
                 let color = event.color;
                 let label = &event.label;
