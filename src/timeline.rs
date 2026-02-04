@@ -670,20 +670,30 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             if truncated_label.len() > avail_chars {
                                 truncated_label.truncate(avail_chars);
                             }
-                            frame.fill_text(canvas::Text {
-                                content: truncated_label,
-                                position: Point::new(
-                                    rect.x + 2.0 + EVENT_LEFT_PADDING,
-                                    rect.y + 2.0,
-                                ),
-                                color: if *cur_is_root {
-                                    Color::from_rgb(0.35, 0.35, 0.35)
-                                } else {
-                                    Color::from_rgb(0.2, 0.2, 0.2)
+                            frame.with_clip(
+                                Rectangle {
+                                    x: rect.x + 1.0,
+                                    y: rect.y + 1.0,
+                                    width: rect.width - 2.0,
+                                    height: rect.height - 2.0,
                                 },
-                                size: 12.0.into(),
-                                ..Default::default()
-                            });
+                                |frame| {
+                                    frame.fill_text(canvas::Text {
+                                        content: truncated_label,
+                                        position: Point::new(
+                                            rect.x + 2.0 + EVENT_LEFT_PADDING,
+                                            rect.y + 2.0,
+                                        ),
+                                        color: if *cur_is_root {
+                                            Color::from_rgb(0.35, 0.35, 0.35)
+                                        } else {
+                                            Color::from_rgb(0.2, 0.2, 0.2)
+                                        },
+                                        size: 12.0.into(),
+                                        ..Default::default()
+                                    });
+                                },
+                            );
                         }
                     }
                 }
@@ -722,17 +732,30 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         if truncated_label.len() > avail_chars {
                             truncated_label.truncate(avail_chars);
                         }
-                        frame.fill_text(canvas::Text {
-                            content: truncated_label,
-                            position: Point::new(rect.x + 2.0 + EVENT_LEFT_PADDING, rect.y + 2.0),
-                            color: if cur_is_root {
-                                Color::from_rgb(0.35, 0.35, 0.35)
-                            } else {
-                                Color::from_rgb(0.2, 0.2, 0.2)
+                        frame.with_clip(
+                            Rectangle {
+                                x: rect.x + 1.0,
+                                y: rect.y + 1.0,
+                                width: rect.width - 2.0,
+                                height: rect.height - 2.0,
                             },
-                            size: 12.0.into(),
-                            ..Default::default()
-                        });
+                            |frame| {
+                                frame.fill_text(canvas::Text {
+                                    content: truncated_label,
+                                    position: Point::new(
+                                        rect.x + 2.0 + EVENT_LEFT_PADDING,
+                                        rect.y + 2.0,
+                                    ),
+                                    color: if cur_is_root {
+                                        Color::from_rgb(0.35, 0.35, 0.35)
+                                    } else {
+                                        Color::from_rgb(0.2, 0.2, 0.2)
+                                    },
+                                    size: 12.0.into(),
+                                    ..Default::default()
+                                });
+                            },
+                        );
                     }
                 }
             }
