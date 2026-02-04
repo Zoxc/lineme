@@ -119,7 +119,6 @@ pub fn view<'a>(
         min_ns: timeline_data.min_ns,
         zoom_level,
         selected_event,
-        scroll_offset,
     })
     .width(Length::Fixed(events_width))
     .height(Length::Fixed(total_height));
@@ -142,7 +141,7 @@ pub fn view<'a>(
             header_canvas
         ]
         .height(Length::Fixed(HEADER_HEIGHT)),
-        row![threads_canvas, events_view].height(Length::Fill)
+        row![container(threads_canvas).height(Length::Fill), events_view].height(Length::Fill)
     ]
     .height(Length::Fill);
 
@@ -227,7 +226,6 @@ struct EventsProgram<'a> {
     min_ns: u64,
     zoom_level: f32,
     selected_event: &'a Option<TimelineEvent>,
-    scroll_offset: Vector,
 }
 
 #[derive(Default)]
@@ -238,6 +236,7 @@ struct EventsState {
 
 impl<'a> EventsProgram<'a> {
     fn find_event_at(&self, position: Point) -> Option<TimelineEvent> {
+        let position = position;
         let mut y_offset = 0.0;
         for thread in self.threads {
             let lane_total_height = if thread.is_collapsed {
@@ -296,12 +295,6 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         if self.threads.is_empty() {
             return vec![frame.into_geometry()];
         }
-
-        let total_ns = self
-            .threads
-            .first()
-            .map(|_| bounds.width / self.zoom_level)
-            .unwrap_or(0.0);
 
         let mut y_offset = 0.0;
         for thread in self.threads {
@@ -462,39 +455,6 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             y_offset += lane_total_height + LANE_SPACING;
         }
 
-        if total_ns > 0.0 {
-            let ns_per_pixel = 1.0 / self.zoom_level as f64;
-
-            let pixel_interval = 100.0;
-            let ns_interval = pixel_interval as f64 * ns_per_pixel;
-
-            let log10 = ns_interval.log10().floor();
-            let base = 10.0f64.powf(log10);
-            let nice_interval = if ns_interval / base < 2.0 {
-                base * 2.0
-            } else if ns_interval / base < 5.0 {
-                base * 5.0
-            } else {
-                base * 10.0
-            };
-
-            let mut relative_ns = 0.0;
-
-            while (relative_ns * self.zoom_level as f64) < bounds.width as f64 {
-                let x = (relative_ns * self.zoom_level as f64) as f32;
-
-                if x >= self.scroll_offset.x {
-                    frame.stroke(
-                        &canvas::Path::line(Point::new(x, 0.0), Point::new(x, bounds.height)),
-                        canvas::Stroke::default()
-                            .with_color(Color::from_rgb(0.9, 0.9, 0.9))
-                            .with_width(1.0),
-                    );
-                }
-                relative_ns += nice_interval;
-            }
-        }
-
         vec![frame.into_geometry()]
     }
 
@@ -537,7 +497,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                                 if y.abs() > 0.0 {
                                     return Some(Action::publish(Message::TimelineZoomed {
                                         delta: *y,
-                                        x: position.x - self.scroll_offset.x,
+                                        x: position.x,
                                     }));
                                 }
                             }
@@ -692,18 +652,6 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
             };
 
             let y = y_offset - self.scroll_offset.y;
-            if y + lane_total_height < 0.0 || y > bounds.height {
-                y_offset += lane_total_height + LANE_SPACING;
-                continue;
-            }
-
-            frame.stroke(
-                &canvas::Path::line(Point::new(0.0, y), Point::new(bounds.width, y)),
-                canvas::Stroke::default()
-                    .with_color(Color::from_rgb(0.9, 0.9, 0.9))
-                    .with_width(1.0),
-            );
-
             let label_text = if thread.is_collapsed {
                 format!("▶ Thread {}", thread.thread_id)
             } else {

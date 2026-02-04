@@ -1,8 +1,8 @@
 mod timeline;
 
 use iced::widget::{button, column, container, pick_list, row, scrollable, text, Space};
-use iced::widget::scrollable::RelativeOffset;
-use iced::widget::operation::snap_to;
+use iced::widget::scrollable::AbsoluteOffset;
+use iced::widget::operation::scroll_to;
 use iced::{Alignment, Element, Length, Task};
 use iced_aw::{tab_bar, TabLabel};
 use std::path::{Path, PathBuf};
@@ -241,6 +241,13 @@ impl Lineme {
                     // Adjust scroll offset to keep x position stable
                     let x_on_canvas = x + file.scroll_offset.x;
                     file.scroll_offset.x = x_on_canvas * zoom_factor - x;
+                    return scroll_to(
+                        timeline_id(),
+                        AbsoluteOffset {
+                            x: file.scroll_offset.x,
+                            y: file.scroll_offset.y,
+                        },
+                    );
                 }
             }
             Message::TimelineScroll { offset } => {
@@ -253,10 +260,7 @@ impl Lineme {
                     let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
                     file.zoom_level = 1000.0 / total_ns.max(1) as f32;
                     file.scroll_offset = iced::Vector::default();
-                    return snap_to(
-                        timeline_id(),
-                        RelativeOffset { x: 0.0, y: 0.0 },
-                    );
+                    return scroll_to(timeline_id(), AbsoluteOffset { x: 0.0, y: 0.0 });
                 }
             }
             Message::ModifiersChanged(modifiers) => {
@@ -266,6 +270,25 @@ impl Lineme {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     if let Some(thread) = file.stats.timeline.threads.iter_mut().find(|t| t.thread_id == thread_id) {
                         thread.is_collapsed = !thread.is_collapsed;
+                    }
+                    let mut total_height = 0.0;
+                    for thread in &file.stats.timeline.threads {
+                        let lane_total_height = if thread.is_collapsed {
+                            LANE_HEIGHT
+                        } else {
+                            (thread.max_depth + 1) as f32 * LANE_HEIGHT
+                        };
+                        total_height += lane_total_height + LANE_SPACING;
+                    }
+                    if file.scroll_offset.y > total_height {
+                        file.scroll_offset.y = total_height;
+                        return scroll_to(
+                            timeline_id(),
+                            AbsoluteOffset {
+                                x: file.scroll_offset.x,
+                                y: file.scroll_offset.y,
+                            },
+                        );
                     }
                 }
             }
