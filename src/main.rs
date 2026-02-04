@@ -10,11 +10,14 @@ use std::collections::HashMap;
 use analyzeme::ProfilingData;
 use timeline::{ColorMode, *};
 
-const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
+pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';
 const OPEN_ICON: char = '\u{e2c7}';
 const FILE_ICON: char = '\u{e873}';
 const RESET_ICON: char = '\u{e5d5}';
+// Use explicit plus/minus codepoints (visible in normal UI fonts)
+pub const COLLAPSE_ICON: char = '\u{2212}'; // '−' minus sign
+pub const EXPAND_ICON: char = '\u{002B}'; // '+' plus sign
 
 pub fn main() -> iced::Result {
     iced::application(Lineme::new, Lineme::update, Lineme::view)
@@ -82,6 +85,8 @@ enum Message {
     TimelinePanned { delta: iced::Vector },
     ResetView,
     ToggleThreadCollapse(u64),
+    CollapseAllThreads,
+    ExpandAllThreads,
     ModifiersChanged(iced::keyboard::Modifiers),
     None,
 }
@@ -424,6 +429,42 @@ impl Lineme {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     if let Some(thread) = file.stats.timeline.threads.iter_mut().find(|t| t.thread_id == thread_id) {
                         thread.is_collapsed = !thread.is_collapsed;
+                    }
+                    let total_height = timeline::total_timeline_height(&file.stats.timeline.threads);
+                    if file.scroll_offset.y > total_height {
+                        file.scroll_offset.y = total_height;
+                        return scroll_to(
+                            timeline_id(),
+                            AbsoluteOffset {
+                                x: file.scroll_offset.x,
+                                y: file.scroll_offset.y,
+                            },
+                        );
+                    }
+                }
+            }
+            Message::CollapseAllThreads => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    for thread in &mut file.stats.timeline.threads {
+                        thread.is_collapsed = true;
+                    }
+                    let total_height = timeline::total_timeline_height(&file.stats.timeline.threads);
+                    if file.scroll_offset.y > total_height {
+                        file.scroll_offset.y = total_height;
+                        return scroll_to(
+                            timeline_id(),
+                            AbsoluteOffset {
+                                x: file.scroll_offset.x,
+                                y: file.scroll_offset.y,
+                            },
+                        );
+                    }
+                }
+            }
+            Message::ExpandAllThreads => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    for thread in &mut file.stats.timeline.threads {
+                        thread.is_collapsed = false;
                     }
                     let total_height = timeline::total_timeline_height(&file.stats.timeline.threads);
                     if file.scroll_offset.y > total_height {

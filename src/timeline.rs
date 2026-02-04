@@ -10,7 +10,7 @@ use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Action;
 use iced::widget::canvas::{self, Canvas, Geometry, Program};
-use iced::widget::{column, container, row, scrollable, text, Space};
+use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector};
 use mini_timeline::MiniTimelineProgram;
 use threads::ThreadsProgram;
@@ -201,7 +201,59 @@ pub fn view<'a>(
             column![
                 // Header remains aligned with the events area (leaving space for labels).
                 row![
-                    Space::new().width(Length::Fixed(LABEL_WIDTH)),
+                    // Left area above the thread labels: collapse/expand all buttons
+                    container(
+                        row![
+                            // Icon-only collapse button matching header/button style
+                            // Material Icons font supports ligatures — use text content like "add"/"remove"
+                            button(text(crate::COLLAPSE_ICON).font(crate::ICON_FONT).size(18))
+                                .padding(6)
+                                .style(|theme: &Theme, status: button::Status| {
+                                    let palette = theme.extended_palette();
+                                    let base = button::Style {
+                                        text_color: palette.background.weak.text,
+                                        ..Default::default()
+                                    };
+                                    match status {
+                                        button::Status::Hovered | button::Status::Pressed => {
+                                            button::Style {
+                                                background: Some(
+                                                    palette.background.strong.color.into(),
+                                                ),
+                                                ..base
+                                            }
+                                        }
+                                        _ => base,
+                                    }
+                                })
+                                .on_press(Message::CollapseAllThreads),
+                            // Icon-only expand button
+                            button(text(crate::EXPAND_ICON).font(crate::ICON_FONT).size(18))
+                                .padding(6)
+                                .style(|theme: &Theme, status: button::Status| {
+                                    let palette = theme.extended_palette();
+                                    let base = button::Style {
+                                        text_color: palette.background.weak.text,
+                                        ..Default::default()
+                                    };
+                                    match status {
+                                        button::Status::Hovered | button::Status::Pressed => {
+                                            button::Style {
+                                                background: Some(
+                                                    palette.background.strong.color.into(),
+                                                ),
+                                                ..base
+                                            }
+                                        }
+                                        _ => base,
+                                    }
+                                })
+                                .on_press(Message::ExpandAllThreads),
+                        ]
+                        .spacing(5)
+                        .align_y(iced::Alignment::Center),
+                    )
+                    .width(Length::Fixed(LABEL_WIDTH)),
                     header_canvas
                 ]
                 .height(Length::Fixed(HEADER_HEIGHT)),
