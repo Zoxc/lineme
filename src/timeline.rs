@@ -13,7 +13,7 @@ pub const HEADER_HEIGHT: f32 = 30.0;
 pub const LANE_HEIGHT: f32 = 20.0;
 pub const LANE_SPACING: f32 = 5.0;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TimelineEvent {
     pub label: String,
     pub start_ns: u64,
@@ -140,6 +140,56 @@ struct TimelineProgram<'a> {
 #[derive(Default)]
 struct TimelineState {
     modifiers: keyboard::Modifiers,
+    hovered_event: Option<TimelineEvent>,
+}
+
+impl<'a> TimelineProgram<'a> {
+    fn find_event_at(&self, position: Point) -> Option<TimelineEvent> {
+        if position.x < LABEL_WIDTH + self.scroll_offset.x {
+            return None;
+        }
+
+        let mut y_offset = HEADER_HEIGHT;
+        for thread in self.threads {
+            let lane_total_height = if thread.is_collapsed {
+                LANE_HEIGHT
+            } else {
+                (thread.max_depth + 1) as f32 * LANE_HEIGHT
+            };
+
+            if position.y >= y_offset && position.y < y_offset + lane_total_height {
+                for event in &thread.events {
+                    if thread.is_collapsed && event.depth > 0 {
+                        continue;
+                    }
+
+                    let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
+                    if width < 5.0 {
+                        continue;
+                    }
+
+                    let x = (event.start_ns.saturating_sub(self.min_ns) as f64
+                        * self.zoom_level as f64) as f32
+                        + LABEL_WIDTH;
+                    let y = y_offset + event.depth as f32 * LANE_HEIGHT;
+                    let height = LANE_HEIGHT - 2.0;
+
+                    let rect = Rectangle {
+                        x,
+                        y,
+                        width: width.max(1.0),
+                        height,
+                    };
+
+                    if rect.contains(position) {
+                        return Some(event.clone());
+                    }
+                }
+            }
+            y_offset += lane_total_height + LANE_SPACING;
+        }
+        None
+    }
 }
 
 impl<'a> Program<Message> for TimelineProgram<'a> {
@@ -147,7 +197,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
 
     fn draw(
         &self,
-        _state: &Self::State,
+        state: &Self::State,
         renderer: &Renderer,
         _theme: &Theme,
         bounds: Rectangle,
@@ -248,6 +298,28 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                             .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.7))
                             .with_width(1.0),
                     );
+                }
+            }
+
+            if let Some(hovered) = &state.hovered_event {
+                if hovered.thread_id == thread.thread_id {
+                    if !thread.is_collapsed || hovered.depth == 0 {
+                        let x = (hovered.start_ns.saturating_sub(self.min_ns) as f64
+                            * self.zoom_level as f64) as f32
+                            + LABEL_WIDTH;
+                        let width = (hovered.duration_ns as f64 * self.zoom_level as f64) as f32;
+                        let y = y_offset + hovered.depth as f32 * LANE_HEIGHT;
+
+                        frame.stroke(
+                            &canvas::Path::rectangle(
+                                Point::new(x, y + 1.0),
+                                Size::new(width.max(1.0), LANE_HEIGHT - 2.0),
+                            ),
+                            canvas::Stroke::default()
+                                .with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.5))
+                                .with_width(1.0),
+                        );
+                    }
                 }
             }
 
@@ -396,6 +468,16 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
             Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
                 state.modifiers = *modifiers;
             }
+            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                let new_hovered = cursor
+                    .position_in(bounds)
+                    .and_then(|p| self.find_event_at(p));
+
+                if new_hovered != state.hovered_event {
+                    state.hovered_event = new_hovered;
+                    return Some(Action::publish(Message::None));
+                }
+            }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
                     if position.x < LABEL_WIDTH + self.scroll_offset.x {
@@ -417,48 +499,8 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                         return None;
                     }
 
-                    let mut y_offset = HEADER_HEIGHT;
-                    for thread in self.threads {
-                        let lane_total_height = if thread.is_collapsed {
-                            LANE_HEIGHT
-                        } else {
-                            (thread.max_depth + 1) as f32 * LANE_HEIGHT
-                        };
-
-                        if position.y >= y_offset && position.y < y_offset + lane_total_height {
-                            for event in &thread.events {
-                                if thread.is_collapsed && event.depth > 0 {
-                                    continue;
-                                }
-
-                                let width =
-                                    (event.duration_ns as f64 * self.zoom_level as f64) as f32;
-                                if width < 5.0 {
-                                    continue;
-                                }
-
-                                let x = (event.start_ns.saturating_sub(self.min_ns) as f64
-                                    * self.zoom_level as f64)
-                                    as f32
-                                    + LABEL_WIDTH;
-                                let y = y_offset + event.depth as f32 * LANE_HEIGHT;
-                                let height = LANE_HEIGHT - 2.0;
-
-                                let rect = Rectangle {
-                                    x,
-                                    y,
-                                    width: width.max(1.0),
-                                    height,
-                                };
-
-                                if rect.contains(position) {
-                                    return Some(Action::publish(Message::EventSelected(
-                                        event.clone(),
-                                    )));
-                                }
-                            }
-                        }
-                        y_offset += lane_total_height + LANE_SPACING;
+                    if let Some(event) = self.find_event_at(position) {
+                        return Some(Action::publish(Message::EventSelected(event)));
                     }
                 }
             }
