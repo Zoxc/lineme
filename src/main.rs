@@ -66,7 +66,10 @@ enum Message {
     EventSelected(TimelineEvent),
     EventHovered(Option<TimelineEvent>),
     TimelineZoomed { delta: f32, x: f32 },
-    TimelineScroll { offset: iced::Vector },
+    TimelineScroll {
+        offset: iced::Vector,
+        viewport_width: f32,
+    },
     MiniTimelineJump { fraction: f64, viewport_width: f32 },
     MiniTimelineZoomTo {
         start_fraction: f32,
@@ -96,6 +99,7 @@ struct FileData {
     hovered_event: Option<TimelineEvent>,
     zoom_level: f32,
     scroll_offset: iced::Vector,
+    viewport_width: f32,
 }
 
 struct SettingsPage {
@@ -206,6 +210,7 @@ impl Lineme {
                     hovered_event: None,
                     zoom_level,
                     scroll_offset: iced::Vector::default(),
+                    viewport_width: 0.0,
                 });
                 self.active_tab = self.files.len() - 1;
                 self.show_settings = false;
@@ -256,9 +261,15 @@ impl Lineme {
                     );
                 }
             }
-            Message::TimelineScroll { offset } => {
+            Message::TimelineScroll {
+                offset,
+                viewport_width,
+            } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     file.scroll_offset = offset;
+                    if viewport_width > 0.0 {
+                        file.viewport_width = viewport_width;
+                    }
                 }
             }
             Message::MiniTimelineJump {
@@ -553,6 +564,7 @@ impl Lineme {
             &file.selected_event,
             &file.hovered_event,
             file.scroll_offset,
+            file.viewport_width,
             self.modifiers,
         )
     }

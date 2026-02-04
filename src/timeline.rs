@@ -75,6 +75,7 @@ pub fn view<'a>(
     selected_event: &'a Option<TimelineEvent>,
     hovered_event: &'a Option<TimelineEvent>,
     scroll_offset: Vector,
+    viewport_width: f32,
     modifiers: keyboard::Modifiers,
 ) -> Element<'a, Message> {
     let total_ns = timeline_data.max_ns - timeline_data.min_ns;
@@ -104,6 +105,7 @@ pub fn view<'a>(
         max_ns: timeline_data.max_ns,
         zoom_level,
         scroll_offset,
+        viewport_width,
     })
     .width(Length::Fill)
     .height(Length::Fixed(MINI_TIMELINE_HEIGHT));
@@ -143,6 +145,7 @@ pub fn view<'a>(
         })
         .on_scroll(|viewport| Message::TimelineScroll {
             offset: Vector::new(viewport.absolute_offset().x, viewport.absolute_offset().y),
+            viewport_width: viewport.bounds().width,
         });
 
     let main_view = column![
@@ -538,6 +541,7 @@ struct MiniTimelineProgram {
     max_ns: u64,
     zoom_level: f32,
     scroll_offset: Vector,
+    viewport_width: f32,
 }
 
 #[derive(Default)]
@@ -545,6 +549,7 @@ struct MiniTimelineState {
     selection_start: Option<Point>,
     selection_end: Option<Point>,
     selecting: bool,
+    dragging: bool,
 }
 
 impl MiniTimelineProgram {
@@ -646,8 +651,13 @@ impl Program<Message> for MiniTimelineProgram {
 
         let total_width = total_ns as f32 * self.zoom_level;
         if total_width > 0.0 {
+            let viewport_width = if self.viewport_width > 0.0 {
+                self.viewport_width
+            } else {
+                bounds.width
+            };
             let view_start = (self.scroll_offset.x / total_width).clamp(0.0, 1.0);
-            let view_width = (bounds.width / total_width).clamp(0.0, 1.0);
+            let view_width = (viewport_width / total_width).clamp(0.0, 1.0);
             let x = view_start * bounds.width;
             let width = (view_width * bounds.width).max(4.0);
 
@@ -694,12 +704,13 @@ impl Program<Message> for MiniTimelineProgram {
                 if let Some(position) = cursor.position_in(bounds) {
                     if bounds.width > 0.0 {
                         let fraction = (position.x / bounds.width).clamp(0.0, 1.0) as f64;
+                        state.dragging = true;
                         state.selecting = false;
                         state.selection_start = None;
                         state.selection_end = None;
                         return Some(Action::publish(Message::MiniTimelineJump {
                             fraction,
-                            viewport_width: bounds.width,
+                            viewport_width: self.viewport_width.max(bounds.width),
                         }));
                     }
                 }
@@ -707,18 +718,33 @@ impl Program<Message> for MiniTimelineProgram {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
                 if let Some(position) = cursor.position_in(bounds) {
                     state.selecting = true;
+                    state.dragging = false;
                     state.selection_start = Some(position);
                     state.selection_end = Some(position);
                     return Some(Action::publish(Message::None));
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                if state.dragging {
+                    if let Some(position) = cursor.position_in(bounds) {
+                        if bounds.width > 0.0 {
+                            let fraction = (position.x / bounds.width).clamp(0.0, 1.0) as f64;
+                            return Some(Action::publish(Message::MiniTimelineJump {
+                                fraction,
+                                viewport_width: self.viewport_width.max(bounds.width),
+                            }));
+                        }
+                    }
+                }
                 if state.selecting {
                     if let Some(position) = cursor.position_in(bounds) {
                         state.selection_end = Some(position);
                         return Some(Action::publish(Message::None));
                     }
                 }
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                state.dragging = false;
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)) => {
                 if state.selecting {
@@ -733,7 +759,7 @@ impl Program<Message> for MiniTimelineProgram {
                             return Some(Action::publish(Message::MiniTimelineZoomTo {
                                 start_fraction,
                                 end_fraction,
-                                viewport_width: bounds.width,
+                                viewport_width: self.viewport_width.max(bounds.width),
                             }));
                         }
                     }
