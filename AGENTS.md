@@ -24,6 +24,16 @@ This document provides context and guidelines for AI agents working on the `line
 - **Lifetimes:** When defining `view` or sub-view functions, explicitly use `Element<'_, Message>` to handle elided lifetimes correctly in `iced`.
 - **Error Handling:** Use `Message::ErrorOccurred(String)` to propagate errors to the UI.
 
+## Timeline Features
+- **Visualization:** Multi-threaded timeline view using a custom `iced` Canvas program.
+- **Zooming:** Use the mouse wheel to zoom in and out. Zoom is centered on the mouse position.
+- **Scrolling:** Horizontal and vertical scrolling to navigate large profiling traces.
+- **Event Selection:** Click on an event to select it. Selection is highlighted and details are shown in a dedicated panel.
+- **Thread Management:** 
+    - Click thread labels to toggle collapse/expand.
+    - **Collapsed Mode:** Only shows topmost (depth 0) events for a compact overview while hiding nested details.
+- **Sticky Elements:** Thread labels and time markers remain visible while scrolling.
+
 ## Useful Commands
 - `cargo check`: Quickly verify code validity.
 - `cargo run`: Launch the application (requires a graphical environment).
