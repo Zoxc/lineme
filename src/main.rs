@@ -12,8 +12,6 @@ const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';
 const OPEN_ICON: char = '\u{e2c7}';
 const FILE_ICON: char = '\u{e873}';
-// Note: CLOSE_ICON (\u{e5cd}) is defined but currently not supported by iced_aw 0.13
-// for the tab close button.
 
 pub fn main() -> iced::Result {
     iced::application(Lineme::new, Lineme::update, Lineme::view)
@@ -65,6 +63,7 @@ enum Message {
     TimelineZoomed { delta: f32, x: f32 },
     TimelineScroll { offset: iced::Vector },
     ToggleThreadCollapse(u64),
+    ModifiersChanged(iced::keyboard::Modifiers),
     None,
 }
 
@@ -72,6 +71,7 @@ struct Lineme {
     active_tab: usize,
     files: Vec<FileData>,
     show_settings: bool,
+    modifiers: iced::keyboard::Modifiers,
     #[allow(dead_code)]
     settings: SettingsPage,
 }
@@ -112,6 +112,7 @@ impl Lineme {
                 active_tab: 0,
                 files: Vec::new(),
                 show_settings: false,
+                modifiers: iced::keyboard::Modifiers::default(),
                 settings: SettingsPage { show_details: true },
             },
             initial_task,
@@ -119,12 +120,14 @@ impl Lineme {
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
-        iced::event::listen_with(|event, _status, _id| {
-            if let iced::Event::Window(iced::window::Event::FileDropped(path)) = event {
+        iced::event::listen_with(|event, _status, _id| match event {
+            iced::Event::Window(iced::window::Event::FileDropped(path)) => {
                 Some(Message::FileSelected(path))
-            } else {
-                None
             }
+            iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) => {
+                Some(Message::ModifiersChanged(modifiers))
+            }
+            _ => None,
         })
     }
 
@@ -228,6 +231,9 @@ impl Lineme {
                     file.scroll_offset = offset;
                 }
             }
+            Message::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers;
+            }
             Message::ToggleThreadCollapse(thread_id) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     if let Some(thread) = file.stats.timeline.threads.iter_mut().find(|t| t.thread_id == thread_id) {
@@ -244,8 +250,6 @@ impl Lineme {
         let mut bar = tab_bar::TabBar::new(Message::TabSelected)
             .on_close(Message::CloseTab)
             .icon_font(ICON_FONT);
-        // Note: iced_aw 0.13 does not support customizing the close icon character.
-        // It uses a fixed character that might not display correctly in some fonts.
 
         for (i, file) in self.files.iter().enumerate() {
             let label = file.path.file_name()
@@ -343,6 +347,7 @@ impl Lineme {
             file.zoom_level,
             &file.selected_event,
             file.scroll_offset,
+            self.modifiers,
         )
     }
 

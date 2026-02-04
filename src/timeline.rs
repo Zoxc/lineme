@@ -1,8 +1,17 @@
 use crate::Message;
-use iced::mouse::Cursor;
-use iced::widget::canvas::{self, Action, Canvas, Geometry, Program};
+use iced::advanced::widget::{self, Tree, Widget};
+use iced::advanced::{layout, renderer, Clipboard, Layout, Shell};
+use iced::keyboard;
+use iced::mouse;
+use iced::widget::canvas::Action;
+use iced::widget::canvas::{self, Canvas, Geometry, Program};
 use iced::widget::{column, container, scrollable, text};
-use iced::{Color, Element, Length, Point, Rectangle, Renderer, Size};
+use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector};
+
+pub const LABEL_WIDTH: f32 = 150.0;
+pub const HEADER_HEIGHT: f32 = 30.0;
+pub const LANE_HEIGHT: f32 = 20.0;
+pub const LANE_SPACING: f32 = 5.0;
 
 #[derive(Debug, Clone)]
 pub struct TimelineEvent {
@@ -43,11 +52,6 @@ pub fn color_from_label(label: &str) -> Color {
     Color::from_rgb(0.3 + r * 0.4, 0.3 + g * 0.4, 0.3 + b * 0.4)
 }
 
-pub const LABEL_WIDTH: f32 = 150.0;
-pub const HEADER_HEIGHT: f32 = 30.0;
-pub const LANE_HEIGHT: f32 = 20.0;
-pub const LANE_SPACING: f32 = 5.0;
-
 pub fn timeline_id() -> iced::widget::Id {
     iced::widget::Id::new("timeline_scrollable")
 }
@@ -56,7 +60,8 @@ pub fn view<'a>(
     timeline_data: &'a TimelineData,
     zoom_level: f32,
     selected_event: &'a Option<TimelineEvent>,
-    scroll_offset: iced::Vector,
+    scroll_offset: Vector,
+    modifiers: keyboard::Modifiers,
 ) -> Element<'a, Message> {
     let total_ns = timeline_data.max_ns - timeline_data.min_ns;
     if total_ns == 0 {
@@ -90,14 +95,14 @@ pub fn view<'a>(
     .width(Length::Fixed(canvas_width))
     .height(Length::Fixed(total_height));
 
-    let main_view = scrollable(timeline_canvas)
+    let main_view = scrollable(WheelCatcher::new(timeline_canvas, modifiers))
         .id(timeline_id())
         .direction(scrollable::Direction::Both {
             vertical: scrollable::Scrollbar::default(),
             horizontal: scrollable::Scrollbar::default(),
         })
         .on_scroll(|viewport| Message::TimelineScroll {
-            offset: iced::Vector::new(viewport.absolute_offset().x, viewport.absolute_offset().y),
+            offset: Vector::new(viewport.absolute_offset().x, viewport.absolute_offset().y),
         });
 
     let details_panel = if let Some(event) = selected_event {
@@ -129,11 +134,13 @@ struct TimelineProgram<'a> {
     min_ns: u64,
     zoom_level: f32,
     selected_event: &'a Option<TimelineEvent>,
-    scroll_offset: iced::Vector,
+    scroll_offset: Vector,
 }
 
 #[derive(Default)]
-struct TimelineState {}
+struct TimelineState {
+    modifiers: keyboard::Modifiers,
+}
 
 impl<'a> Program<Message> for TimelineProgram<'a> {
     type State = TimelineState;
@@ -142,9 +149,9 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
         &self,
         _state: &Self::State,
         renderer: &Renderer,
-        _theme: &iced::Theme,
+        _theme: &Theme,
         bounds: Rectangle,
-        _cursor: Cursor,
+        _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
@@ -155,15 +162,9 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
         let total_ns = self
             .threads
             .first()
-            .map(|_| {
-                // We need the total range to draw the header markers
-                // This is slightly inefficient as we don't have max_ns here easily
-                // but we can assume the zoom_level * total_ns is the canvas_width - LABEL_WIDTH
-                (bounds.width - LABEL_WIDTH) / self.zoom_level
-            })
+            .map(|_| (bounds.width - LABEL_WIDTH) / self.zoom_level)
             .unwrap_or(0.0);
 
-        // Draw horizontal lines and events
         let mut y_offset = HEADER_HEIGHT;
         for thread in self.threads {
             let lane_total_height = if thread.is_collapsed {
@@ -172,7 +173,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                 (thread.max_depth + 1) as f32 * LANE_HEIGHT
             };
 
-            // Draw horizontal separator
             frame.stroke(
                 &canvas::Path::line(
                     Point::new(self.scroll_offset.x, y_offset),
@@ -209,7 +209,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                         last_rects[depth] = Some((cur_x, new_end - cur_x, cur_color));
                         continue;
                     } else {
-                        // Draw previous
                         let y = y_offset + depth as f32 * LANE_HEIGHT;
                         frame.fill_rectangle(
                             Point::new(cur_x, y + 1.0),
@@ -221,7 +220,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                 last_rects[depth] = Some((x, width, color));
             }
 
-            // Draw remaining rects
             for (depth, rect) in last_rects.into_iter().enumerate() {
                 if let Some((cur_x, cur_w, cur_color)) = rect {
                     let y = y_offset + depth as f32 * LANE_HEIGHT;
@@ -233,7 +231,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                 }
             }
 
-            // Draw selected highlight if any
             if let Some(selected) = self.selected_event {
                 if selected.thread_id == thread.thread_id {
                     if !thread.is_collapsed || selected.depth == 0 {
@@ -259,23 +256,19 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
             y_offset += lane_total_height + LANE_SPACING;
         }
 
-        // Draw header background (sticky)
         frame.fill_rectangle(
             Point::new(self.scroll_offset.x, self.scroll_offset.y),
             Size::new(bounds.width, HEADER_HEIGHT),
             Color::from_rgb(0.15, 0.15, 0.15),
         );
 
-        // Draw time markers in header
         if total_ns > 0.0 {
             let canvas_width = bounds.width;
             let ns_per_pixel = 1.0 / self.zoom_level as f64;
 
-            // Choose a reasonable interval (e.g., every 100 pixels)
             let pixel_interval = 100.0;
             let ns_interval = pixel_interval as f64 * ns_per_pixel;
 
-            // Round ns_interval to a nice power of 10 or similar
             let log10 = ns_interval.log10().floor();
             let base = 10.0f64.powf(log10);
             let nice_interval = if ns_interval / base < 2.0 {
@@ -296,7 +289,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     + LABEL_WIDTH;
 
                 if x >= LABEL_WIDTH + self.scroll_offset.x {
-                    // Draw vertical grid line
                     frame.stroke(
                         &canvas::Path::line(
                             Point::new(x, self.scroll_offset.y + HEADER_HEIGHT),
@@ -307,7 +299,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                             .with_width(1.0),
                     );
 
-                    // Draw tick
                     frame.stroke(
                         &canvas::Path::line(
                             Point::new(x, self.scroll_offset.y + HEADER_HEIGHT - 5.0),
@@ -318,7 +309,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                             .with_width(1.0),
                     );
 
-                    // Draw text
                     let time_str = if nice_interval >= 1_000_000_000.0 {
                         format!("{:.2} s", current_marker / 1_000_000_000.0)
                     } else if nice_interval >= 1_000_000.0 {
@@ -341,7 +331,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
             }
         }
 
-        // Draw thread labels area (sticky background)
         frame.fill_rectangle(
             Point::new(self.scroll_offset.x, self.scroll_offset.y + HEADER_HEIGHT),
             Size::new(LABEL_WIDTH, bounds.height - HEADER_HEIGHT),
@@ -378,16 +367,18 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
 
     fn update(
         &self,
-        _state: &mut Self::State,
-        event: &iced::Event,
+        state: &mut Self::State,
+        event: &Event,
         bounds: Rectangle,
-        cursor: Cursor,
+        cursor: mouse::Cursor,
     ) -> Option<Action<Message>> {
         match event {
-            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
+            Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+                state.modifiers = *modifiers;
+            }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
                     if position.x < LABEL_WIDTH + self.scroll_offset.x {
-                        // Check for thread label click
                         let mut y_offset = HEADER_HEIGHT;
                         for thread in self.threads {
                             let lane_total_height = if thread.is_collapsed {
@@ -451,16 +442,18 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     }
                 }
             }
-            iced::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
+            Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 if let Some(position) = cursor.position_in(bounds) {
-                    match delta {
-                        iced::mouse::ScrollDelta::Lines { x: _, y }
-                        | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
-                            if y.abs() > 0.0 {
-                                return Some(Action::publish(Message::TimelineZoomed {
-                                    delta: *y,
-                                    x: position.x - self.scroll_offset.x,
-                                }));
+                    if !state.modifiers.control() {
+                        match delta {
+                            mouse::ScrollDelta::Lines { x: _, y }
+                            | mouse::ScrollDelta::Pixels { x: _, y } => {
+                                if y.abs() > 0.0 {
+                                    return Some(Action::publish(Message::TimelineZoomed {
+                                        delta: *y,
+                                        x: position.x - self.scroll_offset.x,
+                                    }));
+                                }
                             }
                         }
                     }
@@ -469,5 +462,150 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
             _ => {}
         }
         None
+    }
+}
+
+pub struct WheelCatcher<'a, Message, Theme, Renderer> {
+    content: Element<'a, Message, Theme, Renderer>,
+    modifiers: keyboard::Modifiers,
+}
+
+impl<'a, Message, Theme, Renderer> WheelCatcher<'a, Message, Theme, Renderer> {
+    pub fn new(
+        content: impl Into<Element<'a, Message, Theme, Renderer>>,
+        modifiers: keyboard::Modifiers,
+    ) -> Self {
+        Self {
+            content: content.into(),
+            modifiers,
+        }
+    }
+}
+
+impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for WheelCatcher<'a, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    fn tag(&self) -> widget::tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> widget::tree::State {
+        self.content.as_widget().state()
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        _viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            _viewport,
+        );
+
+        if let Event::Mouse(mouse::Event::WheelScrolled { .. }) = event {
+            if !self.modifiers.control() {
+                shell.capture_event();
+            }
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn widget::Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+}
+
+impl<'a, Message, Theme, Renderer> From<WheelCatcher<'a, Message, Theme, Renderer>>
+    for Element<'a, Message, Theme, Renderer>
+where
+    Message: 'a,
+    Theme: 'a,
+    Renderer: iced::advanced::Renderer + 'a,
+{
+    fn from(catcher: WheelCatcher<'a, Message, Theme, Renderer>) -> Self {
+        Self::new(catcher)
     }
 }
