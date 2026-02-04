@@ -63,6 +63,7 @@ enum Message {
     CloseTab(usize),
     OpenSettings,
     EventSelected(TimelineEvent),
+    EventHovered(Option<TimelineEvent>),
     TimelineZoomed { delta: f32, x: f32 },
     TimelineScroll { offset: iced::Vector },
     ResetView,
@@ -85,6 +86,7 @@ struct FileData {
     stats: Stats,
     view_type: ViewType,
     selected_event: Option<TimelineEvent>,
+    hovered_event: Option<TimelineEvent>,
     zoom_level: f32,
     scroll_offset: iced::Vector,
 }
@@ -190,6 +192,7 @@ impl Lineme {
                     stats,
                     view_type: ViewType::default(),
                     selected_event: None,
+                    hovered_event: None,
                     zoom_level,
                     scroll_offset: iced::Vector::default(),
                 });
@@ -218,6 +221,11 @@ impl Lineme {
             Message::EventSelected(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     file.selected_event = Some(event);
+                }
+            }
+            Message::EventHovered(event) => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    file.hovered_event = event;
                 }
             }
             Message::TimelineZoomed { delta, x } => {
@@ -336,7 +344,7 @@ impl Lineme {
                 container::Style::default().background(palette.background.weak.color)
             });
 
-            column![view_selector_bar, inner_view].into()
+            column![view_selector_bar, inner_view].height(Length::Fill).into()
         } else {
             container(text("Open a file to start").size(20))
                 .width(Length::Fill)
@@ -346,7 +354,7 @@ impl Lineme {
                 .into()
         };
 
-        column![header, content].into()
+        column![header, content].height(Length::Fill).into()
     }
 
     fn file_view(&self, file: &FileData) -> Element<'_, Message> {
@@ -365,7 +373,10 @@ impl Lineme {
         .spacing(10)
         .padding(20);
 
-        scrollable(content).into()
+        scrollable(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 
     fn timeline_view<'a>(&self, file: &'a FileData) -> Element<'a, Message> {
@@ -373,6 +384,7 @@ impl Lineme {
             &file.stats.timeline,
             file.zoom_level,
             &file.selected_event,
+            &file.hovered_event,
             file.scroll_offset,
             self.modifiers,
         )

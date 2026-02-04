@@ -60,6 +60,7 @@ pub fn view<'a>(
     timeline_data: &'a TimelineData,
     zoom_level: f32,
     selected_event: &'a Option<TimelineEvent>,
+    hovered_event: &'a Option<TimelineEvent>,
     scroll_offset: Vector,
     modifiers: keyboard::Modifiers,
 ) -> Element<'a, Message> {
@@ -97,6 +98,8 @@ pub fn view<'a>(
 
     let main_view = scrollable(WheelCatcher::new(timeline_canvas, modifiers))
         .id(timeline_id())
+        .width(Length::Fill)
+        .height(Length::Fill)
         .direction(scrollable::Direction::Both {
             vertical: scrollable::Scrollbar::default(),
             horizontal: scrollable::Scrollbar::default(),
@@ -105,7 +108,9 @@ pub fn view<'a>(
             offset: Vector::new(viewport.absolute_offset().x, viewport.absolute_offset().y),
         });
 
-    let details_panel = if let Some(event) = selected_event {
+    let display_event = selected_event.as_ref().or(hovered_event.as_ref());
+
+    let details_panel = if let Some(event) = display_event {
         container(
             column![
                 text(format!("Event: {}", event.label)).size(20),
@@ -119,14 +124,16 @@ pub fn view<'a>(
         .width(Length::Fill)
         .height(Length::Fixed(120.0))
     } else {
-        container(text("Select an event to see details"))
+        container(text("Select or hover over an event to see details"))
             .width(Length::Fill)
             .height(Length::Fixed(120.0))
             .center_x(Length::Fill)
             .center_y(Length::Fill)
     };
 
-    column![main_view, details_panel].into()
+    column![main_view, details_panel]
+        .height(Length::Fill)
+        .into()
 }
 
 struct TimelineProgram<'a> {
@@ -504,7 +511,9 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
 
                 if new_hovered != state.hovered_event {
                     state.hovered_event = new_hovered;
-                    return Some(Action::publish(Message::None));
+                    return Some(Action::publish(Message::EventHovered(
+                        state.hovered_event.clone(),
+                    )));
                 }
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
