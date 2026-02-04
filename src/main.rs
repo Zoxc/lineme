@@ -56,6 +56,47 @@ impl std::fmt::Display for ViewType {
     }
 }
 
+// Common pick_list style function to keep a neutral, greyish appearance and
+// avoid the default blue focus highlight. This is used for the small selector
+// pick lists in the header.
+fn neutral_pick_list_style(
+    theme: &iced::Theme,
+    status: iced::widget::pick_list::Status,
+) -> iced::widget::pick_list::Style {
+    let palette = theme.extended_palette();
+    let base_bg = palette.background.weak.color;
+    let base_text = palette.background.weak.text;
+    let border_grey = iced::Color::from_rgb(0.8, 0.8, 0.8);
+
+    match status {
+        iced::widget::pick_list::Status::Active => iced::widget::pick_list::Style {
+            text_color: base_text,
+            placeholder_color: palette.secondary.base.color,
+            handle_color: base_text,
+            background: base_bg.into(),
+            border: iced::Border {
+                radius: 3.0.into(),
+                width: 1.0,
+                color: border_grey,
+            },
+        },
+        iced::widget::pick_list::Status::Hovered | iced::widget::pick_list::Status::Opened { .. } => {
+            let hover_bg = iced::Color::from_rgb(0.97, 0.97, 0.97);
+            iced::widget::pick_list::Style {
+                text_color: base_text,
+                placeholder_color: palette.secondary.base.color,
+                handle_color: base_text,
+                background: hover_bg.into(),
+                border: iced::Border {
+                    radius: 3.0.into(),
+                    width: 1.0,
+                    color: iced::Color::from_rgb(0.72, 0.72, 0.72),
+                },
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Message {
     TabSelected(usize),
@@ -618,24 +659,18 @@ impl Lineme {
             let view_selector_bar = container(
                 row![
                     text("View:").size(12),
-                    pick_list(
-                        &ViewType::ALL[..],
-                        Some(file.view_type),
-                        Message::ViewChanged,
-                    )
-                    .text_size(12)
-                    .padding(3),
+                    pick_list(&ViewType::ALL[..], Some(file.view_type), Message::ViewChanged)
+                        .text_size(12)
+                        .padding(3)
+                        .style(neutral_pick_list_style),
                     if file.view_type == ViewType::Timeline {
                         Element::from(
                             row![
                                 text("Color by:").size(12),
-                                pick_list(
-                                    &ColorMode::ALL[..],
-                                    Some(file.color_mode),
-                                    Message::ColorModeChanged,
-                                )
-                                .text_size(12)
-                                .padding(3),
+                                pick_list(&ColorMode::ALL[..], Some(file.color_mode), Message::ColorModeChanged)
+                                    .text_size(12)
+                                    .padding(3)
+                                    .style(neutral_pick_list_style),
                                 button(
                                     row![text(RESET_ICON).font(ICON_FONT), text("Reset View").size(12.0)]
                                         .spacing(5)
