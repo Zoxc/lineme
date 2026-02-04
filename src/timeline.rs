@@ -26,6 +26,9 @@ pub struct TimelineEvent {
     pub duration_ns: u64,
     pub depth: u32,
     pub thread_id: u64,
+    pub event_kind: String,
+    pub additional_data: Vec<String>,
+    pub payload_integer: Option<u64>,
     pub color: Color,
 }
 
@@ -173,8 +176,51 @@ pub fn view<'a>(
 
     // Only show the details panel when an event is selected or hovered.
     if let Some(event) = display_event {
+        // Build details column, including one row per additional_data item.
+        let mut details_col = column![
+            row![
+                text("Label:").width(Length::Fixed(80.0)).size(12),
+                text(&event.label).size(12)
+            ],
+            row![
+                text("Kind:").width(Length::Fixed(80.0)).size(12),
+                text(&event.event_kind).size(12)
+            ],
+            row![
+                text("Thread:").width(Length::Fixed(80.0)).size(12),
+                text(format!("{}", event.thread_id)).size(12)
+            ],
+            row![
+                text("Start:").width(Length::Fixed(80.0)).size(12),
+                text(format_duration(
+                    event.start_ns.saturating_sub(timeline_data.min_ns)
+                ))
+                .size(12)
+            ],
+            row![
+                text("Duration:").width(Length::Fixed(80.0)).size(12),
+                text(format_duration(event.duration_ns)).size(12)
+            ],
+        ]
+        .spacing(5)
+        .padding(10);
+
+        for item in &event.additional_data {
+            details_col = details_col.push(row![
+                text("Data:").width(Length::Fixed(80.0)).size(12),
+                text(item).size(12),
+            ]);
+        }
+
+        if let Some(v) = event.payload_integer {
+            details_col = details_col.push(row![
+                text("Value:").width(Length::Fixed(80.0)).size(12),
+                text(format!("{}", v)).size(12),
+            ]);
+        }
+
         let details_panel = container(column![
-            row![text("Summary").size(14), Space::new().width(Length::Fill),]
+            row![text("Details").size(14), Space::new().width(Length::Fill),]
                 .padding(5)
                 .align_y(iced::Alignment::Center),
             container(Space::new().height(1.0))
@@ -183,29 +229,7 @@ pub fn view<'a>(
                     let palette = theme.extended_palette();
                     container::Style::default().background(palette.background.strong.color)
                 }),
-            column![
-                row![
-                    text("Label:").width(Length::Fixed(80.0)).size(12),
-                    text(&event.label).size(12),
-                ],
-                row![
-                    text("Thread:").width(Length::Fixed(80.0)).size(12),
-                    text(format!("{}", event.thread_id)).size(12),
-                ],
-                row![
-                    text("Start:").width(Length::Fixed(80.0)).size(12),
-                    text(format_duration(
-                        event.start_ns.saturating_sub(timeline_data.min_ns)
-                    ))
-                    .size(12),
-                ],
-                row![
-                    text("Duration:").width(Length::Fixed(80.0)).size(12),
-                    text(format_duration(event.duration_ns)).size(12),
-                ],
-            ]
-            .spacing(5)
-            .padding(10),
+            details_col,
         ])
         .width(Length::Fill)
         .height(Length::Fixed(150.0))

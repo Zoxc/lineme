@@ -660,12 +660,12 @@ fn load_profiling_data(path: &Path) -> Result<Stats, String> {
 
     for lightweight_event in data.iter() {
         event_count += 1;
-        let event = data.to_full_event(&lightweight_event);
+            let event = data.to_full_event(&lightweight_event);
         let thread_id = event.thread_id as u64;
 
-        if let analyzeme::EventPayload::Timestamp(timestamp) = &event.payload {
-            let (start_ns, end_ns) = match timestamp {
-                analyzeme::Timestamp::Interval { start, end } => {
+            if let analyzeme::EventPayload::Timestamp(timestamp) = &event.payload {
+                let (start_ns, end_ns) = match timestamp {
+                    analyzeme::Timestamp::Interval { start, end } => {
                     let s = start.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
                     let e = end.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
                     (s, e)
@@ -679,12 +679,23 @@ fn load_profiling_data(path: &Path) -> Result<Stats, String> {
             min_ns = min_ns.min(start_ns);
             max_ns = max_ns.max(end_ns);
 
+            let event_kind = event.event_kind.to_string();
+            let additional_data = event
+                .additional_data
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            let payload_integer = event.payload.integer();
+
             threads.entry(thread_id).or_default().push(TimelineEvent {
                 label: event.label.to_string(),
                 start_ns,
                 duration_ns: end_ns - start_ns,
                 depth: 0,
                 thread_id,
+                event_kind,
+                additional_data,
+                payload_integer,
                 color: color_from_label(&event.label),
             });
         }
