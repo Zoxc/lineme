@@ -754,9 +754,12 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             mouse::ScrollDelta::Lines { x: _, y }
                             | mouse::ScrollDelta::Pixels { x: _, y } => {
                                 if y.abs() > 0.0 {
+                                    let viewport_width = self.viewport_width.max(0.0);
+                                    let cursor_x = (position.x - self.scroll_offset.x)
+                                        .clamp(0.0, viewport_width);
                                     return Some(Action::publish(Message::TimelineZoomed {
                                         delta: *y,
-                                        x: position.x,
+                                        x: cursor_x,
                                     }));
                                 }
                             }

@@ -40,6 +40,7 @@ This document provides context and guidelines for AI agents working on the `line
     - **Navigation:** Left click to pan the main timeline to the clicked position.
     - **Selection Zoom:** Right click and drag to select a range; the main timeline pans and zooms to match the selection.
 - **Zooming:** Use the mouse wheel to zoom horizontally. Zoom is centered on the mouse position.
+    - **Events Area:** Mouse-wheel zoom centers on the cursor within the events viewport.
 - **Scrolling:** Use Ctrl + mouse wheel to scroll vertically. Horizontal and vertical scrolling are also available via scrollbars.
 - **Event Selection:** Click on an event to select it. Selection is highlighted and details are shown in a dedicated panel.
 - **Thread Management:** 
