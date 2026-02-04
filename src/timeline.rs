@@ -96,7 +96,7 @@ pub fn view<'a>(
     timeline_data: &'a TimelineData,
     zoom_level: f32,
     selected_event: &'a Option<TimelineEvent>,
-    hovered_event: &'a Option<TimelineEvent>,
+    _hovered_event: &'a Option<TimelineEvent>,
     scroll_offset: Vector,
     viewport_width: f32,
     modifiers: keyboard::Modifiers,
@@ -986,10 +986,12 @@ where
 
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if let Some(position) = cursor.position_over(bounds) {
-                    state.press_position = Some(position);
-                    state.last_position = Some(position);
-                    state.dragging = false;
+                if !shell.is_event_captured() {
+                    if let Some(position) = cursor.position_over(bounds) {
+                        state.press_position = Some(position);
+                        state.last_position = Some(position);
+                        state.dragging = false;
+                    }
                 }
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {

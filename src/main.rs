@@ -261,7 +261,7 @@ impl Lineme {
                     let end_ns = (event_rel_end + half_pad).min(total_ns);
 
                     let start_fraction = start_ns as f32 / total_ns as f32;
-                    let end_fraction = end_ns as f32 / total_ns as f32;
+                    let _end_fraction = end_ns as f32 / total_ns as f32;
 
                     // Zoom so the selected range fills the viewport.
                     let target_ns = (end_ns.saturating_sub(start_ns)).max(1) as f32;
