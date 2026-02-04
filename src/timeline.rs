@@ -3,12 +3,12 @@ mod threads;
 
 use crate::Message;
 use iced::advanced::widget::{self, Tree, Widget};
-use iced::advanced::{Clipboard, Layout, Shell, layout, renderer};
+use iced::advanced::{layout, renderer, Clipboard, Layout, Shell};
 use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Action;
 use iced::widget::canvas::{self, Canvas, Geometry, Program};
-use iced::widget::{Space, column, container, row, scrollable, text};
+use iced::widget::{column, container, row, scrollable, text, Space};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector};
 use mini_timeline::MiniTimelineProgram;
 use threads::ThreadsProgram;
@@ -454,7 +454,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                                     rect.y + 2.0,
                                 ),
                                 color: Color::from_rgb(0.2, 0.2, 0.2),
-                                size: 10.0.into(),
+                                size: 12.0.into(),
                                 ..Default::default()
                             });
                         }
@@ -493,7 +493,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             content: truncated_label,
                             position: Point::new(rect.x + 2.0 + EVENT_LEFT_PADDING, rect.y + 2.0),
                             color: Color::from_rgb(0.2, 0.2, 0.2),
-                            size: 10.0.into(),
+                            size: 12.0.into(),
                             ..Default::default()
                         });
                     }
@@ -728,7 +728,7 @@ impl Program<Message> for HeaderProgram {
                     content: time_str,
                     position: Point::new(x + 2.0, 5.0),
                     color: Color::from_rgb(0.3, 0.3, 0.3),
-                    size: 10.0.into(),
+                    size: 12.0.into(),
                     ..Default::default()
                 });
             }
