@@ -67,6 +67,12 @@ enum Message {
     EventHovered(Option<TimelineEvent>),
     TimelineZoomed { delta: f32, x: f32 },
     TimelineScroll { offset: iced::Vector },
+    MiniTimelineJump { fraction: f64, viewport_width: f32 },
+    MiniTimelineZoomTo {
+        start_fraction: f32,
+        end_fraction: f32,
+        viewport_width: f32,
+    },
     ResetView,
     ToggleThreadCollapse(u64),
     ModifiersChanged(iced::keyboard::Modifiers),
@@ -253,6 +259,52 @@ impl Lineme {
             Message::TimelineScroll { offset } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     file.scroll_offset = offset;
+                }
+            }
+            Message::MiniTimelineJump {
+                fraction,
+                viewport_width,
+            } => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    let total_width = total_ns as f32 * file.zoom_level;
+                    if total_width > 0.0 {
+                        let viewport_width = viewport_width.max(1.0);
+                        let target_center = fraction as f32 * total_width;
+                        let mut target_x = target_center - viewport_width / 2.0;
+                        target_x = target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
+                        file.scroll_offset.x = target_x;
+                        return scroll_to(
+                            timeline_id(),
+                            AbsoluteOffset {
+                                x: file.scroll_offset.x,
+                                y: file.scroll_offset.y,
+                            },
+                        );
+                    }
+                }
+            }
+            Message::MiniTimelineZoomTo {
+                start_fraction,
+                end_fraction,
+                viewport_width,
+            } => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    let total_ns_f64 = total_ns.max(1) as f64;
+                    let range_fraction = (end_fraction - start_fraction).max(0.0) as f64;
+                    let target_ns = (range_fraction * total_ns_f64).max(1.0);
+                    file.zoom_level = viewport_width / target_ns as f32;
+                    let total_width = total_ns as f32 * file.zoom_level;
+                    let target_x = start_fraction * total_width;
+                    file.scroll_offset.x = target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
+                    return scroll_to(
+                        timeline_id(),
+                        AbsoluteOffset {
+                            x: file.scroll_offset.x,
+                            y: file.scroll_offset.y,
+                        },
+                    );
                 }
             }
             Message::ResetView => {

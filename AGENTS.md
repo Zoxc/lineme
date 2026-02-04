@@ -27,6 +27,10 @@ This document provides context and guidelines for AI agents working on the `line
 ## Timeline Features
 - **Visualization:** Multi-threaded timeline view using a custom `iced` Canvas program.
     - **Optimization:** Skip drawing and interaction for events smaller than 5 pixels (calculated using zoom level) to improve performance.
+- **Mini Timeline:** Always-visible overview above the main timeline. It does not scroll or zoom and shows the full timeline range.
+    - **Viewport Indicator:** The current main timeline view is highlighted on the mini timeline.
+    - **Navigation:** Left click to pan the main timeline to the clicked position.
+    - **Selection Zoom:** Right click and drag to select a range; the main timeline pans and zooms to match the selection.
 - **Zooming:** Use the mouse wheel to zoom horizontally. Zoom is centered on the mouse position.
 - **Scrolling:** Use Ctrl + mouse wheel to scroll vertically. Horizontal and vertical scrolling are also available via scrollbars.
 - **Event Selection:** Click on an event to select it. Selection is highlighted and details are shown in a dedicated panel.
@@ -35,7 +39,4 @@ This document provides context and guidelines for AI agents working on the `line
     - **Collapsed Mode:** Only shows topmost (depth 0) events for a compact overview while hiding nested details.
 - **Sticky Elements:** Thread labels and time markers remain visible while scrolling.
 
-## Useful Commands
-- `cargo check`: Quickly verify code validity.
-- `cargo run`: Launch the application (requires a graphical environment).
-- `cargo test`: Run unit tests (add them to `src/` or `tests/`).
+Run `cargo check` after making changes
