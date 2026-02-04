@@ -749,7 +749,23 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
             Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 if let Some(position) = cursor.position_in(bounds) {
-                    if !state.modifiers.control() {
+                    // Shift + wheel: pan horizontally
+                    if state.modifiers.shift() {
+                        match delta {
+                            mouse::ScrollDelta::Lines { x: _, y }
+                            | mouse::ScrollDelta::Pixels { x: _, y } => {
+                                if y.abs() > 0.0 {
+                                    // Map wheel "lines" to pixels for a comfortable pan speed
+                                    let scroll_amount = (*y as f32) * 30.0;
+                                    return Some(Action::publish(Message::TimelinePanned {
+                                        delta: Vector::new(scroll_amount, 0.0),
+                                    }));
+                                }
+                            }
+                        }
+                    // Control (or other) keys: default behavior handled elsewhere — we only
+                    // intercept wheel when control is NOT held to provide zoom by wheel.
+                    } else if !state.modifiers.control() {
                         match delta {
                             mouse::ScrollDelta::Lines { x: _, y }
                             | mouse::ScrollDelta::Pixels { x: _, y } => {
