@@ -26,7 +26,7 @@ impl<'a> ThreadsProgram<'a> {
                 (thread.max_depth + 1) as f32 * LANE_HEIGHT
             };
 
-            if content_y >= y_offset && content_y < y_offset + lane_total_height {
+            if content_y >= y_offset && content_y < y_offset + LANE_HEIGHT + 2.0 {
                 return Some(thread.thread_id);
             }
 
