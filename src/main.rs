@@ -1,7 +1,7 @@
-use iced::widget::{button, column, container, pick_list, row, scrollable, text, Space};
+use iced::widget::{button, column, container, pick_list, row, scrollable, text, Space, slider};
 use iced::widget::canvas::{self, Action, Canvas, Geometry, Program};
 use iced::mouse::Cursor;
-use iced::{Alignment, Element, Length, Task, Color, Point, Rectangle, Renderer, Size};
+use iced::{Alignment, Element, Length, Task, Color, Point, Rectangle, Renderer, Size, Padding};
 use iced_aw::{tab_bar, TabLabel};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
@@ -76,6 +76,10 @@ enum Message {
     CloseTab(usize),
     OpenSettings,
     EventSelected(TimelineEvent),
+    TimelineZoomed { delta: f32, x: f32, width: f32 },
+    TimelineScrolled { delta_x: f32, width: f32 },
+    TimelinePanned(u64),
+    TimelineDragPanned { delta_x: f32, width: f32 },
     None,
 }
 
@@ -92,6 +96,8 @@ struct FileData {
     stats: Stats,
     view_type: ViewType,
     selected_event: Option<TimelineEvent>,
+    view_start_ns: u64,
+    view_end_ns: u64,
 }
 
 struct SettingsPage {
@@ -175,11 +181,15 @@ impl Lineme {
                 );
             }
             Message::FileLoaded(path, stats) => {
+                let view_start_ns = stats.timeline.min_ns;
+                let view_end_ns = stats.timeline.max_ns;
                 self.files.push(FileData { 
                     path, 
                     stats,
                     view_type: ViewType::default(),
                     selected_event: None,
+                    view_start_ns,
+                    view_end_ns,
                 });
                 self.active_tab = self.files.len() - 1;
                 self.show_settings = false;
@@ -206,6 +216,56 @@ impl Lineme {
             Message::EventSelected(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     file.selected_event = Some(event);
+                }
+            }
+            Message::TimelineZoomed { delta, x, width } => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let old_duration = file.view_end_ns.saturating_sub(file.view_start_ns) as f64;
+                    if old_duration <= 0.0 { return Task::none(); }
+
+                    let zoom_factor = if delta > 0.0 { 0.9 } else { 1.1 };
+                    let new_duration = (old_duration * zoom_factor) as u64;
+                    
+                    let total_duration = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    let new_duration = new_duration.clamp(1000, total_duration);
+                    
+                    let time_at_x = file.view_start_ns as f64 + (x as f64 / width as f64) * old_duration;
+                    
+                    let new_start = (time_at_x - (x as f64 / width as f64) * new_duration as f64) as i64;
+                    
+                    file.view_start_ns = new_start.clamp(file.stats.timeline.min_ns as i64, (file.stats.timeline.max_ns - new_duration) as i64) as u64;
+                    file.view_end_ns = file.view_start_ns + new_duration;
+                }
+            }
+            Message::TimelineScrolled { delta_x, width } => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let duration = file.view_end_ns.saturating_sub(file.view_start_ns);
+                    let scroll_amount = (delta_x as f64 / width as f64 * duration as f64) as i64;
+                    
+                    let new_start = (file.view_start_ns as i64 + scroll_amount)
+                        .clamp(file.stats.timeline.min_ns as i64, (file.stats.timeline.max_ns.saturating_sub(duration)) as i64) as u64;
+                        
+                    file.view_start_ns = new_start;
+                    file.view_end_ns = new_start + duration;
+                }
+            }
+            Message::TimelineDragPanned { delta_x, width } => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let duration = file.view_end_ns.saturating_sub(file.view_start_ns);
+                    let scroll_amount = (delta_x as f64 / width as f64 * duration as f64) as i64;
+                    
+                    let new_start = (file.view_start_ns as i64 - scroll_amount)
+                        .clamp(file.stats.timeline.min_ns as i64, (file.stats.timeline.max_ns.saturating_sub(duration)) as i64) as u64;
+                        
+                    file.view_start_ns = new_start;
+                    file.view_end_ns = new_start + duration;
+                }
+            }
+            Message::TimelinePanned(new_start) => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let duration = file.view_end_ns.saturating_sub(file.view_start_ns);
+                    file.view_start_ns = new_start;
+                    file.view_end_ns = new_start + duration;
                 }
             }
             Message::None => {}
@@ -308,8 +368,8 @@ impl Lineme {
             
             let lane_canvas = Canvas::new(LaneProgram {
                 events: &thread.events,
-                min_ns: timeline_data.min_ns,
-                total_ns,
+                view_start_ns: file.view_start_ns,
+                view_end_ns: file.view_end_ns,
                 selected_event: &file.selected_event,
                 thread_id: thread.thread_id,
                 max_depth: thread.max_depth,
@@ -325,6 +385,20 @@ impl Lineme {
             timeline_lanes.width(Length::Fill),
         ])
         .height(Length::Fill);
+
+        let duration = file.view_end_ns.saturating_sub(file.view_start_ns);
+        let max_scroll = timeline_data.max_ns.saturating_sub(duration);
+        
+        let scrollbar = if max_scroll > timeline_data.min_ns {
+            container(slider(
+                timeline_data.min_ns as f64..=max_scroll as f64,
+                file.view_start_ns as f64,
+                |val| Message::TimelinePanned(val as u64)
+            ))
+            .padding(Padding { top: 0.0, right: 10.0, bottom: 0.0, left: 150.0 }) // Align with timeline lanes
+        } else {
+            container(Space::new().height(0))
+        };
 
         let details_panel = if let Some(event) = &file.selected_event {
             container(column![
@@ -343,7 +417,7 @@ impl Lineme {
                 .center_y(Length::Fill)
         };
 
-        column![main_view, details_panel].into()
+        column![main_view, scrollbar, details_panel].into()
     }
 
     fn settings_view(&self) -> Element<'_, Message> {
@@ -366,75 +440,89 @@ impl Lineme {
 
 struct LaneProgram<'a> {
     events: &'a [TimelineEvent],
-    min_ns: u64,
-    total_ns: u64,
+    view_start_ns: u64,
+    view_end_ns: u64,
     selected_event: &'a Option<TimelineEvent>,
     thread_id: u64,
     max_depth: u32,
 }
 
+#[derive(Default)]
+struct LaneState {
+    drag_start: Option<Point>,
+}
+
 impl<'a> Program<Message> for LaneProgram<'a> {
-    type State = canvas::Cache;
+    type State = LaneState;
 
     fn draw(
         &self,
-        state: &Self::State,
+        _state: &Self::State,
         renderer: &Renderer,
         _theme: &iced::Theme,
         bounds: Rectangle,
         _cursor: Cursor,
     ) -> Vec<Geometry> {
-        let geometry = state.draw(renderer, bounds.size(), |frame| {
-            if self.total_ns == 0 || self.events.is_empty() {
-                return;
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        
+        let total_ns = self.view_end_ns.saturating_sub(self.view_start_ns);
+        if total_ns == 0 || self.events.is_empty() {
+            return vec![frame.into_geometry()];
+        }
+
+        let mut last_rects: Vec<Option<(f32, f32, Color)>> = vec![None; (self.max_depth + 1) as usize];
+
+        for event in self.events {
+            let event_end_ns = event.start_ns + event.duration_ns;
+            if event_end_ns < self.view_start_ns || event.start_ns > self.view_end_ns {
+                continue;
             }
 
-            let mut last_rects: Vec<Option<(f32, f32, Color)>> = vec![None; (self.max_depth + 1) as usize];
+            let x = ((event.start_ns as f64 - self.view_start_ns as f64) / total_ns as f64) as f32 * bounds.width;
+            let width = (event.duration_ns as f64 / total_ns as f64) as f32 * bounds.width;
+            let depth = event.depth as usize;
+            let color = event.color;
 
-            for event in self.events {
-                let x = ((event.start_ns - self.min_ns) as f32 / self.total_ns as f32) * bounds.width;
-                let width = (event.duration_ns as f32 / self.total_ns as f32) * bounds.width;
-                let depth = event.depth as usize;
-                let color = event.color;
-
-                if let Some((cur_x, cur_w, cur_color)) = last_rects[depth] {
-                    let end_x = cur_x + cur_w;
-                    if color == cur_color && x <= end_x + 0.5 {
-                        let new_end = (x + width).max(end_x);
-                        last_rects[depth] = Some((cur_x, new_end - cur_x, cur_color));
-                        continue;
-                    } else {
-                        // Draw previous
-                        let y = depth as f32 * 20.0;
-                        frame.fill_rectangle(Point::new(cur_x, y), Size::new(cur_w.max(1.0), 18.0), cur_color);
-                    }
-                }
-                last_rects[depth] = Some((x, width, color));
-            }
-
-            // Draw remaining rects
-            for (depth, rect) in last_rects.into_iter().enumerate() {
-                if let Some((cur_x, cur_w, cur_color)) = rect {
+            if let Some((cur_x, cur_w, cur_color)) = last_rects[depth] {
+                let end_x = cur_x + cur_w;
+                if color == cur_color && x <= end_x + 0.5 {
+                    let new_end = (x + width).max(end_x);
+                    last_rects[depth] = Some((cur_x, new_end - cur_x, cur_color));
+                    continue;
+                } else {
+                    // Draw previous
                     let y = depth as f32 * 20.0;
                     frame.fill_rectangle(Point::new(cur_x, y), Size::new(cur_w.max(1.0), 18.0), cur_color);
                 }
             }
-        });
+            last_rects[depth] = Some((x, width, color));
+        }
 
-        let mut geometries = vec![geometry];
+        // Draw remaining rects
+        for (depth, rect) in last_rects.into_iter().enumerate() {
+            if let Some((cur_x, cur_w, cur_color)) = rect {
+                let y = depth as f32 * 20.0;
+                frame.fill_rectangle(Point::new(cur_x, y), Size::new(cur_w.max(1.0), 18.0), cur_color);
+            }
+        }
+
+        let mut geometries = vec![frame.into_geometry()];
 
         if let Some(selected) = self.selected_event {
             if selected.thread_id == self.thread_id {
-                let mut highlight_frame = canvas::Frame::new(renderer, bounds.size());
-                let x = ((selected.start_ns - self.min_ns) as f32 / self.total_ns as f32) * bounds.width;
-                let width = (selected.duration_ns as f32 / self.total_ns as f32) * bounds.width;
-                let y = selected.depth as f32 * 20.0;
+                let total_ns = self.view_end_ns.saturating_sub(self.view_start_ns);
+                if total_ns > 0 {
+                    let mut highlight_frame = canvas::Frame::new(renderer, bounds.size());
+                    let x = ((selected.start_ns as f64 - self.view_start_ns as f64) / total_ns as f64) as f32 * bounds.width;
+                    let width = (selected.duration_ns as f64 / total_ns as f64) as f32 * bounds.width;
+                    let y = selected.depth as f32 * 20.0;
 
-                highlight_frame.stroke(
-                    &canvas::Path::rectangle(Point::new(x, y), Size::new(width.max(1.0), 18.0)),
-                    canvas::Stroke::default().with_color(Color::from_rgb(1.0, 1.0, 1.0)).with_width(2.0),
-                );
-                geometries.push(highlight_frame.into_geometry());
+                    highlight_frame.stroke(
+                        &canvas::Path::rectangle(Point::new(x, y), Size::new(width.max(1.0), 18.0)),
+                        canvas::Stroke::default().with_color(Color::from_rgb(1.0, 1.0, 1.0)).with_width(2.0),
+                    );
+                    geometries.push(highlight_frame.into_geometry());
+                }
             }
         }
 
@@ -443,7 +531,7 @@ impl<'a> Program<Message> for LaneProgram<'a> {
 
     fn update(
         &self,
-        _state: &mut Self::State,
+        state: &mut Self::State,
         event: &iced::Event,
         bounds: Rectangle,
         cursor: Cursor,
@@ -451,9 +539,18 @@ impl<'a> Program<Message> for LaneProgram<'a> {
         match event {
             iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
+                    let total_ns = self.view_end_ns.saturating_sub(self.view_start_ns);
+                    if total_ns == 0 { return None; }
+
+                    let mut hit = false;
                     for event in self.events {
-                        let x = ((event.start_ns - self.min_ns) as f32 / self.total_ns as f32) * bounds.width;
-                        let width = (event.duration_ns as f32 / self.total_ns as f32) * bounds.width;
+                        let event_end_ns = event.start_ns + event.duration_ns;
+                        if event_end_ns < self.view_start_ns || event.start_ns > self.view_end_ns {
+                            continue;
+                        }
+
+                        let x = ((event.start_ns as f64 - self.view_start_ns as f64) / total_ns as f64) as f32 * bounds.width;
+                        let width = (event.duration_ns as f64 / total_ns as f64) as f32 * bounds.width;
                         let y = event.depth as f32 * 20.0;
                         let height = 18.0;
 
@@ -465,7 +562,49 @@ impl<'a> Program<Message> for LaneProgram<'a> {
                         };
 
                         if rect.contains(position) {
+                            hit = true;
                             return Some(Action::publish(Message::EventSelected(event.clone())));
+                        }
+                    }
+
+                    if !hit {
+                        state.drag_start = Some(position);
+                    }
+                }
+            }
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+                state.drag_start = None;
+            }
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                if let Some(start_pos) = state.drag_start {
+                    if let Some(current_pos) = cursor.position_in(bounds) {
+                        let delta_x = current_pos.x - start_pos.x;
+                        state.drag_start = Some(current_pos);
+                        return Some(Action::publish(Message::TimelineDragPanned {
+                            delta_x,
+                            width: bounds.width,
+                        }));
+                    }
+                }
+            }
+            iced::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
+                if let Some(position) = cursor.position_in(bounds) {
+                    match delta {
+                        iced::mouse::ScrollDelta::Lines { x, y } | iced::mouse::ScrollDelta::Pixels { x, y } => {
+                            if y.abs() > x.abs() {
+                                // Vertical scroll -> Zoom
+                                return Some(Action::publish(Message::TimelineZoomed {
+                                    delta: *y,
+                                    x: position.x,
+                                    width: bounds.width,
+                                }));
+                            } else {
+                                // Horizontal scroll -> Pan
+                                return Some(Action::publish(Message::TimelineScrolled {
+                                    delta_x: *x,
+                                    width: bounds.width,
+                                }));
+                            }
                         }
                     }
                 }
