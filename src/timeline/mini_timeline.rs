@@ -71,10 +71,11 @@ impl Program<Message> for MiniTimelineProgram {
     ) -> Vec<Geometry> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
+        // Mini timeline background: use white for a clean look.
         frame.fill_rectangle(
             Point::new(0.0, 0.0),
             Size::new(bounds.width, bounds.height),
-            Color::from_rgb(0.97, 0.97, 0.97),
+            Color::WHITE,
         );
 
         let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
@@ -169,6 +170,18 @@ impl Program<Message> for MiniTimelineProgram {
                     .with_width(1.0),
             );
         }
+
+        // Draw a 1px separator line under the mini timeline to visually separate
+        // it from the header/content below.
+        frame.stroke(
+            &canvas::Path::line(
+                Point::new(0.0, bounds.height - 0.5),
+                Point::new(bounds.width, bounds.height - 0.5),
+            ),
+            canvas::Stroke::default()
+                .with_color(Color::from_rgba(0.6, 0.6, 0.6, 1.0))
+                .with_width(1.0),
+        );
 
         vec![frame.into_geometry()]
     }

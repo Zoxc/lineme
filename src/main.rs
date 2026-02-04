@@ -527,10 +527,33 @@ impl Lineme {
             bar = bar.set_active_tab(&self.active_tab);
         }
 
+        // Move the Open button left of the Settings toggle and make the header
+        // bar background/border a neutral grey.
         let header = container(
             row![
                 bar,
                 Space::new().width(Length::Fill),
+                // Use the same font size as thread labels for button text
+                button(
+                    row![text(OPEN_ICON).font(ICON_FONT), text("Open").size(12.0)]
+                        .spacing(5)
+                        .align_y(Alignment::Center),
+                )
+                .style(|theme: &iced::Theme, status: button::Status| {
+                    let palette = theme.extended_palette();
+                    let base = button::Style {
+                        text_color: palette.background.weak.text,
+                        ..Default::default()
+                    };
+                    match status {
+                        button::Status::Hovered | button::Status::Pressed => button::Style {
+                            background: Some(palette.background.strong.color.into()),
+                            ..base
+                        },
+                        _ => base,
+                    }
+                })
+                .on_press(Message::OpenFile),
                 // Settings button acts as a toggle. When active, show a highlighted background.
                 button(text(SETTINGS_ICON).font(ICON_FONT).size(18))
                     .style(|theme: &iced::Theme, status: button::Status| {
@@ -556,38 +579,17 @@ impl Lineme {
                         }
                     })
                     .on_press(Message::OpenSettings),
-                // Use the same font size as thread labels for button text
-                button(
-                    row![text(OPEN_ICON).font(ICON_FONT), text("Open").size(12.0)]
-                        .spacing(5)
-                        .align_y(Alignment::Center),
-                )
-                .style(|theme: &iced::Theme, status: button::Status| {
-                    let palette = theme.extended_palette();
-                    let base = button::Style {
-                        text_color: palette.background.weak.text,
-                        ..Default::default()
-                    };
-                    match status {
-                        button::Status::Hovered | button::Status::Pressed => button::Style {
-                            background: Some(palette.background.strong.color.into()),
-                            ..base
-                        },
-                        _ => base,
-                    }
-                })
-                .on_press(Message::OpenFile),
             ]
             .spacing(10)
             .padding(5)
             .align_y(Alignment::Center)
         )
-        .style(|theme: &iced::Theme| {
-            let palette = theme.extended_palette();
+        .style(|_theme: &iced::Theme| {
+            // Use explicit greys for a consistent look regardless of theme.
             container::Style::default()
-                .background(palette.background.weak.color)
+                .background(iced::Color::from_rgb(0.95, 0.95, 0.95))
                 .border(iced::Border {
-                    color: palette.background.strong.color,
+                    color: iced::Color::from_rgb(0.8, 0.8, 0.8),
                     width: 1.0,
                     ..Default::default()
                 })
@@ -656,12 +658,12 @@ impl Lineme {
                 .align_y(Alignment::Center)
             )
             .width(Length::Fill)
-            .style(|theme: &iced::Theme| {
-                let palette = theme.extended_palette();
+            .style(|_theme: &iced::Theme| {
+                // Make the selector container a neutral grey to match the header.
                 container::Style::default()
-                    .background(palette.background.base.color)
+                    .background(iced::Color::from_rgb(0.95, 0.95, 0.95))
                     .border(iced::Border {
-                        color: palette.background.strong.color,
+                        color: iced::Color::from_rgb(0.8, 0.8, 0.8),
                         width: 1.0,
                         ..Default::default()
                     })
