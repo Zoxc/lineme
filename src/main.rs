@@ -252,6 +252,12 @@ impl Lineme {
                     // Adjust scroll offset to keep x position stable
                     let x_on_canvas = x + file.scroll_offset.x;
                     file.scroll_offset.x = x_on_canvas * zoom_factor - x;
+
+                    let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    let total_width = total_ns as f32 * file.zoom_level;
+                    let viewport_width = file.viewport_width.max(0.0);
+                    let max_scroll = (total_width - viewport_width).max(0.0);
+                    file.scroll_offset.x = file.scroll_offset.x.clamp(0.0, max_scroll);
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
