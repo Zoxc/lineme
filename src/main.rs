@@ -8,9 +8,17 @@ use std::collections::HashMap;
 use analyzeme::ProfilingData;
 use timeline::*;
 
+const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
+const SETTINGS_ICON: char = '\u{e8b8}';
+const OPEN_ICON: char = '\u{e2c7}';
+const FILE_ICON: char = '\u{e873}';
+// Note: CLOSE_ICON (\u{e5cd}) is defined but currently not supported by iced_aw 0.13
+// for the tab close button.
+
 pub fn main() -> iced::Result {
     iced::application(Lineme::new, Lineme::update, Lineme::view)
         .title(Lineme::title)
+        .font(include_bytes!("../assets/MaterialIcons-Regular.ttf"))
         .run()
 }
 
@@ -253,21 +261,28 @@ impl Lineme {
 
     fn view(&self) -> Element<'_, Message> {
         let mut bar = tab_bar::TabBar::new(Message::TabSelected)
-            .on_close(Message::CloseTab);
+            .on_close(Message::CloseTab)
+            .icon_font(ICON_FONT);
+        // Note: iced_aw 0.13 does not support customizing the close icon character.
+        // It uses a fixed character that might not display correctly in some fonts.
 
         for (i, file) in self.files.iter().enumerate() {
             let label = file.path.file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "Unknown".to_string());
             
-            bar = bar.push(i, TabLabel::Text(label));
+            bar = bar.push(i, TabLabel::IconText(FILE_ICON, label));
         }
         
         if !self.files.is_empty() && !self.show_settings {
             bar = bar.set_active_tab(&self.active_tab);
         }
 
-        let header = row![bar, Space::new().width(Length::Fill)];
+        let header = row![
+            bar,
+            Space::new().width(Length::Fill),
+            button(text(SETTINGS_ICON).font(ICON_FONT)).on_press(Message::OpenSettings)
+        ];
 
         let header = if !self.files.is_empty() && !self.show_settings {
             header.push(pick_list(
@@ -280,8 +295,14 @@ impl Lineme {
         };
 
         let header = header
-            .push(button("Settings").on_press(Message::OpenSettings))
-            .push(button("Open").on_press(Message::OpenFile))
+            .push(
+                button(
+                    row![text(OPEN_ICON).font(ICON_FONT), text("Open")]
+                        .spacing(5)
+                        .align_y(Alignment::Center),
+                )
+                .on_press(Message::OpenFile),
+            )
             .spacing(10)
             .padding(5)
             .align_y(Alignment::Center);
@@ -311,7 +332,12 @@ impl Lineme {
             text(format!("Command: {}", file.stats.cmd)),
             text(format!("PID: {}", file.stats.pid)),
             text(format!("Event count: {}", file.stats.event_count)),
-            button("Open another file").on_press(Message::OpenFile),
+            button(
+                row![text(OPEN_ICON).font(ICON_FONT), text("Open another file")]
+                    .spacing(10)
+                    .align_y(Alignment::Center)
+            )
+            .on_press(Message::OpenFile),
         ]
         .spacing(10)
         .padding(20);
@@ -333,7 +359,12 @@ impl Lineme {
             text("Settings").size(30),
             text("Welcome to Lineme Settings"),
             text(format!("Currently managing {} open files", self.files.len())),
-            button("Open file from here").on_press(Message::OpenFile),
+            button(
+                row![text(OPEN_ICON).font(ICON_FONT), text("Open file from here")]
+                    .spacing(10)
+                    .align_y(Alignment::Center)
+            )
+            .on_press(Message::OpenFile),
         ]
         .spacing(10)
         .padding(20);
