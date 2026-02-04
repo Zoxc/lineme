@@ -3,12 +3,12 @@ mod threads;
 
 use crate::Message;
 use iced::advanced::widget::{self, Tree, Widget};
-use iced::advanced::{layout, renderer, Clipboard, Layout, Shell};
+use iced::advanced::{Clipboard, Layout, Shell, layout, renderer};
 use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Action;
 use iced::widget::canvas::{self, Canvas, Geometry, Program};
-use iced::widget::{column, container, row, scrollable, text, Space};
+use iced::widget::{Space, column, container, row, scrollable, text};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector};
 use mini_timeline::MiniTimelineProgram;
 use threads::ThreadsProgram;
@@ -134,6 +134,7 @@ pub fn view<'a>(
     let events_canvas = Canvas::new(EventsProgram {
         threads: &timeline_data.threads,
         min_ns: timeline_data.min_ns,
+        max_ns: timeline_data.max_ns,
         zoom_level,
         selected_event,
     })
@@ -231,6 +232,7 @@ pub fn view<'a>(
 struct EventsProgram<'a> {
     threads: &'a [ThreadData],
     min_ns: u64,
+    max_ns: u64,
     zoom_level: f32,
     selected_event: &'a Option<TimelineEvent>,
 }
@@ -301,6 +303,39 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
         if self.threads.is_empty() {
             return vec![frame.into_geometry()];
+        }
+
+        // Draw vertical tick guide lines matching the header ticks.
+        let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
+        if total_ns > 0.0 {
+            // ns per pixel given current zoom: 1 / zoom_level
+            let ns_per_pixel = 1.0 / self.zoom_level as f64;
+            let pixel_interval = 100.0;
+            let ns_interval = pixel_interval as f64 * ns_per_pixel;
+
+            let log10 = ns_interval.log10().floor();
+            let base = 10.0f64.powf(log10);
+            let nice_interval = if ns_interval / base < 2.0 {
+                base * 2.0
+            } else if ns_interval / base < 5.0 {
+                base * 5.0
+            } else {
+                base * 10.0
+            };
+
+            let mut relative_ns = 0.0;
+            while relative_ns <= total_ns {
+                let x = (relative_ns * self.zoom_level as f64) as f32;
+                // Draw faint vertical line across the events area.
+                frame.stroke(
+                    &canvas::Path::line(Point::new(x, 0.0), Point::new(x, bounds.height)),
+                    canvas::Stroke::default()
+                        .with_color(Color::from_rgba(0.5, 0.5, 0.5, 0.3))
+                        .with_width(1.0),
+                );
+
+                relative_ns += nice_interval;
+            }
         }
 
         let mut y_offset = 0.0;

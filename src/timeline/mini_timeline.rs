@@ -85,13 +85,11 @@ impl Program<Message> for MiniTimelineProgram {
         while relative_ns <= total_ns {
             let x = (relative_ns / total_ns * bounds.width as f64) as f32;
 
+            // Draw a faint vertical guide line for this tick across the mini timeline.
             frame.stroke(
-                &canvas::Path::line(
-                    Point::new(x, bounds.height - 8.0),
-                    Point::new(x, bounds.height),
-                ),
+                &canvas::Path::line(Point::new(x, 0.0), Point::new(x, bounds.height)),
                 canvas::Stroke::default()
-                    .with_color(Color::from_rgb(0.6, 0.6, 0.6))
+                    .with_color(Color::from_rgba(0.5, 0.5, 0.5, 0.3))
                     .with_width(1.0),
             );
 
