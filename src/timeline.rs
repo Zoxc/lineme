@@ -204,51 +204,58 @@ pub fn view<'a>(
                     // Left area above the thread labels: collapse/expand all buttons
                     container(
                         row![
-                            // Icon-only collapse button matching header/button style
-                            // Material Icons font supports ligatures — use text content like "add"/"remove"
-                            button(text(crate::COLLAPSE_ICON).font(crate::ICON_FONT).size(18))
-                                .padding(6)
-                                .style(|theme: &Theme, status: button::Status| {
-                                    let palette = theme.extended_palette();
-                                    let base = button::Style {
-                                        text_color: palette.background.weak.text,
-                                        ..Default::default()
-                                    };
-                                    match status {
-                                        button::Status::Hovered | button::Status::Pressed => {
-                                            button::Style {
-                                                background: Some(
-                                                    palette.background.strong.color.into(),
-                                                ),
-                                                ..base
-                                            }
+                            // Collapse button with short text
+                            button(
+                                row![text("-").size(18), text("Collapse").size(12)]
+                                    .spacing(4)
+                                    .align_y(iced::Alignment::Center),
+                            )
+                            .padding(6)
+                            .style(|theme: &Theme, status: button::Status| {
+                                let palette = theme.extended_palette();
+                                let base = button::Style {
+                                    text_color: palette.background.weak.text,
+                                    ..Default::default()
+                                };
+                                match status {
+                                    button::Status::Hovered | button::Status::Pressed => {
+                                        button::Style {
+                                            background: Some(
+                                                palette.background.strong.color.into(),
+                                            ),
+                                            ..base
                                         }
-                                        _ => base,
                                     }
-                                })
-                                .on_press(Message::CollapseAllThreads),
-                            // Icon-only expand button
-                            button(text(crate::EXPAND_ICON).font(crate::ICON_FONT).size(18))
-                                .padding(6)
-                                .style(|theme: &Theme, status: button::Status| {
-                                    let palette = theme.extended_palette();
-                                    let base = button::Style {
-                                        text_color: palette.background.weak.text,
-                                        ..Default::default()
-                                    };
-                                    match status {
-                                        button::Status::Hovered | button::Status::Pressed => {
-                                            button::Style {
-                                                background: Some(
-                                                    palette.background.strong.color.into(),
-                                                ),
-                                                ..base
-                                            }
+                                    _ => base,
+                                }
+                            })
+                            .on_press(Message::CollapseAllThreads),
+                            // Expand button with short text
+                            button(
+                                row![text("+").size(18), text("Expand").size(12)]
+                                    .spacing(4)
+                                    .align_y(iced::Alignment::Center),
+                            )
+                            .padding(6)
+                            .style(|theme: &Theme, status: button::Status| {
+                                let palette = theme.extended_palette();
+                                let base = button::Style {
+                                    text_color: palette.background.weak.text,
+                                    ..Default::default()
+                                };
+                                match status {
+                                    button::Status::Hovered | button::Status::Pressed => {
+                                        button::Style {
+                                            background: Some(
+                                                palette.background.strong.color.into(),
+                                            ),
+                                            ..base
                                         }
-                                        _ => base,
                                     }
-                                })
-                                .on_press(Message::ExpandAllThreads),
+                                    _ => base,
+                                }
+                            })
+                            .on_press(Message::ExpandAllThreads),
                         ]
                         .spacing(5)
                         .align_y(iced::Alignment::Center),

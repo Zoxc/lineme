@@ -689,12 +689,7 @@ impl Lineme {
             text(format!("PID: {}", file.stats.pid)),
             text(format!("Event count: {}", file.stats.event_count)),
             text(format!("Total duration: {}", format_duration(file.stats.timeline.max_ns - file.stats.timeline.min_ns))),
-            button(
-                row![text(OPEN_ICON).font(ICON_FONT), text("Open another file").size(12.0)]
-                    .spacing(10)
-                    .align_y(Alignment::Center)
-            )
-            .on_press(Message::OpenFile),
+            
         ]
         .spacing(10)
         .padding(20);
@@ -724,12 +719,7 @@ impl Lineme {
             text("Settings").size(30),
             text("Welcome to Lineme Settings"),
             text(format!("Currently managing {} open files", self.files.len())),
-            button(
-                row![text(OPEN_ICON).font(ICON_FONT), text("Open file from here").size(12.0)]
-                    .spacing(10)
-                    .align_y(Alignment::Center)
-            )
-            .on_press(Message::OpenFile),
+            
         ]
         .spacing(10)
         .padding(20);
