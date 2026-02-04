@@ -21,6 +21,7 @@ pub fn main() -> iced::Result {
         .title(Lineme::title)
         .font(include_bytes!("../assets/MaterialIcons-Regular.ttf"))
         .subscription(Lineme::subscription)
+        .theme(Lineme::theme)
         .run()
 }
 
@@ -148,6 +149,10 @@ impl Lineme {
         } else {
             "Lineme - measureme profdata viewer".to_string()
         }
+    }
+
+    fn theme(&self) -> iced::Theme {
+        iced::Theme::Light
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {

@@ -49,7 +49,7 @@ pub fn color_from_label(label: &str) -> Color {
     let g = ((hash >> 8) & 0xFF) as f32 / 255.0;
     let b = (hash & 0xFF) as f32 / 255.0;
 
-    Color::from_rgb(0.3 + r * 0.4, 0.3 + g * 0.4, 0.3 + b * 0.4)
+    Color::from_rgb(0.6 + r * 0.3, 0.6 + g * 0.3, 0.6 + b * 0.3)
 }
 
 pub fn timeline_id() -> iced::widget::Id {
@@ -251,7 +251,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     Point::new(bounds.width, y_offset),
                 ),
                 canvas::Stroke::default()
-                    .with_color(Color::from_rgb(0.2, 0.2, 0.2))
+                    .with_color(Color::from_rgb(0.9, 0.9, 0.9))
                     .with_width(1.0),
             );
 
@@ -295,7 +295,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                         frame.stroke(
                             &canvas::Path::rectangle(rect.position(), rect.size()),
                             canvas::Stroke::default()
-                                .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.7))
+                                .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.2))
                                 .with_width(1.0),
                         );
 
@@ -307,7 +307,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                             frame.fill_text(canvas::Text {
                                 content: truncated_label,
                                 position: Point::new(rect.x + 2.0, rect.y + 2.0),
-                                color: Color::WHITE,
+                                color: Color::from_rgb(0.2, 0.2, 0.2),
                                 size: 10.0.into(),
                                 ..Default::default()
                             });
@@ -332,7 +332,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     frame.stroke(
                         &canvas::Path::rectangle(rect.position(), rect.size()),
                         canvas::Stroke::default()
-                            .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.7))
+                            .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.2))
                             .with_width(1.0),
                     );
 
@@ -344,7 +344,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                         frame.fill_text(canvas::Text {
                             content: truncated_label,
                             position: Point::new(rect.x + 2.0, rect.y + 2.0),
-                            color: Color::WHITE,
+                            color: Color::from_rgb(0.2, 0.2, 0.2),
                             size: 10.0.into(),
                             ..Default::default()
                         });
@@ -367,7 +367,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                                 Size::new(width.max(1.0), LANE_HEIGHT - 2.0),
                             ),
                             canvas::Stroke::default()
-                                .with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.5))
+                                .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.3))
                                 .with_width(1.0),
                         );
                     }
@@ -389,7 +389,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                                 Size::new(width.max(1.0), LANE_HEIGHT - 2.0),
                             ),
                             canvas::Stroke::default()
-                                .with_color(Color::WHITE)
+                                .with_color(Color::from_rgb(0.0, 0.4, 0.8))
                                 .with_width(2.0),
                         );
                     }
@@ -402,7 +402,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
         frame.fill_rectangle(
             Point::new(self.scroll_offset.x, self.scroll_offset.y),
             Size::new(bounds.width, HEADER_HEIGHT),
-            Color::from_rgb(0.15, 0.15, 0.15),
+            Color::from_rgb(0.95, 0.95, 0.95),
         );
 
         if total_ns > 0.0 {
@@ -434,7 +434,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                             Point::new(x, bounds.height),
                         ),
                         canvas::Stroke::default()
-                            .with_color(Color::from_rgb(0.18, 0.18, 0.18))
+                            .with_color(Color::from_rgb(0.9, 0.9, 0.9))
                             .with_width(1.0),
                     );
 
@@ -444,7 +444,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                             Point::new(x, self.scroll_offset.y + HEADER_HEIGHT),
                         ),
                         canvas::Stroke::default()
-                            .with_color(Color::WHITE)
+                            .with_color(Color::from_rgb(0.5, 0.5, 0.5))
                             .with_width(1.0),
                     );
 
@@ -461,7 +461,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     frame.fill_text(canvas::Text {
                         content: time_str,
                         position: Point::new(x + 2.0, self.scroll_offset.y + 5.0),
-                        color: Color::WHITE,
+                        color: Color::from_rgb(0.3, 0.3, 0.3),
                         size: 10.0.into(),
                         ..Default::default()
                     });
@@ -473,7 +473,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
         frame.fill_rectangle(
             Point::new(self.scroll_offset.x, self.scroll_offset.y + HEADER_HEIGHT),
             Size::new(LABEL_WIDTH, bounds.height - HEADER_HEIGHT),
-            Color::from_rgb(0.1, 0.1, 0.1),
+            Color::from_rgb(0.98, 0.98, 0.98),
         );
 
         y_offset = HEADER_HEIGHT;
@@ -493,7 +493,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
             frame.fill_text(canvas::Text {
                 content: label_text,
                 position: Point::new(self.scroll_offset.x + 5.0, y_offset + 5.0),
-                color: Color::WHITE,
+                color: Color::from_rgb(0.2, 0.2, 0.2),
                 size: 12.0.into(),
                 ..Default::default()
             });
