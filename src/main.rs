@@ -682,17 +682,35 @@ impl Lineme {
         column![header, content].height(Length::Fill).into()
     }
 
-    fn file_view(&self, file: &FileData) -> Element<'_, Message> {
-        let content = column![
-            text(format!("File: {}", file.path.display())).size(20),
-            text(format!("Command: {}", file.stats.cmd)),
-            text(format!("PID: {}", file.stats.pid)),
-            text(format!("Event count: {}", file.stats.event_count)),
-            text(format!("Total duration: {}", format_duration(file.stats.timeline.max_ns - file.stats.timeline.min_ns))),
-            
+    fn file_view<'a>(&self, file: &'a FileData) -> Element<'a, Message> {
+        // Use the same compact label/value layout and theme-aware container used
+        // elsewhere so the stats panel visually matches the rest of the app.
+        let stats_col = column![
+            row![text("File:").width(Length::Fixed(120.0)).size(12), text(format!("{}", file.path.display())).size(12)],
+            row![text("Command:").width(Length::Fixed(120.0)).size(12), text(&file.stats.cmd).size(12)],
+            row![text("PID:").width(Length::Fixed(120.0)).size(12), text(format!("{}", file.stats.pid)).size(12)],
+            row![text("Event count:").width(Length::Fixed(120.0)).size(12), text(format!("{}", file.stats.event_count)).size(12)],
+            row![text("Total duration:").width(Length::Fixed(120.0)).size(12), text(format_duration(file.stats.timeline.max_ns - file.stats.timeline.min_ns)).size(12)],
         ]
-        .spacing(10)
-        .padding(20);
+        .spacing(8)
+        .padding(10);
+
+        let content = container(stats_col)
+            .width(Length::Fill)
+            .padding(12)
+            .style(|theme: &iced::Theme| {
+                // Match details panel style from timeline: use the theme's background
+                // base color and a subtle strong-color border so the panel reads as
+                // a cohesive block in the layout.
+                let palette = theme.extended_palette();
+                container::Style::default()
+                    .background(palette.background.base.color)
+                    .border(iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        ..Default::default()
+                    })
+            });
 
         scrollable(content)
             .width(Length::Fill)
@@ -715,19 +733,30 @@ impl Lineme {
     }
 
     fn settings_view(&self) -> Element<'_, Message> {
-        let content = column![
-            text("Settings").size(30),
-            text("Welcome to Lineme Settings"),
-            text(format!("Currently managing {} open files", self.files.len())),
-            
+        // Make the settings panel visually consistent with other panels by using
+        // the same themed container and compact label/value rows.
+        let settings_col = column![
+            text("Settings").size(20),
+            row![text("Open files:").width(Length::Fixed(120.0)).size(12), text(format!("{}", self.files.len())).size(12)],
+            text("Welcome to Lineme Settings").size(12),
         ]
-        .spacing(10)
-        .padding(20);
+        .spacing(8)
+        .padding(10);
 
-        container(content)
+        container(settings_col)
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x(Length::Fill)
+            .style(|theme: &iced::Theme| {
+                let palette = theme.extended_palette();
+                container::Style::default()
+                    .background(palette.background.base.color)
+                    .border(iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        ..Default::default()
+                    })
+            })
             .into()
     }
 }
