@@ -1098,10 +1098,11 @@ fn build_merged_thread_groups(threads: &[Arc<ThreadData>]) -> Vec<ThreadGroup> {
         return Vec::new();
     }
 
-    let mut intervals: Vec<(u64, u64, Arc<ThreadData>)> = threads
+    let mut intervals: Vec<(usize, u64, u64, Arc<ThreadData>)> = threads
         .iter()
         .cloned()
-        .map(|thread| {
+        .enumerate()
+        .map(|(index, thread)| {
             let mut start = u64::MAX;
             let mut end = 0u64;
             for event in &thread.events {
@@ -1111,20 +1112,20 @@ fn build_merged_thread_groups(threads: &[Arc<ThreadData>]) -> Vec<ThreadGroup> {
             if start == u64::MAX {
                 start = 0;
             }
-            (start, end, thread)
+            (index, start, end, thread)
         })
         .collect();
 
-    intervals.sort_by(|(a_start, a_end, _), (b_start, b_end, _)| {
+    intervals.sort_by(|(_, a_start, a_end, _), (_, b_start, b_end, _)| {
         let a_len = a_end.saturating_sub(*a_start);
         let b_len = b_end.saturating_sub(*b_start);
         a_len.cmp(&b_len).then_with(|| a_start.cmp(b_start))
     });
 
-    let mut groups: Vec<Vec<Arc<ThreadData>>> = Vec::new();
+    let mut groups: Vec<Vec<(usize, Arc<ThreadData>)>> = Vec::new();
     let mut group_ranges: Vec<(u64, u64)> = Vec::new();
 
-    for (start, end, thread) in intervals {
+    for (index, start, end, thread) in intervals {
         let mut placed = false;
         for (group, (group_start, group_end)) in
             groups.iter_mut().zip(group_ranges.iter_mut())
@@ -1133,21 +1134,36 @@ fn build_merged_thread_groups(threads: &[Arc<ThreadData>]) -> Vec<ThreadGroup> {
             if !overlaps {
                 *group_start = (*group_start).min(start);
                 *group_end = (*group_end).max(end);
-                group.push(thread.clone());
+                group.push((index, thread.clone()));
                 placed = true;
                 break;
             }
         }
 
         if !placed {
-            groups.push(vec![thread]);
+            groups.push(vec![(index, thread)]);
             group_ranges.push((start, end));
         }
     }
 
+    groups.sort_by_key(|group| {
+        group
+            .iter()
+            .map(|(index, _)| *index)
+            .min()
+            .unwrap_or(usize::MAX)
+    });
+
     let mut thread_groups = Vec::new();
     for group in groups {
-        let threads = Arc::new(group);
+        let mut group = group;
+        group.sort_by_key(|(index, _)| *index);
+        let threads = Arc::new(
+            group
+                .into_iter()
+                .map(|(_, thread)| thread)
+                .collect::<Vec<_>>(),
+        );
         let (events, max_depth) = timeline::build_thread_group_events(&threads);
         thread_groups.push(ThreadGroup {
             threads,
