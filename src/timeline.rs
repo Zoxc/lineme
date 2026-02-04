@@ -141,7 +141,7 @@ pub fn view<'a>(
             header_canvas
         ]
         .height(Length::Fixed(HEADER_HEIGHT)),
-        row![container(threads_canvas).height(Length::Fill), events_view].height(Length::Fill)
+        row![threads_canvas, events_view].height(Length::Fill)
     ]
     .height(Length::Fill);
 
