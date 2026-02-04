@@ -20,6 +20,7 @@ struct TimelineEvent {
     duration_ns: u64,
     depth: u32,
     thread_id: u64,
+    color: Color,
 }
 
 #[derive(Debug, Clone)]
@@ -46,14 +47,13 @@ struct Stats {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ViewType {
-    #[default]
     Stats,
+    #[default]
     Timeline,
-    Todo,
 }
 
 impl ViewType {
-    const ALL: [ViewType; 3] = [ViewType::Stats, ViewType::Timeline, ViewType::Todo];
+    const ALL: [ViewType; 2] = [ViewType::Stats, ViewType::Timeline];
 }
 
 impl std::fmt::Display for ViewType {
@@ -61,7 +61,6 @@ impl std::fmt::Display for ViewType {
         match self {
             ViewType::Stats => write!(f, "Stats"),
             ViewType::Timeline => write!(f, "Timeline"),
-            ViewType::Todo => write!(f, "Todo"),
         }
     }
 }
@@ -102,6 +101,21 @@ struct SettingsPage {
 
 impl Lineme {
     fn new() -> (Self, Task<Message>) {
+        let mut initial_task = Task::none();
+        
+        if let Some(path_str) = std::env::args().nth(1) {
+            let path = PathBuf::from(path_str);
+            initial_task = Task::perform(
+                async move {
+                    match load_profiling_data(&path) {
+                        Ok(stats) => Message::FileLoaded(path, stats),
+                        Err(e) => Message::ErrorOccurred(e),
+                    }
+                },
+                |msg| msg,
+            );
+        }
+
         (
             Lineme {
                 active_tab: 0,
@@ -109,7 +123,7 @@ impl Lineme {
                 show_settings: false,
                 settings: SettingsPage { show_details: true },
             },
-            Task::none(),
+            initial_task,
         )
     }
 
@@ -240,7 +254,6 @@ impl Lineme {
             match file.view_type {
                 ViewType::Stats => self.file_view(file),
                 ViewType::Timeline => self.timeline_view(file),
-                ViewType::Todo => self.todo_view(file),
             }
         } else {
             container(text("Open a file to start").size(20))
@@ -298,6 +311,8 @@ impl Lineme {
                 min_ns: timeline_data.min_ns,
                 total_ns,
                 selected_event: &file.selected_event,
+                thread_id: thread.thread_id,
+                max_depth: thread.max_depth,
             })
             .width(Length::Fill)
             .height(Length::Fixed(lane_height));
@@ -331,21 +346,6 @@ impl Lineme {
         column![main_view, details_panel].into()
     }
 
-    fn todo_view(&self, file: &FileData) -> Element<'_, Message> {
-        let content = column![
-            text(format!("Todo List for {}", file.path.display())).size(25),
-            text("Items to analyze:"),
-            text("- Event distribution"),
-            text("- Timing hotspots"),
-            text("- Memory usage"),
-            text("- Threading analysis"),
-        ]
-        .spacing(10)
-        .padding(20);
-
-        scrollable(content).into()
-    }
-
     fn settings_view(&self) -> Element<'_, Message> {
         let content = column![
             text("Settings").size(30),
@@ -369,41 +369,76 @@ struct LaneProgram<'a> {
     min_ns: u64,
     total_ns: u64,
     selected_event: &'a Option<TimelineEvent>,
+    thread_id: u64,
+    max_depth: u32,
 }
 
 impl<'a> Program<Message> for LaneProgram<'a> {
-    type State = ();
+    type State = canvas::Cache;
 
     fn draw(
         &self,
-        _state: &Self::State,
+        state: &Self::State,
         renderer: &Renderer,
         _theme: &iced::Theme,
         bounds: Rectangle,
         _cursor: Cursor,
     ) -> Vec<Geometry> {
-        let mut frame = canvas::Frame::new(renderer, bounds.size());
-        
-        for event in self.events {
-            let x = ((event.start_ns - self.min_ns) as f32 / self.total_ns as f32) * bounds.width;
-            let width = (event.duration_ns as f32 / self.total_ns as f32) * bounds.width;
-            let y = event.depth as f32 * 20.0;
-            let height = 18.0;
-            
-            let rect_size = Size::new(width.max(1.0), height);
-            
-            let mut color = color_from_label(&event.label);
-            
-            if let Some(selected) = self.selected_event {
-                if selected.start_ns == event.start_ns && selected.thread_id == event.thread_id {
-                    color = Color::from_rgb(1.0, 0.5, 0.0);
+        let geometry = state.draw(renderer, bounds.size(), |frame| {
+            if self.total_ns == 0 || self.events.is_empty() {
+                return;
+            }
+
+            let mut last_rects: Vec<Option<(f32, f32, Color)>> = vec![None; (self.max_depth + 1) as usize];
+
+            for event in self.events {
+                let x = ((event.start_ns - self.min_ns) as f32 / self.total_ns as f32) * bounds.width;
+                let width = (event.duration_ns as f32 / self.total_ns as f32) * bounds.width;
+                let depth = event.depth as usize;
+                let color = event.color;
+
+                if let Some((cur_x, cur_w, cur_color)) = last_rects[depth] {
+                    let end_x = cur_x + cur_w;
+                    if color == cur_color && x <= end_x + 0.5 {
+                        let new_end = (x + width).max(end_x);
+                        last_rects[depth] = Some((cur_x, new_end - cur_x, cur_color));
+                        continue;
+                    } else {
+                        // Draw previous
+                        let y = depth as f32 * 20.0;
+                        frame.fill_rectangle(Point::new(cur_x, y), Size::new(cur_w.max(1.0), 18.0), cur_color);
+                    }
+                }
+                last_rects[depth] = Some((x, width, color));
+            }
+
+            // Draw remaining rects
+            for (depth, rect) in last_rects.into_iter().enumerate() {
+                if let Some((cur_x, cur_w, cur_color)) = rect {
+                    let y = depth as f32 * 20.0;
+                    frame.fill_rectangle(Point::new(cur_x, y), Size::new(cur_w.max(1.0), 18.0), cur_color);
                 }
             }
-            
-            frame.fill_rectangle(Point::new(x, y), rect_size, color);
+        });
+
+        let mut geometries = vec![geometry];
+
+        if let Some(selected) = self.selected_event {
+            if selected.thread_id == self.thread_id {
+                let mut highlight_frame = canvas::Frame::new(renderer, bounds.size());
+                let x = ((selected.start_ns - self.min_ns) as f32 / self.total_ns as f32) * bounds.width;
+                let width = (selected.duration_ns as f32 / self.total_ns as f32) * bounds.width;
+                let y = selected.depth as f32 * 20.0;
+
+                highlight_frame.stroke(
+                    &canvas::Path::rectangle(Point::new(x, y), Size::new(width.max(1.0), 18.0)),
+                    canvas::Stroke::default().with_color(Color::from_rgb(1.0, 1.0, 1.0)).with_width(2.0),
+                );
+                geometries.push(highlight_frame.into_geometry());
+            }
         }
-        
-        vec![frame.into_geometry()]
+
+        geometries
     }
 
     fn update(
@@ -495,6 +530,7 @@ fn load_profiling_data(path: &Path) -> Result<Stats, String> {
                 duration_ns: end_ns - start_ns,
                 depth: 0,
                 thread_id,
+                color: color_from_label(&event.label),
             });
         }
     }
