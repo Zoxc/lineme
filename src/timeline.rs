@@ -233,7 +233,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     .with_width(1.0),
             );
 
-            let mut last_rects: Vec<Option<(f32, f32, Color)>> =
+            let mut last_rects: Vec<Option<(f32, f32, Color, String)>> =
                 vec![None; (thread.max_depth + 1) as usize];
 
             for event in &thread.events {
@@ -251,23 +251,24 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     + LABEL_WIDTH;
                 let depth = event.depth as usize;
                 let color = event.color;
+                let label = &event.label;
 
-                if let Some((cur_x, cur_w, cur_color)) = last_rects[depth] {
-                    let end_x = cur_x + cur_w;
-                    if color == cur_color && x <= end_x + 0.5 {
+                if let Some((cur_x, cur_w, cur_color, cur_label)) = &mut last_rects[depth] {
+                    let end_x = *cur_x + *cur_w;
+                    if color == *cur_color && x <= end_x + 0.5 && label == cur_label {
                         let new_end = (x + width).max(end_x);
-                        last_rects[depth] = Some((cur_x, new_end - cur_x, cur_color));
+                        *cur_w = new_end - *cur_x;
                         continue;
                     } else {
                         let y = y_offset + depth as f32 * LANE_HEIGHT;
                         let rect = Rectangle {
-                            x: cur_x,
+                            x: *cur_x,
                             y: y + 1.0,
                             width: cur_w.max(1.0),
                             height: LANE_HEIGHT - 2.0,
                         };
 
-                        frame.fill_rectangle(rect.position(), rect.size(), cur_color);
+                        frame.fill_rectangle(rect.position(), rect.size(), *cur_color);
 
                         frame.stroke(
                             &canvas::Path::rectangle(rect.position(), rect.size()),
@@ -275,13 +276,27 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                                 .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.7))
                                 .with_width(1.0),
                         );
+
+                        if rect.width > 20.0 {
+                            let mut truncated_label = cur_label.clone();
+                            if truncated_label.len() > (rect.width / 6.0) as usize {
+                                truncated_label.truncate((rect.width / 6.0) as usize);
+                            }
+                            frame.fill_text(canvas::Text {
+                                content: truncated_label,
+                                position: Point::new(rect.x + 2.0, rect.y + 2.0),
+                                color: Color::WHITE,
+                                size: 10.0.into(),
+                                ..Default::default()
+                            });
+                        }
                     }
                 }
-                last_rects[depth] = Some((x, width, color));
+                last_rects[depth] = Some((x, width, color, label.clone()));
             }
 
             for (depth, rect) in last_rects.into_iter().enumerate() {
-                if let Some((cur_x, cur_w, cur_color)) = rect {
+                if let Some((cur_x, cur_w, cur_color, cur_label)) = rect {
                     let y = y_offset + depth as f32 * LANE_HEIGHT;
                     let rect = Rectangle {
                         x: cur_x,
@@ -298,6 +313,20 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                             .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.7))
                             .with_width(1.0),
                     );
+
+                    if rect.width > 20.0 {
+                        let mut truncated_label = cur_label;
+                        if truncated_label.len() > (rect.width / 6.0) as usize {
+                            truncated_label.truncate((rect.width / 6.0) as usize);
+                        }
+                        frame.fill_text(canvas::Text {
+                            content: truncated_label,
+                            position: Point::new(rect.x + 2.0, rect.y + 2.0),
+                            color: Color::WHITE,
+                            size: 10.0.into(),
+                            ..Default::default()
+                        });
+                    }
                 }
             }
 
