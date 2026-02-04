@@ -19,6 +19,7 @@ pub fn main() -> iced::Result {
     iced::application(Lineme::new, Lineme::update, Lineme::view)
         .title(Lineme::title)
         .font(include_bytes!("../assets/MaterialIcons-Regular.ttf"))
+        .subscription(Lineme::subscription)
         .run()
 }
 
@@ -115,6 +116,16 @@ impl Lineme {
             },
             initial_task,
         )
+    }
+
+    fn subscription(&self) -> iced::Subscription<Message> {
+        iced::event::listen_with(|event, _status, _id| {
+            if let iced::Event::Window(iced::window::Event::FileDropped(path)) = event {
+                Some(Message::FileSelected(path))
+            } else {
+                None
+            }
+        })
     }
 
     fn title(&self) -> String {
