@@ -183,40 +183,29 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     .with_width(1.0),
             );
 
-            if !thread.is_collapsed {
-                let mut last_rects: Vec<Option<(f32, f32, Color)>> =
-                    vec![None; (thread.max_depth + 1) as usize];
+            let mut last_rects: Vec<Option<(f32, f32, Color)>> =
+                vec![None; (thread.max_depth + 1) as usize];
 
-                for event in &thread.events {
-                    let x = (event.start_ns.saturating_sub(self.min_ns) as f64
-                        * self.zoom_level as f64) as f32
-                        + LABEL_WIDTH;
-                    let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
-                    let depth = event.depth as usize;
-                    let color = event.color;
-
-                    if let Some((cur_x, cur_w, cur_color)) = last_rects[depth] {
-                        let end_x = cur_x + cur_w;
-                        if color == cur_color && x <= end_x + 0.5 {
-                            let new_end = (x + width).max(end_x);
-                            last_rects[depth] = Some((cur_x, new_end - cur_x, cur_color));
-                            continue;
-                        } else {
-                            // Draw previous
-                            let y = y_offset + depth as f32 * LANE_HEIGHT;
-                            frame.fill_rectangle(
-                                Point::new(cur_x, y + 1.0),
-                                Size::new(cur_w.max(1.0), LANE_HEIGHT - 2.0),
-                                cur_color,
-                            );
-                        }
-                    }
-                    last_rects[depth] = Some((x, width, color));
+            for event in &thread.events {
+                if thread.is_collapsed && event.depth > 0 {
+                    continue;
                 }
 
-                // Draw remaining rects
-                for (depth, rect) in last_rects.into_iter().enumerate() {
-                    if let Some((cur_x, cur_w, cur_color)) = rect {
+                let x = (event.start_ns.saturating_sub(self.min_ns) as f64 * self.zoom_level as f64)
+                    as f32
+                    + LABEL_WIDTH;
+                let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
+                let depth = event.depth as usize;
+                let color = event.color;
+
+                if let Some((cur_x, cur_w, cur_color)) = last_rects[depth] {
+                    let end_x = cur_x + cur_w;
+                    if color == cur_color && x <= end_x + 0.5 {
+                        let new_end = (x + width).max(end_x);
+                        last_rects[depth] = Some((cur_x, new_end - cur_x, cur_color));
+                        continue;
+                    } else {
+                        // Draw previous
                         let y = y_offset + depth as f32 * LANE_HEIGHT;
                         frame.fill_rectangle(
                             Point::new(cur_x, y + 1.0),
@@ -225,10 +214,25 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                         );
                     }
                 }
+                last_rects[depth] = Some((x, width, color));
+            }
 
-                // Draw selected highlight if any
-                if let Some(selected) = self.selected_event {
-                    if selected.thread_id == thread.thread_id {
+            // Draw remaining rects
+            for (depth, rect) in last_rects.into_iter().enumerate() {
+                if let Some((cur_x, cur_w, cur_color)) = rect {
+                    let y = y_offset + depth as f32 * LANE_HEIGHT;
+                    frame.fill_rectangle(
+                        Point::new(cur_x, y + 1.0),
+                        Size::new(cur_w.max(1.0), LANE_HEIGHT - 2.0),
+                        cur_color,
+                    );
+                }
+            }
+
+            // Draw selected highlight if any
+            if let Some(selected) = self.selected_event {
+                if selected.thread_id == thread.thread_id {
+                    if !thread.is_collapsed || selected.depth == 0 {
                         let x = (selected.start_ns.saturating_sub(self.min_ns) as f64
                             * self.zoom_level as f64) as f32
                             + LABEL_WIDTH;
@@ -246,9 +250,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                         );
                     }
                 }
-            } else {
-                // Draw a simple summary line if collapsed?
-                // For now just leave it empty.
             }
 
             y_offset += lane_total_height + LANE_SPACING;
@@ -409,11 +410,12 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                             (thread.max_depth + 1) as f32 * LANE_HEIGHT
                         };
 
-                        if !thread.is_collapsed
-                            && position.y >= y_offset
-                            && position.y < y_offset + lane_total_height
-                        {
+                        if position.y >= y_offset && position.y < y_offset + lane_total_height {
                             for event in &thread.events {
+                                if thread.is_collapsed && event.depth > 0 {
+                                    continue;
+                                }
+
                                 let x = (event.start_ns.saturating_sub(self.min_ns) as f64
                                     * self.zoom_level as f64)
                                     as f32

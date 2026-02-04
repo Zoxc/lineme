@@ -254,16 +254,6 @@ impl Lineme {
             button(text(SETTINGS_ICON).font(ICON_FONT)).on_press(Message::OpenSettings)
         ];
 
-        let header = if !self.files.is_empty() && !self.show_settings {
-            header.push(pick_list(
-                &ViewType::ALL[..],
-                Some(self.files[self.active_tab].view_type),
-                Message::ViewChanged,
-            ))
-        } else {
-            header.push(Space::new().width(Length::Shrink))
-        };
-
         let header = header
             .push(
                 button(
@@ -280,10 +270,31 @@ impl Lineme {
         let content: Element<'_, Message> = if self.show_settings {
             self.settings_view()
         } else if let Some(file) = self.files.get(self.active_tab) {
-            match file.view_type {
+            let inner_view = match file.view_type {
                 ViewType::Stats => self.file_view(file),
                 ViewType::Timeline => self.timeline_view(file),
-            }
+            };
+
+            let view_selector_bar = container(
+                row![
+                    text("View:"),
+                    pick_list(
+                        &ViewType::ALL[..],
+                        Some(file.view_type),
+                        Message::ViewChanged,
+                    ),
+                ]
+                .spacing(10)
+                .padding(5)
+                .align_y(Alignment::Center)
+            )
+            .width(Length::Fill)
+            .style(|theme: &iced::Theme| {
+                let palette = theme.extended_palette();
+                container::Style::default().background(palette.background.weak.color)
+            });
+
+            column![view_selector_bar, inner_view].into()
         } else {
             container(text("Open a file to start").size(20))
                 .width(Length::Fill)
