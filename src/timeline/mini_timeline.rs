@@ -117,7 +117,7 @@ impl Program<Message> for MiniTimelineProgram {
             relative_ns += nice_interval;
         }
 
-        let total_width = total_ns as f32 * self.zoom_level;
+        let total_width = (total_ns as f64 * self.zoom_level as f64).ceil() as f32;
         if total_width > 0.0 {
             // Map the main timeline viewport into the full width of the mini timeline
             let events_width = bounds.width;

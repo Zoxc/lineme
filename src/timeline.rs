@@ -137,7 +137,7 @@ pub fn view<'a>(
 
     let total_height = total_timeline_height(&timeline_data.threads);
 
-    let events_width = total_ns as f32 * zoom_level;
+    let events_width = (total_ns as f64 * zoom_level as f64).ceil() as f32;
 
     let mini_timeline_canvas = Canvas::new(MiniTimelineProgram {
         min_ns: timeline_data.min_ns,

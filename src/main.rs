@@ -106,6 +106,7 @@ struct FileData {
     scroll_offset: iced::Vector,
     viewport_width: f32,
     viewport_height: f32,
+    initial_fit_done: bool,
 }
 
 struct SettingsPage {
@@ -206,8 +207,6 @@ impl Lineme {
                 );
             }
             Message::FileLoaded(path, stats) => {
-                let total_ns = stats.timeline.max_ns - stats.timeline.min_ns;
-                let zoom_level = 1000.0 / total_ns.max(1) as f32; // Default to 1000px wide
                 self.files.push(FileData { 
                     path, 
                     stats,
@@ -215,10 +214,11 @@ impl Lineme {
                     color_mode: ColorMode::default(),
                     selected_event: None,
                     hovered_event: None,
-                    zoom_level,
+                    zoom_level: 1.0,
                     scroll_offset: iced::Vector::default(),
                     viewport_width: 0.0,
                     viewport_height: 0.0,
+                    initial_fit_done: false,
                 });
                 self.active_tab = self.files.len() - 1;
                 self.show_settings = false;
@@ -268,15 +268,12 @@ impl Lineme {
                     let start_ns = event_rel_start.saturating_sub(half_pad).min(total_ns);
                     let end_ns = (event_rel_end + half_pad).min(total_ns);
 
-                    let start_fraction = start_ns as f32 / total_ns as f32;
-                    let _end_fraction = end_ns as f32 / total_ns as f32;
-
                     // Zoom so the selected range fills the viewport.
-                    let target_ns = (end_ns.saturating_sub(start_ns)).max(1) as f32;
-                    file.zoom_level = viewport_width / target_ns;
+                    let target_ns = (end_ns.saturating_sub(start_ns)).max(1) as f64;
+                    file.zoom_level = (viewport_width as f64 / target_ns) as f32;
 
-                    let total_width = (total_ns as f32) * file.zoom_level;
-                    let target_x = start_fraction * total_width;
+                    let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
+                    let target_x = (start_ns as f64 * file.zoom_level as f64) as f32;
                     file.scroll_offset.x = target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
 
                     return scroll_to(
@@ -303,7 +300,7 @@ impl Lineme {
                     file.scroll_offset.x = x_on_canvas * zoom_factor - x;
 
                     let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
-                    let total_width = total_ns as f32 * file.zoom_level;
+                    let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
                     let viewport_width = file.viewport_width.max(0.0);
                     let max_scroll = (total_width - viewport_width).max(0.0);
                     file.scroll_offset.x = file.scroll_offset.x.clamp(0.0, max_scroll);
@@ -323,11 +320,18 @@ impl Lineme {
             } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     file.scroll_offset = offset;
+                    let first_time = file.viewport_width == 0.0 && viewport_width > 0.0;
                     if viewport_width > 0.0 {
                         file.viewport_width = viewport_width;
                     }
                     if viewport_height > 0.0 {
                         file.viewport_height = viewport_height;
+                    }
+
+                    if first_time || (viewport_width > 0.0 && !file.initial_fit_done) {
+                        let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                        file.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f32;
+                        file.initial_fit_done = true;
                     }
                 }
             }
@@ -337,7 +341,7 @@ impl Lineme {
             } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
-                    let total_width = total_ns as f32 * file.zoom_level;
+                    let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
                     if total_width > 0.0 {
                         let viewport_width = viewport_width.max(1.0);
                         let target_center = fraction as f32 * total_width;
@@ -365,7 +369,7 @@ impl Lineme {
                     let range_fraction = (end_fraction - start_fraction).max(0.0) as f64;
                     let target_ns = (range_fraction * total_ns_f64).max(1.0);
                     file.zoom_level = viewport_width / target_ns as f32;
-                    let total_width = total_ns as f32 * file.zoom_level;
+                    let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
                     let target_x = start_fraction * total_width;
                     file.scroll_offset.x = target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
                     return scroll_to(
@@ -380,7 +384,7 @@ impl Lineme {
             Message::TimelinePanned { delta } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
-                    let total_width = total_ns as f32 * file.zoom_level;
+                    let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
                     let viewport_width = file.viewport_width.max(0.0);
                     let max_scroll_x = (total_width - viewport_width).max(0.0);
 
@@ -403,7 +407,12 @@ impl Lineme {
             Message::ResetView => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
-                    file.zoom_level = 1000.0 / total_ns.max(1) as f32;
+                    let viewport_width = file.viewport_width.max(0.0);
+                    if viewport_width > 0.0 {
+                        file.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f32;
+                    } else {
+                        file.zoom_level = 1000.0 / total_ns.max(1) as f32;
+                    }
                     file.scroll_offset = iced::Vector::default();
                     return scroll_to(timeline_id(), AbsoluteOffset { x: 0.0, y: 0.0 });
                 }
