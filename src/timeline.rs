@@ -55,6 +55,7 @@ pub struct TimelineEvent {
     pub additional_data: Vec<String>,
     pub payload_integer: Option<u64>,
     pub color: Color,
+    pub is_thread_root: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +118,46 @@ pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f32 {
 }
 
 pub fn build_thread_group_events(threads: &[Arc<ThreadData>]) -> (Vec<TimelineEvent>, u32) {
+    if threads.len() > 1 {
+        let mut events = Vec::new();
+
+        for thread in threads {
+            let mut start_ns = u64::MAX;
+            let mut end_ns = 0u64;
+
+            for event in &thread.events {
+                start_ns = start_ns.min(event.start_ns);
+                end_ns = end_ns.max(event.start_ns.saturating_add(event.duration_ns));
+            }
+
+            if start_ns != u64::MAX {
+                events.push(TimelineEvent {
+                    label: format!("Thread {}", thread.thread_id),
+                    start_ns,
+                    duration_ns: end_ns.saturating_sub(start_ns),
+                    depth: 0,
+                    thread_id: thread.thread_id,
+                    event_kind: "Thread".to_string(),
+                    additional_data: Vec::new(),
+                    payload_integer: None,
+                    color: Color::from_rgb(0.85, 0.87, 0.9),
+                    is_thread_root: true,
+                });
+
+                for event in &thread.events {
+                    let mut event = event.clone();
+                    event.depth = event.depth.saturating_add(1);
+                    event.is_thread_root = false;
+                    events.push(event);
+                }
+            }
+        }
+
+        events.sort_by_key(|event| (event.start_ns, event.thread_id, event.depth));
+        let max_depth = events.iter().map(|event| event.depth).max().unwrap_or(0);
+        return (events, max_depth);
+    }
+
     let mut events = Vec::new();
     for thread in threads {
         events.extend(thread.events.iter().cloned());
@@ -135,6 +176,7 @@ pub fn build_thread_group_events(threads: &[Arc<ThreadData>]) -> (Vec<TimelineEv
             }
         }
         event.depth = stack.len() as u32;
+        event.is_thread_root = false;
         stack.push(end_ns);
     }
 
@@ -552,7 +594,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     .with_width(1.0),
             );
 
-            let mut last_rects: Vec<Option<(f32, f32, Color, String)>> =
+            let mut last_rects: Vec<Option<(f32, f32, Color, String, bool)>> =
                 vec![None; (group.max_depth + 1) as usize];
 
             for event in &group.events {
@@ -574,15 +616,26 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
 
                 let depth = event.depth as usize;
-                let color = match self.color_mode {
-                    ColorMode::Kind => color_from_label(&event.event_kind),
-                    ColorMode::Event => color_from_label(&event.label),
+                let color = if event.is_thread_root {
+                    event.color
+                } else {
+                    match self.color_mode {
+                        ColorMode::Kind => color_from_label(&event.event_kind),
+                        ColorMode::Event => color_from_label(&event.label),
+                    }
                 };
                 let label = &event.label;
+                let is_thread_root = event.is_thread_root;
 
-                if let Some((cur_x, cur_w, cur_color, cur_label)) = &mut last_rects[depth] {
+                if let Some((cur_x, cur_w, cur_color, cur_label, cur_is_root)) =
+                    &mut last_rects[depth]
+                {
                     let end_x = *cur_x + *cur_w;
-                    if color == *cur_color && x <= end_x + 0.5 && label == cur_label {
+                    if !is_thread_root
+                        && color == *cur_color
+                        && x <= end_x + 0.5
+                        && label == cur_label
+                    {
                         let new_end = (x + width).max(end_x);
                         *cur_w = new_end - *cur_x;
                         continue;
@@ -597,10 +650,16 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
                         frame.fill_rectangle(rect.position(), rect.size(), *cur_color);
 
+                        let border_color = if *cur_is_root {
+                            Color::from_rgba(0.0, 0.0, 0.0, 0.35)
+                        } else {
+                            Color::from_rgba(0.0, 0.0, 0.0, 0.2)
+                        };
+
                         frame.stroke(
                             &canvas::Path::rectangle(rect.position(), rect.size()),
                             canvas::Stroke::default()
-                                .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.2))
+                                .with_color(border_color)
                                 .with_width(1.0),
                         );
 
@@ -617,18 +676,22 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                                     rect.x + 2.0 + EVENT_LEFT_PADDING,
                                     rect.y + 2.0,
                                 ),
-                                color: Color::from_rgb(0.2, 0.2, 0.2),
+                                color: if *cur_is_root {
+                                    Color::from_rgb(0.35, 0.35, 0.35)
+                                } else {
+                                    Color::from_rgb(0.2, 0.2, 0.2)
+                                },
                                 size: 12.0.into(),
                                 ..Default::default()
                             });
                         }
                     }
                 }
-                last_rects[depth] = Some((x, width, color, label.clone()));
+                last_rects[depth] = Some((x, width, color, label.clone(), is_thread_root));
             }
 
             for (depth, rect) in last_rects.into_iter().enumerate() {
-                if let Some((cur_x, cur_w, cur_color, cur_label)) = rect {
+                if let Some((cur_x, cur_w, cur_color, cur_label, cur_is_root)) = rect {
                     let y = y_offset + depth as f32 * LANE_HEIGHT;
                     let rect = Rectangle {
                         x: cur_x,
@@ -639,10 +702,16 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
                     frame.fill_rectangle(rect.position(), rect.size(), cur_color);
 
+                    let border_color = if cur_is_root {
+                        Color::from_rgba(0.0, 0.0, 0.0, 0.35)
+                    } else {
+                        Color::from_rgba(0.0, 0.0, 0.0, 0.2)
+                    };
+
                     frame.stroke(
                         &canvas::Path::rectangle(rect.position(), rect.size()),
                         canvas::Stroke::default()
-                            .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.2))
+                            .with_color(border_color)
                             .with_width(1.0),
                     );
 
@@ -656,7 +725,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         frame.fill_text(canvas::Text {
                             content: truncated_label,
                             position: Point::new(rect.x + 2.0 + EVENT_LEFT_PADDING, rect.y + 2.0),
-                            color: Color::from_rgb(0.2, 0.2, 0.2),
+                            color: if cur_is_root {
+                                Color::from_rgb(0.35, 0.35, 0.35)
+                            } else {
+                                Color::from_rgb(0.2, 0.2, 0.2)
+                            },
                             size: 12.0.into(),
                             ..Default::default()
                         });

@@ -1034,6 +1034,7 @@ fn load_profiling_data(path: &Path) -> Result<Stats, String> {
                     additional_data,
                     payload_integer,
                     color: color_from_label(&event.label),
+                    is_thread_root: false,
                 });
             }
         }
