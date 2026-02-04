@@ -1,13 +1,13 @@
 mod timeline;
 
-use iced::widget::{button, column, container, pick_list, row, scrollable, text, Space};
-    use iced::widget::scrollable::AbsoluteOffset;
-use iced::widget::operation::scroll_to;
-use iced::{Alignment, Element, Length, Task};
-use iced_aw::{tab_bar, TabLabel};
-use std::path::{Path, PathBuf};
-use std::collections::HashMap;
 use analyzeme::ProfilingData;
+use iced::widget::operation::scroll_to;
+use iced::widget::scrollable::AbsoluteOffset;
+use iced::widget::{Space, button, column, container, pick_list, row, scrollable, text};
+use iced::{Alignment, Element, Length, Task};
+use iced_aw::{TabLabel, tab_bar};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use timeline::{ColorMode, *};
 
 pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
@@ -80,7 +80,8 @@ fn neutral_pick_list_style(
                 color: border_grey,
             },
         },
-        iced::widget::pick_list::Status::Hovered | iced::widget::pick_list::Status::Opened { .. } => {
+        iced::widget::pick_list::Status::Hovered
+        | iced::widget::pick_list::Status::Opened { .. } => {
             let hover_bg = iced::Color::from_rgb(0.97, 0.97, 0.97);
             iced::widget::pick_list::Style {
                 text_color: base_text,
@@ -111,19 +112,27 @@ enum Message {
     EventSelected(TimelineEvent),
     EventDoubleClicked(TimelineEvent),
     EventHovered(Option<TimelineEvent>),
-    TimelineZoomed { delta: f32, x: f32 },
+    TimelineZoomed {
+        delta: f32,
+        x: f32,
+    },
     TimelineScroll {
         offset: iced::Vector,
         viewport_width: f32,
         viewport_height: f32,
     },
-    MiniTimelineJump { fraction: f64, viewport_width: f32 },
+    MiniTimelineJump {
+        fraction: f64,
+        viewport_width: f32,
+    },
     MiniTimelineZoomTo {
         start_fraction: f32,
         end_fraction: f32,
         viewport_width: f32,
     },
-    TimelinePanned { delta: iced::Vector },
+    TimelinePanned {
+        delta: iced::Vector,
+    },
     ResetView,
     ToggleThreadCollapse(u64),
     CollapseAllThreads,
@@ -163,7 +172,7 @@ struct SettingsPage {
 impl Lineme {
     fn new() -> (Self, Task<Message>) {
         let mut initial_task = Task::none();
-        
+
         if let Some(path_str) = std::env::args().nth(1) {
             let path = PathBuf::from(path_str);
             initial_task = Task::perform(
@@ -258,8 +267,8 @@ impl Lineme {
                 );
             }
             Message::FileLoaded(path, stats) => {
-                self.files.push(FileData { 
-                    path, 
+                self.files.push(FileData {
+                    path,
                     stats,
                     view_type: ViewType::default(),
                     color_mode: ColorMode::default(),
@@ -306,7 +315,12 @@ impl Lineme {
             }
             Message::EventDoubleClicked(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let total_ns = file.stats.timeline.max_ns.saturating_sub(file.stats.timeline.min_ns).max(1);
+                    let total_ns = file
+                        .stats
+                        .timeline
+                        .max_ns
+                        .saturating_sub(file.stats.timeline.min_ns)
+                        .max(1);
                     let viewport_width = file.viewport_width.max(1.0);
 
                     let event_rel_start = event.start_ns.saturating_sub(file.stats.timeline.min_ns);
@@ -325,7 +339,8 @@ impl Lineme {
 
                     let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
                     let target_x = (start_ns as f64 * file.zoom_level as f64) as f32;
-                    file.scroll_offset.x = target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
+                    file.scroll_offset.x =
+                        target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
 
                     return scroll_to(
                         timeline_id(),
@@ -345,7 +360,7 @@ impl Lineme {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     let zoom_factor = if delta > 0.0 { 1.1 } else { 0.9 };
                     file.zoom_level *= zoom_factor;
-                    
+
                     // Adjust scroll offset to keep x position stable
                     let x_on_canvas = x + file.scroll_offset.x;
                     file.scroll_offset.x = x_on_canvas * zoom_factor - x;
@@ -422,7 +437,8 @@ impl Lineme {
                     file.zoom_level = viewport_width / target_ns as f32;
                     let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
                     let target_x = start_fraction * total_width;
-                    file.scroll_offset.x = target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
+                    file.scroll_offset.x =
+                        target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
@@ -439,12 +455,15 @@ impl Lineme {
                     let viewport_width = file.viewport_width.max(0.0);
                     let max_scroll_x = (total_width - viewport_width).max(0.0);
 
-                    let total_height = timeline::total_timeline_height(&file.stats.timeline.threads);
+                    let total_height =
+                        timeline::total_timeline_height(&file.stats.timeline.threads);
                     let viewport_height = file.viewport_height.max(0.0);
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
 
-                    file.scroll_offset.x = (file.scroll_offset.x - delta.x).clamp(0.0, max_scroll_x);
-                    file.scroll_offset.y = (file.scroll_offset.y - delta.y).clamp(0.0, max_scroll_y);
+                    file.scroll_offset.x =
+                        (file.scroll_offset.x - delta.x).clamp(0.0, max_scroll_x);
+                    file.scroll_offset.y =
+                        (file.scroll_offset.y - delta.y).clamp(0.0, max_scroll_y);
 
                     return scroll_to(
                         timeline_id(),
@@ -473,10 +492,17 @@ impl Lineme {
             }
             Message::ToggleThreadCollapse(thread_id) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    if let Some(thread) = file.stats.timeline.threads.iter_mut().find(|t| t.thread_id == thread_id) {
+                    if let Some(thread) = file
+                        .stats
+                        .timeline
+                        .threads
+                        .iter_mut()
+                        .find(|t| t.thread_id == thread_id)
+                    {
                         thread.is_collapsed = !thread.is_collapsed;
                     }
-                    let total_height = timeline::total_timeline_height(&file.stats.timeline.threads);
+                    let total_height =
+                        timeline::total_timeline_height(&file.stats.timeline.threads);
                     if file.scroll_offset.y > total_height {
                         file.scroll_offset.y = total_height;
                         return scroll_to(
@@ -494,7 +520,8 @@ impl Lineme {
                     for thread in &mut file.stats.timeline.threads {
                         thread.is_collapsed = true;
                     }
-                    let total_height = timeline::total_timeline_height(&file.stats.timeline.threads);
+                    let total_height =
+                        timeline::total_timeline_height(&file.stats.timeline.threads);
                     if file.scroll_offset.y > total_height {
                         file.scroll_offset.y = total_height;
                         return scroll_to(
@@ -512,7 +539,8 @@ impl Lineme {
                     for thread in &mut file.stats.timeline.threads {
                         thread.is_collapsed = false;
                     }
-                    let total_height = timeline::total_timeline_height(&file.stats.timeline.threads);
+                    let total_height =
+                        timeline::total_timeline_height(&file.stats.timeline.threads);
                     if file.scroll_offset.y > total_height {
                         file.scroll_offset.y = total_height;
                         return scroll_to(
@@ -540,7 +568,7 @@ impl Lineme {
             .style(|theme: &iced::Theme, status: iced_aw::tab_bar::Status| {
                 let palette = theme.extended_palette();
                 let mut style = iced_aw::tab_bar::Style::default();
-                
+
                 match status {
                     iced_aw::tab_bar::Status::Active => {
                         // Use flat styling for active tab — remove the strong
@@ -565,13 +593,15 @@ impl Lineme {
             });
 
         for (i, file) in self.files.iter().enumerate() {
-            let label = file.path.file_name()
+            let label = file
+                .path
+                .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "Unknown".to_string());
-            
+
             bar = bar.push(i, TabLabel::IconText(FILE_ICON, label));
         }
-        
+
         if !self.files.is_empty() && !self.show_settings {
             bar = bar.set_active_tab(&self.active_tab);
         }
@@ -635,7 +665,7 @@ impl Lineme {
             ]
             .spacing(10)
             .padding(5)
-            .align_y(Alignment::Center)
+            .align_y(Alignment::Center),
         )
         .style(|_theme: &iced::Theme| {
             // Use explicit greys for a consistent look regardless of theme.
@@ -659,22 +689,33 @@ impl Lineme {
             let view_selector_bar = container(
                 row![
                     text("View:").size(12),
-                    pick_list(&ViewType::ALL[..], Some(file.view_type), Message::ViewChanged)
-                        .text_size(12)
-                        .padding(3)
-                        .style(neutral_pick_list_style),
+                    pick_list(
+                        &ViewType::ALL[..],
+                        Some(file.view_type),
+                        Message::ViewChanged
+                    )
+                    .text_size(12)
+                    .padding(3)
+                    .style(neutral_pick_list_style),
                     if file.view_type == ViewType::Timeline {
                         Element::from(
                             row![
                                 text("Color by:").size(12),
-                                pick_list(&ColorMode::ALL[..], Some(file.color_mode), Message::ColorModeChanged)
-                                    .text_size(12)
-                                    .padding(3)
-                                    .style(neutral_pick_list_style),
+                                pick_list(
+                                    &ColorMode::ALL[..],
+                                    Some(file.color_mode),
+                                    Message::ColorModeChanged
+                                )
+                                .text_size(12)
+                                .padding(3)
+                                .style(neutral_pick_list_style),
                                 button(
-                                    row![text(RESET_ICON).font(ICON_FONT), text("Reset View").size(12.0)]
-                                        .spacing(5)
-                                        .align_y(Alignment::Center),
+                                    row![
+                                        text(RESET_ICON).font(ICON_FONT),
+                                        text("Reset View").size(12.0)
+                                    ]
+                                    .spacing(5)
+                                    .align_y(Alignment::Center),
                                 )
                                 .style(|theme: &iced::Theme, status: button::Status| {
                                     let palette = theme.extended_palette();
@@ -683,10 +724,14 @@ impl Lineme {
                                         ..Default::default()
                                     };
                                     match status {
-                                        button::Status::Hovered | button::Status::Pressed => button::Style {
-                                            background: Some(palette.background.weak.color.into()),
-                                            ..base
-                                        },
+                                        button::Status::Hovered | button::Status::Pressed => {
+                                            button::Style {
+                                                background: Some(
+                                                    palette.background.weak.color.into(),
+                                                ),
+                                                ..base
+                                            }
+                                        }
                                         _ => base,
                                     }
                                 })
@@ -702,7 +747,7 @@ impl Lineme {
                 ]
                 .spacing(10)
                 .padding(5)
-                .align_y(Alignment::Center)
+                .align_y(Alignment::Center),
             )
             .width(Length::Fill)
             .style(|_theme: &iced::Theme| {
@@ -716,7 +761,9 @@ impl Lineme {
                     })
             });
 
-            column![view_selector_bar, inner_view].height(Length::Fill).into()
+            column![view_selector_bar, inner_view]
+                .height(Length::Fill)
+                .into()
         } else {
             container(text("Open a file to start").size(20))
                 .width(Length::Fill)
@@ -733,31 +780,50 @@ impl Lineme {
         // Use the same compact label/value layout and theme-aware container used
         // elsewhere so the stats panel visually matches the rest of the app.
         let stats_col = column![
-            row![text("File:").width(Length::Fixed(120.0)).size(12), text(format!("{}", file.path.display())).size(12)],
-            row![text("Command:").width(Length::Fixed(120.0)).size(12), text(&file.stats.cmd).size(12)],
-            row![text("PID:").width(Length::Fixed(120.0)).size(12), text(format!("{}", file.stats.pid)).size(12)],
-            row![text("Event count:").width(Length::Fixed(120.0)).size(12), text(format!("{}", file.stats.event_count)).size(12)],
-            row![text("Total duration:").width(Length::Fixed(120.0)).size(12), text(format_duration(file.stats.timeline.max_ns - file.stats.timeline.min_ns)).size(12)],
+            row![
+                text("File:").width(Length::Fixed(120.0)).size(12),
+                text(format!("{}", file.path.display())).size(12)
+            ],
+            row![
+                text("Command:").width(Length::Fixed(120.0)).size(12),
+                text(&file.stats.cmd).size(12)
+            ],
+            row![
+                text("PID:").width(Length::Fixed(120.0)).size(12),
+                text(format!("{}", file.stats.pid)).size(12)
+            ],
+            row![
+                text("Event count:").width(Length::Fixed(120.0)).size(12),
+                text(format!("{}", file.stats.event_count)).size(12)
+            ],
+            row![
+                text("Total duration:").width(Length::Fixed(120.0)).size(12),
+                text(format_duration(
+                    file.stats.timeline.max_ns - file.stats.timeline.min_ns
+                ))
+                .size(12)
+            ],
         ]
         .spacing(8)
         .padding(10);
 
-        let content = container(stats_col)
-            .width(Length::Fill)
-            .padding(12)
-            .style(|theme: &iced::Theme| {
-                // Match details panel style from timeline: use the theme's background
-                // base color and a subtle strong-color border so the panel reads as
-                // a cohesive block in the layout.
-                let palette = theme.extended_palette();
-                container::Style::default()
-                    .background(palette.background.base.color)
-                    .border(iced::Border {
-                        color: palette.background.strong.color,
-                        width: 1.0,
-                        ..Default::default()
-                    })
-            });
+        let content =
+            container(stats_col)
+                .width(Length::Fill)
+                .padding(12)
+                .style(|theme: &iced::Theme| {
+                    // Match details panel style from timeline: use the theme's background
+                    // base color and a subtle strong-color border so the panel reads as
+                    // a cohesive block in the layout.
+                    let palette = theme.extended_palette();
+                    container::Style::default()
+                        .background(palette.background.base.color)
+                        .border(iced::Border {
+                            color: palette.background.strong.color,
+                            width: 1.0,
+                            ..Default::default()
+                        })
+                });
 
         scrollable(content)
             .width(Length::Fill)
@@ -784,23 +850,68 @@ impl Lineme {
         // the same themed container and compact label/value rows.
         let hints = column![
             text("Hints").size(16),
-            row![text("Left click:").width(Length::Fixed(160.0)).size(12), text("Select an event and show details").size(12)],
-            row![text("Double click:").width(Length::Fixed(160.0)).size(12), text("Zoom to the clicked event (with padding)").size(12)],
-            row![text("Left click + drag (events area):").width(Length::Fixed(160.0)).size(12), text("Pan the timeline").size(12)],
-            row![text("Mouse wheel:").width(Length::Fixed(160.0)).size(12), text("Zoom horizontally centered on the cursor (hold Ctrl to bypass)").size(12)],
-            row![text("Shift + mouse wheel:").width(Length::Fixed(160.0)).size(12), text("Pan horizontally").size(12)],
-            row![text("Mini timeline — left click:").width(Length::Fixed(160.0)).size(12), text("Jump the main view to that position").size(12)],
-            row![text("Mini timeline — right click + drag:").width(Length::Fixed(160.0)).size(12), text("Select a range to zoom the main view to").size(12)],
-            row![text("Thread label click:").width(Length::Fixed(160.0)).size(12), text("Toggle collapse/expand for that thread").size(12)],
-            row![text("Collapse/Expand buttons:").width(Length::Fixed(160.0)).size(12), text("Collapse or expand all threads").size(12)],
-            row![text("Scrollbars:").width(Length::Fixed(160.0)).size(12), text("Use scrollbars for precise horizontal/vertical navigation").size(12)],
+            row![
+                text("Left click:").width(Length::Fixed(160.0)).size(12),
+                text("Select an event and show details").size(12)
+            ],
+            row![
+                text("Double click:").width(Length::Fixed(160.0)).size(12),
+                text("Zoom to the clicked event (with padding)").size(12)
+            ],
+            row![
+                text("Left click + drag (events area):")
+                    .width(Length::Fixed(160.0))
+                    .size(12),
+                text("Pan the timeline").size(12)
+            ],
+            row![
+                text("Mouse wheel:").width(Length::Fixed(160.0)).size(12),
+                text("Zoom horizontally centered on the cursor (hold Ctrl to bypass)").size(12)
+            ],
+            row![
+                text("Shift + mouse wheel:")
+                    .width(Length::Fixed(160.0))
+                    .size(12),
+                text("Pan horizontally").size(12)
+            ],
+            row![
+                text("Mini timeline — left click:")
+                    .width(Length::Fixed(160.0))
+                    .size(12),
+                text("Jump the main view to that position").size(12)
+            ],
+            row![
+                text("Mini timeline — right click + drag:")
+                    .width(Length::Fixed(160.0))
+                    .size(12),
+                text("Select a range to zoom the main view to").size(12)
+            ],
+            row![
+                text("Thread label click:")
+                    .width(Length::Fixed(160.0))
+                    .size(12),
+                text("Toggle collapse/expand for that thread").size(12)
+            ],
+            row![
+                text("Collapse/Expand buttons:")
+                    .width(Length::Fixed(160.0))
+                    .size(12),
+                text("Collapse or expand all threads").size(12)
+            ],
+            row![
+                text("Scrollbars:").width(Length::Fixed(160.0)).size(12),
+                text("Use scrollbars for precise horizontal/vertical navigation").size(12)
+            ],
         ]
         .spacing(6)
         .padding(6);
 
         let settings_col = column![
             text("Settings").size(20),
-            row![text("Open files:").width(Length::Fixed(120.0)).size(12), text(format!("{}", self.files.len())).size(12)],
+            row![
+                text("Open files:").width(Length::Fixed(120.0)).size(12),
+                text(format!("{}", self.files.len())).size(12)
+            ],
             text("Welcome to Lineme Settings").size(12),
             container(hints).padding(6).style(|_theme: &iced::Theme| {
                 // subtle background to separate hints from other settings
@@ -830,12 +941,12 @@ impl Lineme {
 
 fn load_profiling_data(path: &Path) -> Result<Stats, String> {
     let stem = path.with_extension("");
-    
+
     let data = ProfilingData::new(&stem)
         .map_err(|e| format!("Failed to load profiling data from {:?}: {}", stem, e))?;
 
     let metadata = data.metadata();
-    
+
     let mut threads: HashMap<u64, Vec<TimelineEvent>> = HashMap::new();
     let mut min_ns = u64::MAX;
     let mut max_ns = 0;
@@ -843,18 +954,27 @@ fn load_profiling_data(path: &Path) -> Result<Stats, String> {
 
     for lightweight_event in data.iter() {
         event_count += 1;
-            let event = data.to_full_event(&lightweight_event);
+        let event = data.to_full_event(&lightweight_event);
         let thread_id = event.thread_id as u64;
 
-            if let analyzeme::EventPayload::Timestamp(timestamp) = &event.payload {
-                let (start_ns, end_ns) = match timestamp {
-                    analyzeme::Timestamp::Interval { start, end } => {
-                    let s = start.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
-                    let e = end.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
+        if let analyzeme::EventPayload::Timestamp(timestamp) = &event.payload {
+            let (start_ns, end_ns) = match timestamp {
+                analyzeme::Timestamp::Interval { start, end } => {
+                    let s = start
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos() as u64;
+                    let e = end
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos() as u64;
                     (s, e)
                 }
                 analyzeme::Timestamp::Instant(t) => {
-                    let ns = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
+                    let ns = t
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos() as u64;
                     (ns, ns)
                 }
             };
@@ -900,7 +1020,7 @@ fn load_profiling_data(path: &Path) -> Result<Stats, String> {
             stack.push(end_ns);
         }
     }
-    
+
     let mut thread_data_vec = Vec::new();
     for (thread_id, events) in threads {
         let max_depth = events.iter().map(|e| e.depth).max().unwrap_or(0);
@@ -911,7 +1031,7 @@ fn load_profiling_data(path: &Path) -> Result<Stats, String> {
             is_collapsed: false,
         });
     }
-    
+
     thread_data_vec.sort_by_key(|t| t.thread_id);
 
     Ok(Stats {

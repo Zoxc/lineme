@@ -1,5 +1,5 @@
-use crate::timeline::{ThreadData, LANE_HEIGHT, LANE_SPACING};
 use crate::Message;
+use crate::timeline::{LANE_HEIGHT, LANE_SPACING, ThreadData};
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Geometry, Program};
 use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme, Vector};
