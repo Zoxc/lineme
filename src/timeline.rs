@@ -192,7 +192,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                 }
 
                 let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
-                if width < 3.0 {
+                if width < 5.0 {
                     continue;
                 }
 
@@ -210,10 +210,20 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                         continue;
                     } else {
                         let y = y_offset + depth as f32 * LANE_HEIGHT;
-                        frame.fill_rectangle(
-                            Point::new(cur_x, y + 1.0),
-                            Size::new(cur_w.max(1.0), LANE_HEIGHT - 2.0),
-                            cur_color,
+                        let rect = Rectangle {
+                            x: cur_x,
+                            y: y + 1.0,
+                            width: cur_w.max(1.0),
+                            height: LANE_HEIGHT - 2.0,
+                        };
+
+                        frame.fill_rectangle(rect.position(), rect.size(), cur_color);
+
+                        frame.stroke(
+                            &canvas::Path::rectangle(rect.position(), rect.size()),
+                            canvas::Stroke::default()
+                                .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.7))
+                                .with_width(1.0),
                         );
                     }
                 }
@@ -223,10 +233,20 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
             for (depth, rect) in last_rects.into_iter().enumerate() {
                 if let Some((cur_x, cur_w, cur_color)) = rect {
                     let y = y_offset + depth as f32 * LANE_HEIGHT;
-                    frame.fill_rectangle(
-                        Point::new(cur_x, y + 1.0),
-                        Size::new(cur_w.max(1.0), LANE_HEIGHT - 2.0),
-                        cur_color,
+                    let rect = Rectangle {
+                        x: cur_x,
+                        y: y + 1.0,
+                        width: cur_w.max(1.0),
+                        height: LANE_HEIGHT - 2.0,
+                    };
+
+                    frame.fill_rectangle(rect.position(), rect.size(), cur_color);
+
+                    frame.stroke(
+                        &canvas::Path::rectangle(rect.position(), rect.size()),
+                        canvas::Stroke::default()
+                            .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.7))
+                            .with_width(1.0),
                     );
                 }
             }
