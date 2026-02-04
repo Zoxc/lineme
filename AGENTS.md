@@ -18,7 +18,15 @@ This document provides context and guidelines for AI agents working on the `line
 - **Messages:** The `Message` enum defines all possible interactions (opening files, switching tabs, etc.).
 - **Async Operations:** File loading and dialogs are handled via `iced::Task`.
 
+## File Overview
+- `src/main.rs`: Main application entry point, state management (Elm Architecture), and tab management.
+- `src/timeline.rs`: Core timeline visualization logic, including event details and coordinate mapping.
+- `src/timeline/header.rs`: Renders the time axis and markers at the top of the timeline.
+- `src/timeline/threads.rs`: Handles thread label rendering and interaction (collapse/expand).
+- `src/timeline/mini_timeline.rs`: Implements the high-level overview for quick navigation and zooming.
+
 ## Development Guidelines for Agents
+- **Update File Overview:** If you create, rename, or significantly change the responsibility of a file, update the "File Overview" section above.
 - **Dependency Management:** Always check `Cargo.toml` before assuming a crate is available. Note that `analyzeme` is used for reading files, while `measureme` provides low-level definitions.
 - **Iced API:** We use the `application(...)` builder pattern introduced in later `iced` versions. Avoid the older `Application` trait implementation if possible.
 - **Lifetimes:** When defining `view` or sub-view functions, explicitly use `Element<'_, Message>` to handle elided lifetimes correctly in `iced`.
