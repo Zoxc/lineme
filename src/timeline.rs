@@ -71,6 +71,8 @@ pub type ThreadGroupKey = usize;
 pub struct ThreadGroup {
     pub threads: ThreadGroupId,
     pub events: Vec<TimelineEvent>,
+    pub events_by_start: Vec<usize>,
+    pub events_by_end: Vec<usize>,
     pub max_depth: u32,
     pub is_collapsed: bool,
 }
@@ -117,7 +119,9 @@ pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f32 {
     total_height
 }
 
-pub fn build_thread_group_events(threads: &[Arc<ThreadData>]) -> (Vec<TimelineEvent>, u32) {
+pub fn build_thread_group_events(
+    threads: &[Arc<ThreadData>],
+) -> (Vec<TimelineEvent>, u32, Vec<usize>, Vec<usize>) {
     if threads.len() > 1 {
         let mut events = Vec::new();
 
@@ -155,7 +159,8 @@ pub fn build_thread_group_events(threads: &[Arc<ThreadData>]) -> (Vec<TimelineEv
 
         events.sort_by_key(|event| (event.start_ns, event.thread_id, event.depth));
         let max_depth = events.iter().map(|event| event.depth).max().unwrap_or(0);
-        return (events, max_depth);
+        let (events_by_start, events_by_end) = build_event_indices(&events);
+        return (events, max_depth, events_by_start, events_by_end);
     }
 
     let mut events = Vec::new();
@@ -181,7 +186,58 @@ pub fn build_thread_group_events(threads: &[Arc<ThreadData>]) -> (Vec<TimelineEv
     }
 
     let max_depth = events.iter().map(|event| event.depth).max().unwrap_or(0);
-    (events, max_depth)
+    let (events_by_start, events_by_end) = build_event_indices(&events);
+    (events, max_depth, events_by_start, events_by_end)
+}
+
+fn event_end_ns(event: &TimelineEvent) -> u64 {
+    event.start_ns.saturating_add(event.duration_ns)
+}
+
+fn build_event_indices(events: &[TimelineEvent]) -> (Vec<usize>, Vec<usize>) {
+    let mut events_by_start: Vec<usize> = (0..events.len()).collect();
+    events_by_start.sort_by_key(|&index| {
+        let event = &events[index];
+        (event.start_ns, event.thread_id, event.depth)
+    });
+
+    let mut events_by_end: Vec<usize> = (0..events.len()).collect();
+    events_by_end.sort_by_key(|&index| {
+        let event = &events[index];
+        (event_end_ns(event), event.start_ns, event.thread_id)
+    });
+
+    (events_by_start, events_by_end)
+}
+
+fn visible_event_indices(group: &ThreadGroup, ns_min: u64, ns_max: u64) -> Vec<usize> {
+    let events = &group.events;
+    let start_upper = group
+        .events_by_start
+        .partition_point(|&index| events[index].start_ns <= ns_max);
+    let end_lower = group
+        .events_by_end
+        .partition_point(|&index| event_end_ns(&events[index]) < ns_min);
+
+    let start_candidates = start_upper;
+    let end_candidates = group.events_by_end.len().saturating_sub(end_lower);
+    let mut indices = Vec::with_capacity(start_candidates.min(end_candidates));
+
+    if start_candidates <= end_candidates {
+        for &index in group.events_by_start[..start_upper].iter() {
+            if event_end_ns(&events[index]) >= ns_min {
+                indices.push(index);
+            }
+        }
+    } else {
+        for &index in group.events_by_end[end_lower..].iter() {
+            if events[index].start_ns <= ns_max {
+                indices.push(index);
+            }
+        }
+    }
+
+    indices
 }
 
 pub fn format_duration(ns: u64) -> String {
@@ -470,7 +526,15 @@ impl<'a> EventsProgram<'a> {
             };
 
             if position.y >= y_offset && position.y < y_offset + lane_total_height {
-                for event in &group.events {
+                let ns_min = (self.scroll_offset.x as f64 / self.zoom_level as f64).max(0.0) as u64
+                    + self.min_ns;
+                let ns_max = ((self.scroll_offset.x + self.viewport_width) as f64
+                    / self.zoom_level as f64)
+                    .max(0.0) as u64
+                    + self.min_ns;
+
+                for index in visible_event_indices(group, ns_min, ns_max) {
+                    let event = &group.events[index];
                     if group.is_collapsed && event.depth > 0 {
                         continue;
                     }
@@ -524,6 +588,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
         let x_min = self.scroll_offset.x;
         let x_max = self.scroll_offset.x + self.viewport_width;
+        let ns_min = (x_min as f64 / self.zoom_level as f64).max(0.0) as u64 + self.min_ns;
+        let ns_max = (x_max as f64 / self.zoom_level as f64).max(0.0) as u64 + self.min_ns;
 
         if total_ns > 0.0 {
             // ns per pixel given current zoom: 1 / zoom_level
@@ -597,7 +663,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             let mut last_rects: Vec<Option<(f32, f32, Color, String, bool)>> =
                 vec![None; (group.max_depth + 1) as usize];
 
-            for event in &group.events {
+            for index in visible_event_indices(group, ns_min, ns_max) {
+                let event = &group.events[index];
                 if group.is_collapsed && event.depth > 0 {
                     continue;
                 }
