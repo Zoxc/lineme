@@ -26,6 +26,7 @@ This document provides context and guidelines for AI agents working on the `line
 
 ## Timeline Features
 - **Visualization:** Multi-threaded timeline view using a custom `iced` Canvas program.
+    - **Optimization:** Skip drawing and interaction for events smaller than 5 pixels (calculated using zoom level) to improve performance.
 - **Zooming:** Use the mouse wheel to zoom in and out. Zoom is centered on the mouse position.
 - **Scrolling:** Horizontal and vertical scrolling to navigate large profiling traces.
 - **Event Selection:** Click on an event to select it. Selection is highlighted and details are shown in a dedicated panel.

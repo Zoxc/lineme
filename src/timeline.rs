@@ -191,10 +191,14 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     continue;
                 }
 
+                let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
+                if width < 3.0 {
+                    continue;
+                }
+
                 let x = (event.start_ns.saturating_sub(self.min_ns) as f64 * self.zoom_level as f64)
                     as f32
                     + LABEL_WIDTH;
-                let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
                 let depth = event.depth as usize;
                 let color = event.color;
 
@@ -416,12 +420,16 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                                     continue;
                                 }
 
+                                let width =
+                                    (event.duration_ns as f64 * self.zoom_level as f64) as f32;
+                                if width < 5.0 {
+                                    continue;
+                                }
+
                                 let x = (event.start_ns.saturating_sub(self.min_ns) as f64
                                     * self.zoom_level as f64)
                                     as f32
                                     + LABEL_WIDTH;
-                                let width =
-                                    (event.duration_ns as f64 * self.zoom_level as f64) as f32;
                                 let y = y_offset + event.depth as f32 * LANE_HEIGHT;
                                 let height = LANE_HEIGHT - 2.0;
 
