@@ -277,7 +277,33 @@ impl Lineme {
     fn view(&self) -> Element<'_, Message> {
         let mut bar = tab_bar::TabBar::new(Message::TabSelected)
             .on_close(Message::CloseTab)
-            .icon_font(ICON_FONT);
+            .icon_font(ICON_FONT)
+            .text_size(12.0)
+            .spacing(0.0)
+            .padding(8.0)
+            .style(|theme: &iced::Theme, status: iced_aw::tab_bar::Status| {
+                let palette = theme.extended_palette();
+                let mut style = iced_aw::tab_bar::Style::default();
+                
+                match status {
+                    iced_aw::tab_bar::Status::Active => {
+                        style.background = Some(palette.background.base.color.into());
+                        style.text_color = palette.background.base.text;
+                        style.tab_label_background = palette.background.base.color.into();
+                        style.tab_label_border_color = palette.primary.strong.color;
+                        style.tab_label_border_width = 2.0;
+                    }
+                    iced_aw::tab_bar::Status::Hovered => {
+                        style.tab_label_background = palette.background.strong.color.into();
+                        style.text_color = palette.background.strong.text;
+                    }
+                    _ => {
+                        style.tab_label_background = palette.background.weak.color.into();
+                        style.text_color = palette.background.weak.text;
+                    }
+                }
+                style
+            });
 
         for (i, file) in self.files.iter().enumerate() {
             let label = file.path.file_name()
@@ -291,24 +317,61 @@ impl Lineme {
             bar = bar.set_active_tab(&self.active_tab);
         }
 
-        let header = row![
-            bar,
-            Space::new().width(Length::Fill),
-            button(text(SETTINGS_ICON).font(ICON_FONT)).on_press(Message::OpenSettings)
-        ];
-
-        let header = header
-            .push(
+        let header = container(
+            row![
+                bar,
+                Space::new().width(Length::Fill),
+                button(text(SETTINGS_ICON).font(ICON_FONT).size(18))
+                    .style(|theme: &iced::Theme, status: button::Status| {
+                        let palette = theme.extended_palette();
+                        let base = button::Style {
+                            text_color: palette.background.weak.text,
+                            ..Default::default()
+                        };
+                        match status {
+                            button::Status::Hovered | button::Status::Pressed => button::Style {
+                                background: Some(palette.background.strong.color.into()),
+                                ..base
+                            },
+                            _ => base,
+                        }
+                    })
+                    .on_press(Message::OpenSettings),
                 button(
                     row![text(OPEN_ICON).font(ICON_FONT), text("Open")]
                         .spacing(5)
                         .align_y(Alignment::Center),
                 )
+                .style(|theme: &iced::Theme, status: button::Status| {
+                    let palette = theme.extended_palette();
+                    let base = button::Style {
+                        text_color: palette.background.weak.text,
+                        ..Default::default()
+                    };
+                    match status {
+                        button::Status::Hovered | button::Status::Pressed => button::Style {
+                            background: Some(palette.background.strong.color.into()),
+                            ..base
+                        },
+                        _ => base,
+                    }
+                })
                 .on_press(Message::OpenFile),
-            )
+            ]
             .spacing(10)
             .padding(5)
-            .align_y(Alignment::Center);
+            .align_y(Alignment::Center)
+        )
+        .style(|theme: &iced::Theme| {
+            let palette = theme.extended_palette();
+            container::Style::default()
+                .background(palette.background.weak.color)
+                .border(iced::Border {
+                    color: palette.background.strong.color,
+                    width: 1.0,
+                    ..Default::default()
+                })
+        });
 
         let content: Element<'_, Message> = if self.show_settings {
             self.settings_view()
@@ -320,12 +383,14 @@ impl Lineme {
 
             let view_selector_bar = container(
                 row![
-                    text("View:"),
+                    text("View:").size(12),
                     pick_list(
                         &ViewType::ALL[..],
                         Some(file.view_type),
                         Message::ViewChanged,
-                    ),
+                    )
+                    .text_size(12)
+                    .padding(3),
                     if file.view_type == ViewType::Timeline {
                         Element::from(
                             button(
@@ -333,6 +398,21 @@ impl Lineme {
                                     .spacing(5)
                                     .align_y(Alignment::Center),
                             )
+                            .style(|theme: &iced::Theme, status: button::Status| {
+                                let palette = theme.extended_palette();
+                                let base = button::Style {
+                                    text_color: palette.background.base.text,
+                                    ..Default::default()
+                                };
+                                match status {
+                                    button::Status::Hovered | button::Status::Pressed => button::Style {
+                                        background: Some(palette.background.weak.color.into()),
+                                        ..base
+                                    },
+                                    _ => base,
+                                }
+                            })
+                            .padding(3)
                             .on_press(Message::ResetView),
                         )
                     } else {
@@ -346,7 +426,13 @@ impl Lineme {
             .width(Length::Fill)
             .style(|theme: &iced::Theme| {
                 let palette = theme.extended_palette();
-                container::Style::default().background(palette.background.weak.color)
+                container::Style::default()
+                    .background(palette.background.base.color)
+                    .border(iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        ..Default::default()
+                    })
             });
 
             column![view_selector_bar, inner_view].height(Length::Fill).into()

@@ -5,7 +5,7 @@ use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Action;
 use iced::widget::canvas::{self, Canvas, Geometry, Program};
-use iced::widget::{column, container, scrollable, text};
+use iced::widget::{column, container, row, scrollable, text, Space};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 pub const LABEL_WIDTH: f32 = 150.0;
@@ -123,27 +123,72 @@ pub fn view<'a>(
     let display_event = selected_event.as_ref().or(hovered_event.as_ref());
 
     let details_panel = if let Some(event) = display_event {
-        container(
+        container(column![
+            row![text("Summary").size(14), Space::new().width(Length::Fill),]
+                .padding(5)
+                .align_y(iced::Alignment::Center),
+            container(Space::new().height(1.0))
+                .width(Length::Fill)
+                .style(|theme: &Theme| {
+                    let palette = theme.extended_palette();
+                    container::Style::default().background(palette.background.strong.color)
+                }),
             column![
-                text(format!("Event: {}", event.label)).size(20),
-                text(format!("Thread: {}", event.thread_id)),
-                text(format!(
-                    "Start: {}",
-                    format_duration(event.start_ns.saturating_sub(timeline_data.min_ns))
-                )),
-                text(format!("Duration: {}", format_duration(event.duration_ns))),
+                row![
+                    text("Label:").width(Length::Fixed(80.0)).size(12),
+                    text(&event.label).size(12),
+                ],
+                row![
+                    text("Thread:").width(Length::Fixed(80.0)).size(12),
+                    text(format!("{}", event.thread_id)).size(12),
+                ],
+                row![
+                    text("Start:").width(Length::Fixed(80.0)).size(12),
+                    text(format_duration(
+                        event.start_ns.saturating_sub(timeline_data.min_ns)
+                    ))
+                    .size(12),
+                ],
+                row![
+                    text("Duration:").width(Length::Fixed(80.0)).size(12),
+                    text(format_duration(event.duration_ns)).size(12),
+                ],
             ]
             .spacing(5)
             .padding(10),
+        ])
+        .width(Length::Fill)
+        .height(Length::Fixed(150.0))
+        .style(|theme: &Theme| {
+            let palette = theme.extended_palette();
+            container::Style::default()
+                .background(palette.background.base.color)
+                .border(iced::Border {
+                    color: palette.background.strong.color,
+                    width: 1.0,
+                    ..Default::default()
+                })
+        })
+    } else {
+        container(
+            text("Select or hover over an event to see details")
+                .size(12)
+                .color(Color::from_rgb(0.5, 0.5, 0.5)),
         )
         .width(Length::Fill)
-        .height(Length::Fixed(120.0))
-    } else {
-        container(text("Select or hover over an event to see details"))
-            .width(Length::Fill)
-            .height(Length::Fixed(120.0))
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
+        .height(Length::Fixed(150.0))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(|theme: &Theme| {
+            let palette = theme.extended_palette();
+            container::Style::default()
+                .background(palette.background.base.color)
+                .border(iced::Border {
+                    color: palette.background.strong.color,
+                    width: 1.0,
+                    ..Default::default()
+                })
+        })
     };
 
     column![main_view, details_panel]
