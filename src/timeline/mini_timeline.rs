@@ -186,7 +186,15 @@ impl Program<Message> for MiniTimelineProgram {
                         state.selection_end = None;
                         return Some(Action::publish(Message::MiniTimelineJump {
                             fraction,
-                            viewport_width: self.viewport_width.max(events_width),
+                            // Use the actual viewport width when available; otherwise fall back
+                            // to the mini timeline's width. Using `max(events_width)` here
+                            // previously forced the viewport width up to the mini timeline
+                            // width which prevented panning/zooming to the true end.
+                            viewport_width: if self.viewport_width > 0.0 {
+                                self.viewport_width
+                            } else {
+                                events_width
+                            },
                         }));
                     }
                 }
@@ -209,7 +217,11 @@ impl Program<Message> for MiniTimelineProgram {
                             let fraction = (rel_x / events_width).clamp(0.0, 1.0) as f64;
                             return Some(Action::publish(Message::MiniTimelineJump {
                                 fraction,
-                                viewport_width: self.viewport_width.max(events_width),
+                                viewport_width: if self.viewport_width > 0.0 {
+                                    self.viewport_width
+                                } else {
+                                    events_width
+                                },
                             }));
                         }
                     }
@@ -238,7 +250,11 @@ impl Program<Message> for MiniTimelineProgram {
                             return Some(Action::publish(Message::MiniTimelineZoomTo {
                                 start_fraction,
                                 end_fraction,
-                                viewport_width: self.viewport_width.max(events_width),
+                                viewport_width: if self.viewport_width > 0.0 {
+                                    self.viewport_width
+                                } else {
+                                    events_width
+                                },
                             }));
                         }
                     }
