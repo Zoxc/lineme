@@ -1,7 +1,10 @@
-use iced::widget::{button, column, container, scrollable, text};
-use iced::{Element, Length, Task};
-use iced_aw::{TabLabel, Tabs};
+use iced::widget::{button, column, container, pick_list, row, scrollable, text, Space};
+use iced::widget::canvas::{self, Action, Canvas, Geometry, Program};
+use iced::mouse::Cursor;
+use iced::{Alignment, Element, Length, Task, Color, Point, Rectangle, Renderer, Size};
+use iced_aw::{tab_bar, TabLabel};
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use analyzeme::ProfilingData;
 
 pub fn main() -> iced::Result {
@@ -11,10 +14,56 @@ pub fn main() -> iced::Result {
 }
 
 #[derive(Debug, Clone)]
+struct TimelineEvent {
+    label: String,
+    start_ns: u64,
+    duration_ns: u64,
+    depth: u32,
+    thread_id: u64,
+}
+
+#[derive(Debug, Clone)]
+struct ThreadData {
+    thread_id: u64,
+    events: Vec<TimelineEvent>,
+    max_depth: u32,
+}
+
+#[derive(Debug, Clone, Default)]
+struct TimelineData {
+    threads: Vec<ThreadData>,
+    min_ns: u64,
+    max_ns: u64,
+}
+
+#[derive(Debug, Clone)]
 struct Stats {
     event_count: usize,
     cmd: String,
     pid: u32,
+    timeline: TimelineData,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ViewType {
+    #[default]
+    Stats,
+    Timeline,
+    Todo,
+}
+
+impl ViewType {
+    const ALL: [ViewType; 3] = [ViewType::Stats, ViewType::Timeline, ViewType::Todo];
+}
+
+impl std::fmt::Display for ViewType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ViewType::Stats => write!(f, "Stats"),
+            ViewType::Timeline => write!(f, "Timeline"),
+            ViewType::Todo => write!(f, "Todo"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -24,12 +73,17 @@ enum Message {
     FileSelected(PathBuf),
     FileLoaded(PathBuf, Stats),
     ErrorOccurred(String),
+    ViewChanged(ViewType),
+    CloseTab(usize),
+    OpenSettings,
+    EventSelected(TimelineEvent),
     None,
 }
 
 struct Lineme {
     active_tab: usize,
     files: Vec<FileData>,
+    show_settings: bool,
     #[allow(dead_code)]
     settings: SettingsPage,
 }
@@ -37,6 +91,8 @@ struct Lineme {
 struct FileData {
     path: PathBuf,
     stats: Stats,
+    view_type: ViewType,
+    selected_event: Option<TimelineEvent>,
 }
 
 struct SettingsPage {
@@ -50,6 +106,7 @@ impl Lineme {
             Lineme {
                 active_tab: 0,
                 files: Vec::new(),
+                show_settings: false,
                 settings: SettingsPage { show_details: true },
             },
             Task::none(),
@@ -57,13 +114,23 @@ impl Lineme {
     }
 
     fn title(&self) -> String {
-        String::from("Lineme - measureme profdata viewer")
+        if self.show_settings {
+            return "Lineme - Settings".to_string();
+        }
+        if let Some(file) = self.files.get(self.active_tab) {
+            file.path.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Lineme".to_string())
+        } else {
+            "Lineme - measureme profdata viewer".to_string()
+        }
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::TabSelected(index) => {
                 self.active_tab = index;
+                self.show_settings = false;
             }
             Message::OpenFile => {
                 return Task::perform(
@@ -94,11 +161,38 @@ impl Lineme {
                 );
             }
             Message::FileLoaded(path, stats) => {
-                self.files.push(FileData { path, stats });
+                self.files.push(FileData { 
+                    path, 
+                    stats,
+                    view_type: ViewType::default(),
+                    selected_event: None,
+                });
                 self.active_tab = self.files.len() - 1;
+                self.show_settings = false;
             }
             Message::ErrorOccurred(e) => {
                 eprintln!("Error: {}", e);
+            }
+            Message::ViewChanged(view) => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    file.view_type = view;
+                }
+            }
+            Message::CloseTab(index) => {
+                if index < self.files.len() {
+                    self.files.remove(index);
+                    if self.active_tab >= self.files.len() && !self.files.is_empty() {
+                        self.active_tab = self.files.len() - 1;
+                    }
+                }
+            }
+            Message::OpenSettings => {
+                self.show_settings = true;
+            }
+            Message::EventSelected(event) => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    file.selected_event = Some(event);
+                }
             }
             Message::None => {}
         }
@@ -106,23 +200,58 @@ impl Lineme {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let mut tabs = Tabs::new(Message::TabSelected);
+        let mut bar = tab_bar::TabBar::new(Message::TabSelected)
+            .on_close(Message::CloseTab);
 
         for (i, file) in self.files.iter().enumerate() {
             let label = file.path.file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "Unknown".to_string());
             
-            tabs = tabs.push(i, TabLabel::Text(label), self.file_view(file));
+            bar = bar.push(i, TabLabel::Text(label));
+        }
+        
+        if !self.files.is_empty() && !self.show_settings {
+            bar = bar.set_active_tab(&self.active_tab);
         }
 
-        tabs = tabs.push(
-            self.files.len(),
-            TabLabel::Text("Settings".to_string()),
-            self.settings_view(),
-        );
+        let header = row![bar, Space::new().width(Length::Fill)];
 
-        tabs.set_active_tab(&self.active_tab).into()
+        let header = if !self.files.is_empty() && !self.show_settings {
+            header.push(pick_list(
+                &ViewType::ALL[..],
+                Some(self.files[self.active_tab].view_type),
+                Message::ViewChanged,
+            ))
+        } else {
+            header.push(Space::new().width(Length::Shrink))
+        };
+
+        let header = header
+            .push(button("Settings").on_press(Message::OpenSettings))
+            .push(button("Open").on_press(Message::OpenFile))
+            .spacing(10)
+            .padding(5)
+            .align_y(Alignment::Center);
+
+        let content: Element<'_, Message> = if self.show_settings {
+            self.settings_view()
+        } else if let Some(file) = self.files.get(self.active_tab) {
+            match file.view_type {
+                ViewType::Stats => self.file_view(file),
+                ViewType::Timeline => self.timeline_view(file),
+                ViewType::Todo => self.todo_view(file),
+            }
+        } else {
+            container(text("Open a file to start").size(20))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into()
+        };
+
+        column![header, content].into()
     }
 
     fn file_view(&self, file: &FileData) -> Element<'_, Message> {
@@ -132,6 +261,84 @@ impl Lineme {
             text(format!("PID: {}", file.stats.pid)),
             text(format!("Event count: {}", file.stats.event_count)),
             button("Open another file").on_press(Message::OpenFile),
+        ]
+        .spacing(10)
+        .padding(20);
+
+        scrollable(content).into()
+    }
+
+    fn timeline_view<'a>(&self, file: &'a FileData) -> Element<'a, Message> {
+        let timeline_data = &file.stats.timeline;
+        
+        let mut thread_labels = column![].spacing(5);
+        let mut timeline_lanes = column![].spacing(5);
+        
+        let total_ns = timeline_data.max_ns - timeline_data.min_ns;
+        if total_ns == 0 {
+            return container(text("No events to display"))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into();
+        }
+
+        for thread in &timeline_data.threads {
+            let lane_height = (thread.max_depth + 1) as f32 * 20.0;
+            
+            thread_labels = thread_labels.push(
+                container(text(format!("Thread {}", thread.thread_id)))
+                    .height(Length::Fixed(lane_height))
+                    .padding(5)
+            );
+            
+            let lane_canvas = Canvas::new(LaneProgram {
+                events: &thread.events,
+                min_ns: timeline_data.min_ns,
+                total_ns,
+                selected_event: &file.selected_event,
+            })
+            .width(Length::Fill)
+            .height(Length::Fixed(lane_height));
+            
+            timeline_lanes = timeline_lanes.push(lane_canvas);
+        }
+
+        let main_view = scrollable(row![
+            thread_labels.width(Length::Fixed(150.0)),
+            timeline_lanes.width(Length::Fill),
+        ])
+        .height(Length::Fill);
+
+        let details_panel = if let Some(event) = &file.selected_event {
+            container(column![
+                text(format!("Event: {}", event.label)).size(20),
+                text(format!("Thread: {}", event.thread_id)),
+                text(format!("Start: {} ns", event.start_ns)),
+                text(format!("Duration: {} ns", event.duration_ns)),
+            ].spacing(5).padding(10))
+            .width(Length::Fill)
+            .height(Length::Fixed(120.0))
+        } else {
+            container(text("Select an event to see details"))
+                .width(Length::Fill)
+                .height(Length::Fixed(120.0))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+        };
+
+        column![main_view, details_panel].into()
+    }
+
+    fn todo_view(&self, file: &FileData) -> Element<'_, Message> {
+        let content = column![
+            text(format!("Todo List for {}", file.path.display())).size(25),
+            text("Items to analyze:"),
+            text("- Event distribution"),
+            text("- Timing hotspots"),
+            text("- Memory usage"),
+            text("- Threading analysis"),
         ]
         .spacing(10)
         .padding(20);
@@ -157,18 +364,178 @@ impl Lineme {
     }
 }
 
+struct LaneProgram<'a> {
+    events: &'a [TimelineEvent],
+    min_ns: u64,
+    total_ns: u64,
+    selected_event: &'a Option<TimelineEvent>,
+}
+
+impl<'a> Program<Message> for LaneProgram<'a> {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &iced::Theme,
+        bounds: Rectangle,
+        _cursor: Cursor,
+    ) -> Vec<Geometry> {
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        
+        for event in self.events {
+            let x = ((event.start_ns - self.min_ns) as f32 / self.total_ns as f32) * bounds.width;
+            let width = (event.duration_ns as f32 / self.total_ns as f32) * bounds.width;
+            let y = event.depth as f32 * 20.0;
+            let height = 18.0;
+            
+            let rect_size = Size::new(width.max(1.0), height);
+            
+            let mut color = color_from_label(&event.label);
+            
+            if let Some(selected) = self.selected_event {
+                if selected.start_ns == event.start_ns && selected.thread_id == event.thread_id {
+                    color = Color::from_rgb(1.0, 0.5, 0.0);
+                }
+            }
+            
+            frame.fill_rectangle(Point::new(x, y), rect_size, color);
+        }
+        
+        vec![frame.into_geometry()]
+    }
+
+    fn update(
+        &self,
+        _state: &mut Self::State,
+        event: &iced::Event,
+        bounds: Rectangle,
+        cursor: Cursor,
+    ) -> Option<Action<Message>> {
+        match event {
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
+                if let Some(position) = cursor.position_in(bounds) {
+                    for event in self.events {
+                        let x = ((event.start_ns - self.min_ns) as f32 / self.total_ns as f32) * bounds.width;
+                        let width = (event.duration_ns as f32 / self.total_ns as f32) * bounds.width;
+                        let y = event.depth as f32 * 20.0;
+                        let height = 18.0;
+
+                        let rect = Rectangle {
+                            x,
+                            y,
+                            width: width.max(1.0),
+                            height,
+                        };
+
+                        if rect.contains(position) {
+                            return Some(Action::publish(Message::EventSelected(event.clone())));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+}
+
+fn color_from_label(label: &str) -> Color {
+    let mut hash = 0u64;
+    for c in label.chars() {
+        hash = hash.wrapping_add(c as u64);
+        hash = hash.wrapping_mul(0x517cc1b727220a95);
+    }
+    
+    let r = ((hash >> 16) & 0xFF) as f32 / 255.0;
+    let g = ((hash >> 8) & 0xFF) as f32 / 255.0;
+    let b = (hash & 0xFF) as f32 / 255.0;
+    
+    Color::from_rgb(0.3 + r * 0.4, 0.3 + g * 0.4, 0.3 + b * 0.4)
+}
+
 fn load_profiling_data(path: &Path) -> Result<Stats, String> {
     let stem = path.with_extension("");
     
     let data = ProfilingData::new(&stem)
         .map_err(|e| format!("Failed to load profiling data from {:?}: {}", stem, e))?;
 
-    let event_count = data.iter().count();
     let metadata = data.metadata();
+    
+    let mut threads: HashMap<u64, Vec<TimelineEvent>> = HashMap::new();
+    let mut min_ns = u64::MAX;
+    let mut max_ns = 0;
+    let mut event_count = 0;
+
+    for lightweight_event in data.iter() {
+        event_count += 1;
+        let event = data.to_full_event(&lightweight_event);
+        let thread_id = event.thread_id as u64;
+
+        if let analyzeme::EventPayload::Timestamp(timestamp) = &event.payload {
+            let (start_ns, end_ns) = match timestamp {
+                analyzeme::Timestamp::Interval { start, end } => {
+                    let s = start.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
+                    let e = end.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
+                    (s, e)
+                }
+                analyzeme::Timestamp::Instant(t) => {
+                    let ns = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
+                    (ns, ns)
+                }
+            };
+
+            min_ns = min_ns.min(start_ns);
+            max_ns = max_ns.max(end_ns);
+
+            threads.entry(thread_id).or_default().push(TimelineEvent {
+                label: event.label.to_string(),
+                start_ns,
+                duration_ns: end_ns - start_ns,
+                depth: 0,
+                thread_id,
+            });
+        }
+    }
+
+    for thread_events in threads.values_mut() {
+        thread_events.sort_by_key(|e| e.start_ns);
+        let mut stack: Vec<u64> = Vec::new();
+        for event in thread_events.iter_mut() {
+            let end_ns = event.start_ns + event.duration_ns;
+            while let Some(&last_end) = stack.last() {
+                if last_end <= event.start_ns {
+                    stack.pop();
+                } else {
+                    break;
+                }
+            }
+            event.depth = stack.len() as u32;
+            stack.push(end_ns);
+        }
+    }
+    
+    let mut thread_data_vec = Vec::new();
+    for (thread_id, events) in threads {
+        let max_depth = events.iter().map(|e| e.depth).max().unwrap_or(0);
+        thread_data_vec.push(ThreadData {
+            thread_id,
+            events,
+            max_depth,
+        });
+    }
+    
+    thread_data_vec.sort_by_key(|t| t.thread_id);
 
     Ok(Stats {
         event_count,
         cmd: metadata.cmd.clone(),
         pid: metadata.process_id,
+        timeline: TimelineData {
+            threads: thread_data_vec,
+            min_ns: if min_ns == u64::MAX { 0 } else { min_ns },
+            max_ns,
+        },
     })
 }
