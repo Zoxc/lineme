@@ -86,7 +86,7 @@ pub fn view<'a>(
             .into();
     }
 
-    let mut total_height = HEADER_HEIGHT;
+    let mut total_height = 0.0;
     for thread in &timeline_data.threads {
         let lane_total_height = if thread.is_collapsed {
             LANE_HEIGHT
@@ -96,19 +96,35 @@ pub fn view<'a>(
         total_height += lane_total_height + LANE_SPACING;
     }
 
-    let canvas_width = total_ns as f32 * zoom_level + LABEL_WIDTH;
+    let events_width = total_ns as f32 * zoom_level;
 
-    let timeline_canvas = Canvas::new(TimelineProgram {
+    let header_canvas = Canvas::new(HeaderProgram {
+        min_ns: timeline_data.min_ns,
+        max_ns: timeline_data.max_ns,
+        zoom_level,
+        scroll_offset,
+    })
+    .width(Length::Fill)
+    .height(Length::Fixed(HEADER_HEIGHT));
+
+    let threads_canvas = Canvas::new(ThreadsProgram {
+        threads: &timeline_data.threads,
+        scroll_offset,
+    })
+    .width(Length::Fixed(LABEL_WIDTH))
+    .height(Length::Fill);
+
+    let events_canvas = Canvas::new(EventsProgram {
         threads: &timeline_data.threads,
         min_ns: timeline_data.min_ns,
         zoom_level,
         selected_event,
         scroll_offset,
     })
-    .width(Length::Fixed(canvas_width))
+    .width(Length::Fixed(events_width))
     .height(Length::Fixed(total_height));
 
-    let main_view = scrollable(WheelCatcher::new(timeline_canvas, modifiers))
+    let events_view = scrollable(WheelCatcher::new(events_canvas, modifiers))
         .id(timeline_id())
         .width(Length::Fill)
         .height(Length::Fill)
@@ -119,6 +135,16 @@ pub fn view<'a>(
         .on_scroll(|viewport| Message::TimelineScroll {
             offset: Vector::new(viewport.absolute_offset().x, viewport.absolute_offset().y),
         });
+
+    let main_view = column![
+        row![
+            Space::new().width(Length::Fixed(LABEL_WIDTH)),
+            header_canvas
+        ]
+        .height(Length::Fixed(HEADER_HEIGHT)),
+        row![threads_canvas, events_view].height(Length::Fill)
+    ]
+    .height(Length::Fill);
 
     let display_event = selected_event.as_ref().or(hovered_event.as_ref());
 
@@ -196,7 +222,7 @@ pub fn view<'a>(
         .into()
 }
 
-struct TimelineProgram<'a> {
+struct EventsProgram<'a> {
     threads: &'a [ThreadData],
     min_ns: u64,
     zoom_level: f32,
@@ -205,18 +231,14 @@ struct TimelineProgram<'a> {
 }
 
 #[derive(Default)]
-struct TimelineState {
+struct EventsState {
     modifiers: keyboard::Modifiers,
     hovered_event: Option<TimelineEvent>,
 }
 
-impl<'a> TimelineProgram<'a> {
+impl<'a> EventsProgram<'a> {
     fn find_event_at(&self, position: Point) -> Option<TimelineEvent> {
-        if position.x < LABEL_WIDTH + self.scroll_offset.x {
-            return None;
-        }
-
-        let mut y_offset = HEADER_HEIGHT;
+        let mut y_offset = 0.0;
         for thread in self.threads {
             let lane_total_height = if thread.is_collapsed {
                 LANE_HEIGHT
@@ -236,8 +258,7 @@ impl<'a> TimelineProgram<'a> {
                     }
 
                     let x = (event.start_ns.saturating_sub(self.min_ns) as f64
-                        * self.zoom_level as f64) as f32
-                        + LABEL_WIDTH;
+                        * self.zoom_level as f64) as f32;
                     let y = y_offset + event.depth as f32 * LANE_HEIGHT;
                     let height = LANE_HEIGHT - 2.0;
 
@@ -259,8 +280,8 @@ impl<'a> TimelineProgram<'a> {
     }
 }
 
-impl<'a> Program<Message> for TimelineProgram<'a> {
-    type State = TimelineState;
+impl<'a> Program<Message> for EventsProgram<'a> {
+    type State = EventsState;
 
     fn draw(
         &self,
@@ -279,10 +300,10 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
         let total_ns = self
             .threads
             .first()
-            .map(|_| (bounds.width - LABEL_WIDTH) / self.zoom_level)
+            .map(|_| bounds.width / self.zoom_level)
             .unwrap_or(0.0);
 
-        let mut y_offset = HEADER_HEIGHT;
+        let mut y_offset = 0.0;
         for thread in self.threads {
             let lane_total_height = if thread.is_collapsed {
                 LANE_HEIGHT
@@ -292,7 +313,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
 
             frame.stroke(
                 &canvas::Path::line(
-                    Point::new(self.scroll_offset.x, y_offset),
+                    Point::new(0.0, y_offset),
                     Point::new(bounds.width, y_offset),
                 ),
                 canvas::Stroke::default()
@@ -314,8 +335,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                 }
 
                 let x = (event.start_ns.saturating_sub(self.min_ns) as f64 * self.zoom_level as f64)
-                    as f32
-                    + LABEL_WIDTH;
+                    as f32;
                 let depth = event.depth as usize;
                 let color = event.color;
                 let label = &event.label;
@@ -401,8 +421,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                 if hovered.thread_id == thread.thread_id {
                     if !thread.is_collapsed || hovered.depth == 0 {
                         let x = (hovered.start_ns.saturating_sub(self.min_ns) as f64
-                            * self.zoom_level as f64) as f32
-                            + LABEL_WIDTH;
+                            * self.zoom_level as f64) as f32;
                         let width = (hovered.duration_ns as f64 * self.zoom_level as f64) as f32;
                         let y = y_offset + hovered.depth as f32 * LANE_HEIGHT;
 
@@ -423,8 +442,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                 if selected.thread_id == thread.thread_id {
                     if !thread.is_collapsed || selected.depth == 0 {
                         let x = (selected.start_ns.saturating_sub(self.min_ns) as f64
-                            * self.zoom_level as f64) as f32
-                            + LABEL_WIDTH;
+                            * self.zoom_level as f64) as f32;
                         let width = (selected.duration_ns as f64 * self.zoom_level as f64) as f32;
                         let y = y_offset + selected.depth as f32 * LANE_HEIGHT;
 
@@ -444,12 +462,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
             y_offset += lane_total_height + LANE_SPACING;
         }
 
-        frame.fill_rectangle(
-            Point::new(self.scroll_offset.x, self.scroll_offset.y),
-            Size::new(bounds.width, HEADER_HEIGHT),
-            Color::from_rgb(0.95, 0.95, 0.95),
-        );
-
         if total_ns > 0.0 {
             let ns_per_pixel = 1.0 / self.zoom_level as f64;
 
@@ -468,82 +480,19 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
 
             let mut relative_ns = 0.0;
 
-            while (relative_ns * self.zoom_level as f64) < bounds.width as f64 - LABEL_WIDTH as f64
-            {
-                let x = (relative_ns * self.zoom_level as f64) as f32 + LABEL_WIDTH;
+            while (relative_ns * self.zoom_level as f64) < bounds.width as f64 {
+                let x = (relative_ns * self.zoom_level as f64) as f32;
 
-                if x >= LABEL_WIDTH + self.scroll_offset.x {
+                if x >= self.scroll_offset.x {
                     frame.stroke(
-                        &canvas::Path::line(
-                            Point::new(x, self.scroll_offset.y + HEADER_HEIGHT),
-                            Point::new(x, bounds.height),
-                        ),
+                        &canvas::Path::line(Point::new(x, 0.0), Point::new(x, bounds.height)),
                         canvas::Stroke::default()
                             .with_color(Color::from_rgb(0.9, 0.9, 0.9))
                             .with_width(1.0),
                     );
-
-                    frame.stroke(
-                        &canvas::Path::line(
-                            Point::new(x, self.scroll_offset.y + HEADER_HEIGHT - 5.0),
-                            Point::new(x, self.scroll_offset.y + HEADER_HEIGHT),
-                        ),
-                        canvas::Stroke::default()
-                            .with_color(Color::from_rgb(0.5, 0.5, 0.5))
-                            .with_width(1.0),
-                    );
-
-                    let time_str = if nice_interval >= 1_000_000_000.0 {
-                        format!("{:.2} s", relative_ns / 1_000_000_000.0)
-                    } else if nice_interval >= 1_000_000.0 {
-                        format!("{:.2} ms", relative_ns / 1_000_000.0)
-                    } else if nice_interval >= 1_000.0 {
-                        format!("{:.2} µs", relative_ns / 1_000.0)
-                    } else {
-                        format!("{:.0} ns", relative_ns)
-                    };
-
-                    frame.fill_text(canvas::Text {
-                        content: time_str,
-                        position: Point::new(x + 2.0, self.scroll_offset.y + 5.0),
-                        color: Color::from_rgb(0.3, 0.3, 0.3),
-                        size: 10.0.into(),
-                        ..Default::default()
-                    });
                 }
                 relative_ns += nice_interval;
             }
-        }
-
-        frame.fill_rectangle(
-            Point::new(self.scroll_offset.x, self.scroll_offset.y + HEADER_HEIGHT),
-            Size::new(LABEL_WIDTH, bounds.height - HEADER_HEIGHT),
-            Color::from_rgb(0.98, 0.98, 0.98),
-        );
-
-        y_offset = HEADER_HEIGHT;
-        for thread in self.threads {
-            let lane_total_height = if thread.is_collapsed {
-                LANE_HEIGHT
-            } else {
-                (thread.max_depth + 1) as f32 * LANE_HEIGHT
-            };
-
-            let label_text = if thread.is_collapsed {
-                format!("▶ Thread {}", thread.thread_id)
-            } else {
-                format!("▼ Thread {}", thread.thread_id)
-            };
-
-            frame.fill_text(canvas::Text {
-                content: label_text,
-                position: Point::new(self.scroll_offset.x + 5.0, y_offset + 5.0),
-                color: Color::from_rgb(0.2, 0.2, 0.2),
-                size: 12.0.into(),
-                ..Default::default()
-            });
-
-            y_offset += lane_total_height + LANE_SPACING;
         }
 
         vec![frame.into_geometry()]
@@ -574,25 +523,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
-                    if position.x < LABEL_WIDTH + self.scroll_offset.x {
-                        let mut y_offset = HEADER_HEIGHT;
-                        for thread in self.threads {
-                            let lane_total_height = if thread.is_collapsed {
-                                LANE_HEIGHT
-                            } else {
-                                (thread.max_depth + 1) as f32 * LANE_HEIGHT
-                            };
-
-                            if position.y >= y_offset && position.y < y_offset + lane_total_height {
-                                return Some(Action::publish(Message::ToggleThreadCollapse(
-                                    thread.thread_id,
-                                )));
-                            }
-                            y_offset += lane_total_height + LANE_SPACING;
-                        }
-                        return None;
-                    }
-
                     if let Some(event) = self.find_event_at(position) {
                         return Some(Action::publish(Message::EventSelected(event)));
                     }
@@ -617,6 +547,198 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
             }
             _ => {}
         }
+        None
+    }
+}
+
+struct HeaderProgram {
+    min_ns: u64,
+    max_ns: u64,
+    zoom_level: f32,
+    scroll_offset: Vector,
+}
+
+impl Program<Message> for HeaderProgram {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+
+        frame.fill_rectangle(
+            Point::new(0.0, 0.0),
+            Size::new(bounds.width, bounds.height),
+            Color::from_rgb(0.95, 0.95, 0.95),
+        );
+
+        let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
+        if total_ns <= 0.0 {
+            return vec![frame.into_geometry()];
+        }
+
+        let ns_per_pixel = 1.0 / self.zoom_level as f64;
+        let pixel_interval = 100.0;
+        let ns_interval = pixel_interval as f64 * ns_per_pixel;
+
+        let log10 = ns_interval.log10().floor();
+        let base = 10.0f64.powf(log10);
+        let nice_interval = if ns_interval / base < 2.0 {
+            base * 2.0
+        } else if ns_interval / base < 5.0 {
+            base * 5.0
+        } else {
+            base * 10.0
+        };
+
+        let mut relative_ns = 0.0;
+        while relative_ns <= total_ns {
+            let x = (relative_ns * self.zoom_level as f64) as f32 - self.scroll_offset.x;
+
+            if x >= 0.0 && x <= bounds.width {
+                frame.stroke(
+                    &canvas::Path::line(
+                        Point::new(x, bounds.height - 5.0),
+                        Point::new(x, bounds.height),
+                    ),
+                    canvas::Stroke::default()
+                        .with_color(Color::from_rgb(0.5, 0.5, 0.5))
+                        .with_width(1.0),
+                );
+
+                let time_str = if nice_interval >= 1_000_000_000.0 {
+                    format!("{:.2} s", relative_ns / 1_000_000_000.0)
+                } else if nice_interval >= 1_000_000.0 {
+                    format!("{:.2} ms", relative_ns / 1_000_000.0)
+                } else if nice_interval >= 1_000.0 {
+                    format!("{:.2} µs", relative_ns / 1_000.0)
+                } else {
+                    format!("{:.0} ns", relative_ns)
+                };
+
+                frame.fill_text(canvas::Text {
+                    content: time_str,
+                    position: Point::new(x + 2.0, 5.0),
+                    color: Color::from_rgb(0.3, 0.3, 0.3),
+                    size: 10.0.into(),
+                    ..Default::default()
+                });
+            }
+            relative_ns += nice_interval;
+        }
+
+        vec![frame.into_geometry()]
+    }
+}
+
+struct ThreadsProgram<'a> {
+    threads: &'a [ThreadData],
+    scroll_offset: Vector,
+}
+
+impl<'a> ThreadsProgram<'a> {
+    fn thread_at(&self, position: Point) -> Option<u64> {
+        let mut y_offset = 0.0;
+        let content_y = position.y + self.scroll_offset.y;
+
+        for thread in self.threads {
+            let lane_total_height = if thread.is_collapsed {
+                LANE_HEIGHT
+            } else {
+                (thread.max_depth + 1) as f32 * LANE_HEIGHT
+            };
+
+            if content_y >= y_offset && content_y < y_offset + lane_total_height {
+                return Some(thread.thread_id);
+            }
+
+            y_offset += lane_total_height + LANE_SPACING;
+        }
+
+        None
+    }
+}
+
+impl<'a> Program<Message> for ThreadsProgram<'a> {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+
+        frame.fill_rectangle(
+            Point::new(0.0, 0.0),
+            Size::new(bounds.width, bounds.height),
+            Color::from_rgb(0.98, 0.98, 0.98),
+        );
+
+        let mut y_offset = 0.0;
+        for thread in self.threads {
+            let lane_total_height = if thread.is_collapsed {
+                LANE_HEIGHT
+            } else {
+                (thread.max_depth + 1) as f32 * LANE_HEIGHT
+            };
+
+            let y = y_offset - self.scroll_offset.y;
+            if y + lane_total_height < 0.0 || y > bounds.height {
+                y_offset += lane_total_height + LANE_SPACING;
+                continue;
+            }
+
+            frame.stroke(
+                &canvas::Path::line(Point::new(0.0, y), Point::new(bounds.width, y)),
+                canvas::Stroke::default()
+                    .with_color(Color::from_rgb(0.9, 0.9, 0.9))
+                    .with_width(1.0),
+            );
+
+            let label_text = if thread.is_collapsed {
+                format!("▶ Thread {}", thread.thread_id)
+            } else {
+                format!("▼ Thread {}", thread.thread_id)
+            };
+
+            frame.fill_text(canvas::Text {
+                content: label_text,
+                position: Point::new(5.0, y + 5.0),
+                color: Color::from_rgb(0.2, 0.2, 0.2),
+                size: 12.0.into(),
+                ..Default::default()
+            });
+
+            y_offset += lane_total_height + LANE_SPACING;
+        }
+
+        vec![frame.into_geometry()]
+    }
+
+    fn update(
+        &self,
+        _state: &mut Self::State,
+        event: &Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Option<Action<Message>> {
+        if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
+            if let Some(position) = cursor.position_in(bounds) {
+                if let Some(thread_id) = self.thread_at(position) {
+                    return Some(Action::publish(Message::ToggleThreadCollapse(thread_id)));
+                }
+            }
+        }
+
         None
     }
 }
