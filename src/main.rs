@@ -63,6 +63,7 @@ enum Message {
     EventSelected(TimelineEvent),
     TimelineZoomed { delta: f32, x: f32 },
     TimelineScroll { offset: iced::Vector },
+    ToggleThreadCollapse(u64),
     None,
 }
 
@@ -214,6 +215,13 @@ impl Lineme {
             Message::TimelineScroll { offset } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     file.scroll_offset = offset;
+                }
+            }
+            Message::ToggleThreadCollapse(thread_id) => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    if let Some(thread) = file.stats.timeline.threads.iter_mut().find(|t| t.thread_id == thread_id) {
+                        thread.is_collapsed = !thread.is_collapsed;
+                    }
                 }
             }
             Message::None => {}
@@ -408,6 +416,7 @@ fn load_profiling_data(path: &Path) -> Result<Stats, String> {
             thread_id,
             events,
             max_depth,
+            is_collapsed: false,
         });
     }
     

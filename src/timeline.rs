@@ -19,6 +19,7 @@ pub struct ThreadData {
     pub thread_id: u64,
     pub events: Vec<TimelineEvent>,
     pub max_depth: u32,
+    pub is_collapsed: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -69,7 +70,11 @@ pub fn view<'a>(
 
     let mut total_height = HEADER_HEIGHT;
     for thread in &timeline_data.threads {
-        let lane_total_height = (thread.max_depth + 1) as f32 * LANE_HEIGHT;
+        let lane_total_height = if thread.is_collapsed {
+            LANE_HEIGHT
+        } else {
+            (thread.max_depth + 1) as f32 * LANE_HEIGHT
+        };
         total_height += lane_total_height + LANE_SPACING;
     }
 
@@ -161,7 +166,11 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
         // Draw horizontal lines and events
         let mut y_offset = HEADER_HEIGHT;
         for thread in self.threads {
-            let lane_total_height = (thread.max_depth + 1) as f32 * LANE_HEIGHT;
+            let lane_total_height = if thread.is_collapsed {
+                LANE_HEIGHT
+            } else {
+                (thread.max_depth + 1) as f32 * LANE_HEIGHT
+            };
 
             // Draw horizontal separator
             frame.stroke(
@@ -174,25 +183,40 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     .with_width(1.0),
             );
 
-            let mut last_rects: Vec<Option<(f32, f32, Color)>> =
-                vec![None; (thread.max_depth + 1) as usize];
+            if !thread.is_collapsed {
+                let mut last_rects: Vec<Option<(f32, f32, Color)>> =
+                    vec![None; (thread.max_depth + 1) as usize];
 
-            for event in &thread.events {
-                let x = (event.start_ns.saturating_sub(self.min_ns) as f64 * self.zoom_level as f64)
-                    as f32
-                    + LABEL_WIDTH;
-                let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
-                let depth = event.depth as usize;
-                let color = event.color;
+                for event in &thread.events {
+                    let x = (event.start_ns.saturating_sub(self.min_ns) as f64
+                        * self.zoom_level as f64) as f32
+                        + LABEL_WIDTH;
+                    let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
+                    let depth = event.depth as usize;
+                    let color = event.color;
 
-                if let Some((cur_x, cur_w, cur_color)) = last_rects[depth] {
-                    let end_x = cur_x + cur_w;
-                    if color == cur_color && x <= end_x + 0.5 {
-                        let new_end = (x + width).max(end_x);
-                        last_rects[depth] = Some((cur_x, new_end - cur_x, cur_color));
-                        continue;
-                    } else {
-                        // Draw previous
+                    if let Some((cur_x, cur_w, cur_color)) = last_rects[depth] {
+                        let end_x = cur_x + cur_w;
+                        if color == cur_color && x <= end_x + 0.5 {
+                            let new_end = (x + width).max(end_x);
+                            last_rects[depth] = Some((cur_x, new_end - cur_x, cur_color));
+                            continue;
+                        } else {
+                            // Draw previous
+                            let y = y_offset + depth as f32 * LANE_HEIGHT;
+                            frame.fill_rectangle(
+                                Point::new(cur_x, y + 1.0),
+                                Size::new(cur_w.max(1.0), LANE_HEIGHT - 2.0),
+                                cur_color,
+                            );
+                        }
+                    }
+                    last_rects[depth] = Some((x, width, color));
+                }
+
+                // Draw remaining rects
+                for (depth, rect) in last_rects.into_iter().enumerate() {
+                    if let Some((cur_x, cur_w, cur_color)) = rect {
                         let y = y_offset + depth as f32 * LANE_HEIGHT;
                         frame.fill_rectangle(
                             Point::new(cur_x, y + 1.0),
@@ -201,40 +225,30 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                         );
                     }
                 }
-                last_rects[depth] = Some((x, width, color));
-            }
 
-            // Draw remaining rects
-            for (depth, rect) in last_rects.into_iter().enumerate() {
-                if let Some((cur_x, cur_w, cur_color)) = rect {
-                    let y = y_offset + depth as f32 * LANE_HEIGHT;
-                    frame.fill_rectangle(
-                        Point::new(cur_x, y + 1.0),
-                        Size::new(cur_w.max(1.0), LANE_HEIGHT - 2.0),
-                        cur_color,
-                    );
+                // Draw selected highlight if any
+                if let Some(selected) = self.selected_event {
+                    if selected.thread_id == thread.thread_id {
+                        let x = (selected.start_ns.saturating_sub(self.min_ns) as f64
+                            * self.zoom_level as f64) as f32
+                            + LABEL_WIDTH;
+                        let width = (selected.duration_ns as f64 * self.zoom_level as f64) as f32;
+                        let y = y_offset + selected.depth as f32 * LANE_HEIGHT;
+
+                        frame.stroke(
+                            &canvas::Path::rectangle(
+                                Point::new(x, y + 1.0),
+                                Size::new(width.max(1.0), LANE_HEIGHT - 2.0),
+                            ),
+                            canvas::Stroke::default()
+                                .with_color(Color::WHITE)
+                                .with_width(2.0),
+                        );
+                    }
                 }
-            }
-
-            // Draw selected highlight if any
-            if let Some(selected) = self.selected_event {
-                if selected.thread_id == thread.thread_id {
-                    let x = (selected.start_ns.saturating_sub(self.min_ns) as f64
-                        * self.zoom_level as f64) as f32
-                        + LABEL_WIDTH;
-                    let width = (selected.duration_ns as f64 * self.zoom_level as f64) as f32;
-                    let y = y_offset + selected.depth as f32 * LANE_HEIGHT;
-
-                    frame.stroke(
-                        &canvas::Path::rectangle(
-                            Point::new(x, y + 1.0),
-                            Size::new(width.max(1.0), LANE_HEIGHT - 2.0),
-                        ),
-                        canvas::Stroke::default()
-                            .with_color(Color::from_rgb(1.0, 1.0, 1.0))
-                            .with_width(2.0),
-                    );
-                }
+            } else {
+                // Draw a simple summary line if collapsed?
+                // For now just leave it empty.
             }
 
             y_offset += lane_total_height + LANE_SPACING;
@@ -277,6 +291,17 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     + LABEL_WIDTH;
 
                 if x >= LABEL_WIDTH + self.scroll_offset.x {
+                    // Draw vertical grid line
+                    frame.stroke(
+                        &canvas::Path::line(
+                            Point::new(x, self.scroll_offset.y + HEADER_HEIGHT),
+                            Point::new(x, bounds.height),
+                        ),
+                        canvas::Stroke::default()
+                            .with_color(Color::from_rgb(0.18, 0.18, 0.18))
+                            .with_width(1.0),
+                    );
+
                     // Draw tick
                     frame.stroke(
                         &canvas::Path::line(
@@ -320,10 +345,20 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
 
         y_offset = HEADER_HEIGHT;
         for thread in self.threads {
-            let lane_total_height = (thread.max_depth + 1) as f32 * LANE_HEIGHT;
+            let lane_total_height = if thread.is_collapsed {
+                LANE_HEIGHT
+            } else {
+                (thread.max_depth + 1) as f32 * LANE_HEIGHT
+            };
+
+            let label_text = if thread.is_collapsed {
+                format!("▶ Thread {}", thread.thread_id)
+            } else {
+                format!("▼ Thread {}", thread.thread_id)
+            };
 
             frame.fill_text(canvas::Text {
-                content: format!("Thread {}", thread.thread_id),
+                content: label_text,
                 position: Point::new(self.scroll_offset.x + 5.0, y_offset + 5.0),
                 color: Color::WHITE,
                 size: 12.0.into(),
@@ -347,14 +382,37 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
             iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
                     if position.x < LABEL_WIDTH + self.scroll_offset.x {
+                        // Check for thread label click
+                        let mut y_offset = HEADER_HEIGHT;
+                        for thread in self.threads {
+                            let lane_total_height = if thread.is_collapsed {
+                                LANE_HEIGHT
+                            } else {
+                                (thread.max_depth + 1) as f32 * LANE_HEIGHT
+                            };
+
+                            if position.y >= y_offset && position.y < y_offset + lane_total_height {
+                                return Some(Action::publish(Message::ToggleThreadCollapse(
+                                    thread.thread_id,
+                                )));
+                            }
+                            y_offset += lane_total_height + LANE_SPACING;
+                        }
                         return None;
                     }
 
                     let mut y_offset = HEADER_HEIGHT;
                     for thread in self.threads {
-                        let lane_total_height = (thread.max_depth + 1) as f32 * LANE_HEIGHT;
+                        let lane_total_height = if thread.is_collapsed {
+                            LANE_HEIGHT
+                        } else {
+                            (thread.max_depth + 1) as f32 * LANE_HEIGHT
+                        };
 
-                        if position.y >= y_offset && position.y < y_offset + lane_total_height {
+                        if !thread.is_collapsed
+                            && position.y >= y_offset
+                            && position.y < y_offset + lane_total_height
+                        {
                             for event in &thread.events {
                                 let x = (event.start_ns.saturating_sub(self.min_ns) as f64
                                     * self.zoom_level as f64)
