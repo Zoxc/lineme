@@ -1,7 +1,7 @@
 mod timeline;
 
 use iced::widget::{button, column, container, pick_list, row, scrollable, text, Space};
-use iced::widget::scrollable::AbsoluteOffset;
+    use iced::widget::scrollable::AbsoluteOffset;
 use iced::widget::operation::scroll_to;
 use iced::{Alignment, Element, Length, Task};
 use iced_aw::{tab_bar, TabLabel};
@@ -70,6 +70,7 @@ enum Message {
     TimelineScroll {
         offset: iced::Vector,
         viewport_width: f32,
+        viewport_height: f32,
     },
     MiniTimelineJump { fraction: f64, viewport_width: f32 },
     MiniTimelineZoomTo {
@@ -77,6 +78,7 @@ enum Message {
         end_fraction: f32,
         viewport_width: f32,
     },
+    TimelinePanned { delta: iced::Vector },
     ResetView,
     ToggleThreadCollapse(u64),
     ModifiersChanged(iced::keyboard::Modifiers),
@@ -101,6 +103,7 @@ struct FileData {
     zoom_level: f32,
     scroll_offset: iced::Vector,
     viewport_width: f32,
+    viewport_height: f32,
 }
 
 struct SettingsPage {
@@ -212,6 +215,7 @@ impl Lineme {
                     zoom_level,
                     scroll_offset: iced::Vector::default(),
                     viewport_width: 0.0,
+                    viewport_height: 0.0,
                 });
                 self.active_tab = self.files.len() - 1;
                 self.show_settings = false;
@@ -307,11 +311,15 @@ impl Lineme {
             Message::TimelineScroll {
                 offset,
                 viewport_width,
+                viewport_height,
             } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     file.scroll_offset = offset;
                     if viewport_width > 0.0 {
                         file.viewport_width = viewport_width;
+                    }
+                    if viewport_height > 0.0 {
+                        file.viewport_height = viewport_height;
                     }
                 }
             }
@@ -361,6 +369,29 @@ impl Lineme {
                     );
                 }
             }
+            Message::TimelinePanned { delta } => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    let total_width = total_ns as f32 * file.zoom_level;
+                    let viewport_width = file.viewport_width.max(0.0);
+                    let max_scroll_x = (total_width - viewport_width).max(0.0);
+
+                    let total_height = timeline::total_timeline_height(&file.stats.timeline.threads);
+                    let viewport_height = file.viewport_height.max(0.0);
+                    let max_scroll_y = (total_height - viewport_height).max(0.0);
+
+                    file.scroll_offset.x = (file.scroll_offset.x - delta.x).clamp(0.0, max_scroll_x);
+                    file.scroll_offset.y = (file.scroll_offset.y - delta.y).clamp(0.0, max_scroll_y);
+
+                    return scroll_to(
+                        timeline_id(),
+                        AbsoluteOffset {
+                            x: file.scroll_offset.x,
+                            y: file.scroll_offset.y,
+                        },
+                    );
+                }
+            }
             Message::ResetView => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
@@ -377,15 +408,7 @@ impl Lineme {
                     if let Some(thread) = file.stats.timeline.threads.iter_mut().find(|t| t.thread_id == thread_id) {
                         thread.is_collapsed = !thread.is_collapsed;
                     }
-                    let mut total_height = 0.0;
-                    for thread in &file.stats.timeline.threads {
-                        let lane_total_height = if thread.is_collapsed {
-                            LANE_HEIGHT
-                        } else {
-                            (thread.max_depth + 1) as f32 * LANE_HEIGHT
-                        };
-                        total_height += lane_total_height + LANE_SPACING;
-                    }
+                    let total_height = timeline::total_timeline_height(&file.stats.timeline.threads);
                     if file.scroll_offset.y > total_height {
                         file.scroll_offset.y = total_height;
                         return scroll_to(

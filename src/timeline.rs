@@ -18,6 +18,7 @@ pub const HEADER_HEIGHT: f32 = 30.0;
 pub const MINI_TIMELINE_HEIGHT: f32 = 40.0;
 pub const LANE_HEIGHT: f32 = 20.0;
 pub const LANE_SPACING: f32 = 5.0;
+pub const DRAG_THRESHOLD: f32 = 3.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimelineEvent {
@@ -65,6 +66,19 @@ pub fn timeline_id() -> iced::widget::Id {
     iced::widget::Id::new("timeline_scrollable")
 }
 
+pub fn total_timeline_height(threads: &[ThreadData]) -> f32 {
+    let mut total_height = 0.0;
+    for thread in threads {
+        let lane_total_height = if thread.is_collapsed {
+            LANE_HEIGHT
+        } else {
+            (thread.max_depth + 1) as f32 * LANE_HEIGHT
+        };
+        total_height += lane_total_height + LANE_SPACING;
+    }
+    total_height
+}
+
 pub fn format_duration(ns: u64) -> String {
     if ns >= 1_000_000_000 {
         format!("{:.2} s", ns as f64 / 1_000_000_000.0)
@@ -96,15 +110,7 @@ pub fn view<'a>(
             .into();
     }
 
-    let mut total_height = 0.0;
-    for thread in &timeline_data.threads {
-        let lane_total_height = if thread.is_collapsed {
-            LANE_HEIGHT
-        } else {
-            (thread.max_depth + 1) as f32 * LANE_HEIGHT
-        };
-        total_height += lane_total_height + LANE_SPACING;
-    }
+    let total_height = total_timeline_height(&timeline_data.threads);
 
     let events_width = total_ns as f32 * zoom_level;
 
@@ -155,19 +161,25 @@ pub fn view<'a>(
         .on_scroll(|viewport| Message::TimelineScroll {
             offset: Vector::new(viewport.absolute_offset().x, viewport.absolute_offset().y),
             viewport_width: viewport.bounds().width,
+            viewport_height: viewport.bounds().height,
         });
 
     // Mini timeline should span the full window width (including the label area).
     let main_view = column![
         // Full-width mini timeline on its own row.
         mini_timeline_canvas.height(Length::Fixed(MINI_TIMELINE_HEIGHT)),
-        // Header remains aligned with the events area (leaving space for labels).
-        row![
-            Space::new().width(Length::Fixed(LABEL_WIDTH)),
-            header_canvas
-        ]
-        .height(Length::Fixed(HEADER_HEIGHT)),
-        row![threads_canvas, events_view].height(Length::Fill)
+        PanCatcher::new(
+            column![
+                // Header remains aligned with the events area (leaving space for labels).
+                row![
+                    Space::new().width(Length::Fixed(LABEL_WIDTH)),
+                    header_canvas
+                ]
+                .height(Length::Fixed(HEADER_HEIGHT)),
+                row![threads_canvas, events_view].height(Length::Fill)
+            ]
+            .height(Length::Fill),
+        )
     ]
     .height(Length::Fill);
 
@@ -266,6 +278,9 @@ struct EventsState {
     modifiers: keyboard::Modifiers,
     hovered_event: Option<TimelineEvent>,
     last_click: Option<(TimelineEvent, std::time::Instant)>,
+    press_position: Option<Point>,
+    pressed_event: Option<TimelineEvent>,
+    dragging: bool,
 }
 
 impl<'a> EventsProgram<'a> {
@@ -537,6 +552,16 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 state.modifiers = *modifiers;
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                if let (
+                    Some(press_position),
+                    Event::Mouse(mouse::Event::CursorMoved { position }),
+                ) = (state.press_position, event)
+                {
+                    let delta = *position - press_position;
+                    if !state.dragging && delta.x.hypot(delta.y) > DRAG_THRESHOLD {
+                        state.dragging = true;
+                    }
+                }
                 let new_hovered = cursor
                     .position_in(bounds)
                     .and_then(|p| self.find_event_at(p));
@@ -550,25 +575,53 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
-                    if let Some(event) = self.find_event_at(position) {
-                        // Detect double-click: if the same event was clicked recently, publish a double-click message.
-                        let now = std::time::Instant::now();
-                        if let Some((prev_event, prev_time)) = &state.last_click {
-                            if prev_event.start_ns == event.start_ns
-                                && prev_event.duration_ns == event.duration_ns
-                                && prev_event.thread_id == event.thread_id
-                                && now.duration_since(*prev_time)
-                                    <= std::time::Duration::from_millis(400)
-                            {
-                                state.last_click = None;
-                                return Some(Action::publish(Message::EventDoubleClicked(event)));
+                    state.press_position = cursor.position();
+                    state.pressed_event = self.find_event_at(position);
+                    state.dragging = false;
+                }
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                if !state.dragging {
+                    if let (Some(pressed_event), Some(position)) =
+                        (state.pressed_event.clone(), cursor.position_in(bounds))
+                    {
+                        if let Some(release_event) = self.find_event_at(position) {
+                            let is_same_event = pressed_event.start_ns == release_event.start_ns
+                                && pressed_event.duration_ns == release_event.duration_ns
+                                && pressed_event.thread_id == release_event.thread_id;
+                            if is_same_event {
+                                let now = std::time::Instant::now();
+                                if let Some((prev_event, prev_time)) = &state.last_click {
+                                    let is_double = prev_event.start_ns == release_event.start_ns
+                                        && prev_event.duration_ns == release_event.duration_ns
+                                        && prev_event.thread_id == release_event.thread_id
+                                        && now.duration_since(*prev_time)
+                                            <= std::time::Duration::from_millis(400);
+                                    if is_double {
+                                        state.last_click = None;
+                                        state.press_position = None;
+                                        state.pressed_event = None;
+                                        state.dragging = false;
+                                        return Some(Action::publish(Message::EventDoubleClicked(
+                                            release_event,
+                                        )));
+                                    }
+                                }
+
+                                state.last_click = Some((release_event.clone(), now));
+                                state.press_position = None;
+                                state.pressed_event = None;
+                                state.dragging = false;
+                                return Some(Action::publish(Message::EventSelected(
+                                    release_event,
+                                )));
                             }
                         }
-
-                        state.last_click = Some((event.clone(), now));
-                        return Some(Action::publish(Message::EventSelected(event)));
                     }
                 }
+                state.press_position = None;
+                state.pressed_event = None;
+                state.dragging = false;
             }
             Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 if let Some(position) = cursor.position_in(bounds) {
@@ -819,6 +872,194 @@ where
     Renderer: iced::advanced::Renderer + 'a,
 {
     fn from(catcher: WheelCatcher<'a, Message, Theme, Renderer>) -> Self {
+        Self::new(catcher)
+    }
+}
+
+struct PanCatcher<'a, Theme, Renderer> {
+    content: Element<'a, Message, Theme, Renderer>,
+}
+
+impl<'a, Theme, Renderer> PanCatcher<'a, Theme, Renderer> {
+    pub fn new(content: impl Into<Element<'a, Message, Theme, Renderer>>) -> Self {
+        Self {
+            content: content.into(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct PanState {
+    press_position: Option<Point>,
+    last_position: Option<Point>,
+    dragging: bool,
+}
+
+impl<'a, Theme, Renderer> Widget<Message, Theme, Renderer> for PanCatcher<'a, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    fn tag(&self) -> widget::tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> widget::tree::State {
+        widget::tree::State::new(PanState::default())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+
+        let bounds = layout.bounds();
+        let state = tree.state.downcast_mut::<PanState>();
+
+        match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                if let Some(position) = cursor.position_over(bounds) {
+                    state.press_position = Some(position);
+                    state.last_position = Some(position);
+                    state.dragging = false;
+                }
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                state.press_position = None;
+                state.last_position = None;
+                state.dragging = false;
+            }
+            Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                if let Some(press_position) = state.press_position {
+                    let delta_from_press = *position - press_position;
+                    if !state.dragging
+                        && delta_from_press.x.hypot(delta_from_press.y) > DRAG_THRESHOLD
+                    {
+                        state.dragging = true;
+                        state.last_position = Some(*position);
+                    }
+
+                    if state.dragging {
+                        if let Some(last_position) = state.last_position {
+                            let delta = *position - last_position;
+                            if delta.x != 0.0 || delta.y != 0.0 {
+                                shell.publish(Message::TimelinePanned { delta });
+                                shell.capture_event();
+                            }
+                        }
+                        state.last_position = Some(*position);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        let state = tree.state.downcast_ref::<PanState>();
+        let interaction = self.content.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        );
+
+        if state.dragging {
+            mouse::Interaction::Grabbing
+        } else {
+            interaction
+        }
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn widget::Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+}
+
+impl<'a, Theme, Renderer> From<PanCatcher<'a, Theme, Renderer>>
+    for Element<'a, Message, Theme, Renderer>
+where
+    Message: 'a,
+    Theme: 'a,
+    Renderer: iced::advanced::Renderer + 'a,
+{
+    fn from(catcher: PanCatcher<'a, Theme, Renderer>) -> Self {
         Self::new(catcher)
     }
 }
