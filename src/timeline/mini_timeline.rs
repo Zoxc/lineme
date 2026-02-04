@@ -26,24 +26,19 @@ impl MiniTimelineProgram {
             _ => return None,
         };
 
-        // Limit selection to the events area portion of the mini timeline
-        let events_x = super::LABEL_WIDTH;
-        if bounds.width <= events_x {
-            return None;
-        }
+        // Use the full width of the mini timeline
+        let events_width = bounds.width;
 
-        let events_width = (bounds.width - events_x).max(0.0);
-
-        // Clamp start/end to the events area and return a rectangle positioned within it.
+        // Clamp start/end to the events area and return a rectangle.
         let raw_x_start = start.x.min(end.x);
         let raw_x_end = start.x.max(end.x);
 
-        let x_start = (raw_x_start - events_x).max(0.0).min(events_width);
-        let x_end = (raw_x_end - events_x).max(0.0).min(events_width);
+        let x_start = raw_x_start.max(0.0).min(events_width);
+        let x_end = raw_x_end.max(0.0).min(events_width);
         let width = (x_end - x_start).max(0.0);
 
         Some(Rectangle {
-            x: events_x + x_start,
+            x: x_start,
             y: 0.0,
             width,
             height: bounds.height,
@@ -124,39 +119,33 @@ impl Program<Message> for MiniTimelineProgram {
 
         let total_width = total_ns as f32 * self.zoom_level;
         if total_width > 0.0 {
-            // Map the main timeline viewport into the events area of the mini timeline
-            let events_x = super::LABEL_WIDTH;
-            if bounds.width > events_x {
-                let events_width = (bounds.width - events_x).max(0.0);
+            // Map the main timeline viewport into the full width of the mini timeline
+            let events_width = bounds.width;
 
-                let viewport_width = if self.viewport_width > 0.0 {
-                    self.viewport_width
-                } else {
-                    events_width
-                };
+            let viewport_width = if self.viewport_width > 0.0 {
+                self.viewport_width
+            } else {
+                events_width
+            };
 
-                let view_start = (self.scroll_offset.x / total_width).clamp(0.0, 1.0);
-                let view_width = (viewport_width / total_width).clamp(0.0, 1.0);
+            let view_start = (self.scroll_offset.x / total_width).clamp(0.0, 1.0);
+            let view_width = (viewport_width / total_width).clamp(0.0, 1.0);
 
-                let x = events_x + view_start * events_width;
-                let width = (view_width * events_width).max(4.0);
+            let x = view_start * events_width;
+            let width = (view_width * events_width).max(4.0);
 
-                frame.fill_rectangle(
-                    Point::new(x, 1.0),
-                    Size::new(width, bounds.height - 2.0),
-                    Color::from_rgba(0.1, 0.3, 0.6, 0.15),
-                );
+            frame.fill_rectangle(
+                Point::new(x, 1.0),
+                Size::new(width, bounds.height - 2.0),
+                Color::from_rgba(0.1, 0.3, 0.6, 0.15),
+            );
 
-                frame.stroke(
-                    &canvas::Path::rectangle(
-                        Point::new(x, 1.0),
-                        Size::new(width, bounds.height - 2.0),
-                    ),
-                    canvas::Stroke::default()
-                        .with_color(Color::from_rgba(0.1, 0.3, 0.6, 0.5))
-                        .with_width(1.0),
-                );
-            }
+            frame.stroke(
+                &canvas::Path::rectangle(Point::new(x, 1.0), Size::new(width, bounds.height - 2.0)),
+                canvas::Stroke::default()
+                    .with_color(Color::from_rgba(0.1, 0.3, 0.6, 0.5))
+                    .with_width(1.0),
+            );
         }
 
         if let Some(selection) = self.selection_bounds(state, bounds) {
@@ -187,22 +176,16 @@ impl Program<Message> for MiniTimelineProgram {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
                     if bounds.width > 0.0 {
-                        // Map click position into events area only
-                        let events_x = super::LABEL_WIDTH;
-                        let events_width = (bounds.width - events_x).max(0.0);
-                        let rel_x = (position.x - events_x).clamp(0.0, events_width);
-                        let fraction = if events_width > 0.0 {
-                            (rel_x / events_width).clamp(0.0, 1.0) as f64
-                        } else {
-                            0.0
-                        };
+                        // Map click position into the full width of the mini timeline
+                        let events_width = bounds.width;
+                        let rel_x = position.x.clamp(0.0, events_width);
+                        let fraction = (rel_x / events_width).clamp(0.0, 1.0) as f64;
                         state.dragging = true;
                         state.selecting = false;
                         state.selection_start = None;
                         state.selection_end = None;
                         return Some(Action::publish(Message::MiniTimelineJump {
                             fraction,
-                            // ensure we pass an events-area width fallback
                             viewport_width: self.viewport_width.max(events_width),
                         }));
                     }
@@ -220,15 +203,10 @@ impl Program<Message> for MiniTimelineProgram {
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 if state.dragging {
                     if let Some(position) = cursor.position_in(bounds) {
-                        let events_x = super::LABEL_WIDTH;
-                        if bounds.width > events_x {
-                            let events_width = (bounds.width - events_x).max(0.0);
-                            let rel_x = (position.x - events_x).clamp(0.0, events_width);
-                            let fraction = if events_width > 0.0 {
-                                (rel_x / events_width).clamp(0.0, 1.0) as f64
-                            } else {
-                                0.0
-                            };
+                        let events_width = bounds.width;
+                        if events_width > 0.0 {
+                            let rel_x = position.x.clamp(0.0, events_width);
+                            let fraction = (rel_x / events_width).clamp(0.0, 1.0) as f64;
                             return Some(Action::publish(Message::MiniTimelineJump {
                                 fraction,
                                 viewport_width: self.viewport_width.max(events_width),
@@ -250,14 +228,11 @@ impl Program<Message> for MiniTimelineProgram {
                 if state.selecting {
                     state.selecting = false;
                     if let Some(selection) = self.selection_bounds(state, bounds) {
-                        if selection.width >= 4.0 && bounds.width > super::LABEL_WIDTH {
-                            let events_x = super::LABEL_WIDTH;
-                            let events_width = (bounds.width - events_x).max(0.0);
-                            let start_fraction =
-                                ((selection.x - events_x) / events_width).clamp(0.0, 1.0);
-                            let end_fraction = ((selection.x + selection.width - events_x)
-                                / events_width)
-                                .clamp(0.0, 1.0);
+                        if selection.width >= 4.0 {
+                            let events_width = bounds.width;
+                            let start_fraction = (selection.x / events_width).clamp(0.0, 1.0);
+                            let end_fraction =
+                                ((selection.x + selection.width) / events_width).clamp(0.0, 1.0);
                             state.selection_start = None;
                             state.selection_end = None;
                             return Some(Action::publish(Message::MiniTimelineZoomTo {
