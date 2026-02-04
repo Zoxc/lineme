@@ -20,6 +20,18 @@ pub(crate) struct MiniTimelineState {
 }
 
 impl MiniTimelineProgram {
+    fn fallback_viewport_width(&self, bounds: Rectangle) -> f32 {
+        (bounds.width - super::LABEL_WIDTH).max(0.0)
+    }
+
+    fn viewport_width_for_bounds(&self, bounds: Rectangle) -> f32 {
+        if self.viewport_width > 0.0 {
+            self.viewport_width
+        } else {
+            self.fallback_viewport_width(bounds)
+        }
+    }
+
     fn selection_bounds(&self, state: &MiniTimelineState, bounds: Rectangle) -> Option<Rectangle> {
         let (start, end) = match (state.selection_start, state.selection_end) {
             (Some(start), Some(end)) => (start, end),
@@ -122,11 +134,7 @@ impl Program<Message> for MiniTimelineProgram {
             // Map the main timeline viewport into the full width of the mini timeline
             let events_width = bounds.width;
 
-            let viewport_width = if self.viewport_width > 0.0 {
-                self.viewport_width
-            } else {
-                events_width
-            };
+            let viewport_width = self.viewport_width_for_bounds(bounds);
 
             let view_start = (self.scroll_offset.x / total_width).clamp(0.0, 1.0);
             let view_width = (viewport_width / total_width).clamp(0.0, 1.0);
@@ -180,6 +188,7 @@ impl Program<Message> for MiniTimelineProgram {
                         let events_width = bounds.width;
                         let rel_x = position.x.clamp(0.0, events_width);
                         let fraction = (rel_x / events_width).clamp(0.0, 1.0) as f64;
+                        let viewport_width = self.viewport_width_for_bounds(bounds).max(1.0);
                         state.dragging = true;
                         state.selecting = false;
                         state.selection_start = None;
@@ -190,11 +199,7 @@ impl Program<Message> for MiniTimelineProgram {
                             // to the mini timeline's width. Using `max(events_width)` here
                             // previously forced the viewport width up to the mini timeline
                             // width which prevented panning/zooming to the true end.
-                            viewport_width: if self.viewport_width > 0.0 {
-                                self.viewport_width
-                            } else {
-                                events_width
-                            },
+                            viewport_width,
                         }));
                     }
                 }
@@ -215,13 +220,10 @@ impl Program<Message> for MiniTimelineProgram {
                         if events_width > 0.0 {
                             let rel_x = position.x.clamp(0.0, events_width);
                             let fraction = (rel_x / events_width).clamp(0.0, 1.0) as f64;
+                            let viewport_width = self.viewport_width_for_bounds(bounds).max(1.0);
                             return Some(Action::publish(Message::MiniTimelineJump {
                                 fraction,
-                                viewport_width: if self.viewport_width > 0.0 {
-                                    self.viewport_width
-                                } else {
-                                    events_width
-                                },
+                                viewport_width,
                             }));
                         }
                     }
@@ -245,16 +247,13 @@ impl Program<Message> for MiniTimelineProgram {
                             let start_fraction = (selection.x / events_width).clamp(0.0, 1.0);
                             let end_fraction =
                                 ((selection.x + selection.width) / events_width).clamp(0.0, 1.0);
+                            let viewport_width = self.viewport_width_for_bounds(bounds).max(1.0);
                             state.selection_start = None;
                             state.selection_end = None;
                             return Some(Action::publish(Message::MiniTimelineZoomTo {
                                 start_fraction,
                                 end_fraction,
-                                viewport_width: if self.viewport_width > 0.0 {
-                                    self.viewport_width
-                                } else {
-                                    events_width
-                                },
+                                viewport_width,
                             }));
                         }
                     }
