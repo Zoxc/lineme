@@ -23,6 +23,26 @@ pub const LANE_SPACING: f32 = 5.0;
 pub const DRAG_THRESHOLD: f32 = 3.0;
 pub const EVENT_LEFT_PADDING: f32 = 2.0;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorMode {
+    #[default]
+    Kind,
+    Event,
+}
+
+impl ColorMode {
+    pub const ALL: [ColorMode; 2] = [ColorMode::Kind, ColorMode::Event];
+}
+
+impl std::fmt::Display for ColorMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ColorMode::Kind => write!(f, "Kind"),
+            ColorMode::Event => write!(f, "Event"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimelineEvent {
     pub label: String,
@@ -103,6 +123,7 @@ pub fn view<'a>(
     viewport_width: f32,
     viewport_height: f32,
     modifiers: keyboard::Modifiers,
+    color_mode: ColorMode,
 ) -> Element<'a, Message> {
     let total_ns = timeline_data.max_ns - timeline_data.min_ns;
     if total_ns == 0 {
@@ -153,6 +174,7 @@ pub fn view<'a>(
         scroll_offset,
         viewport_width,
         viewport_height,
+        color_mode,
     })
     .width(Length::Fixed(events_width))
     .height(Length::Fixed(total_height));
@@ -281,6 +303,7 @@ struct EventsProgram<'a> {
     scroll_offset: Vector,
     viewport_width: f32,
     viewport_height: f32,
+    color_mode: ColorMode,
 }
 
 #[derive(Default)]
@@ -451,7 +474,10 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
 
                 let depth = event.depth as usize;
-                let color = event.color;
+                let color = match self.color_mode {
+                    ColorMode::Kind => color_from_label(&event.event_kind),
+                    ColorMode::Event => color_from_label(&event.label),
+                };
                 let label = &event.label;
 
                 if let Some((cur_x, cur_w, cur_color, cur_label)) = &mut last_rects[depth] {

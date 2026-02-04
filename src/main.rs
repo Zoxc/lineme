@@ -8,7 +8,7 @@ use iced_aw::{tab_bar, TabLabel};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use analyzeme::ProfilingData;
-use timeline::*;
+use timeline::{ColorMode, *};
 
 const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';
@@ -61,6 +61,7 @@ enum Message {
     FileLoaded(PathBuf, Stats),
     ErrorOccurred(String),
     ViewChanged(ViewType),
+    ColorModeChanged(ColorMode),
     CloseTab(usize),
     OpenSettings,
     EventSelected(TimelineEvent),
@@ -98,6 +99,7 @@ struct FileData {
     path: PathBuf,
     stats: Stats,
     view_type: ViewType,
+    color_mode: ColorMode,
     selected_event: Option<TimelineEvent>,
     hovered_event: Option<TimelineEvent>,
     zoom_level: f32,
@@ -210,6 +212,7 @@ impl Lineme {
                     path, 
                     stats,
                     view_type: ViewType::default(),
+                    color_mode: ColorMode::default(),
                     selected_event: None,
                     hovered_event: None,
                     zoom_level,
@@ -226,6 +229,11 @@ impl Lineme {
             Message::ViewChanged(view) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     file.view_type = view;
+                }
+            }
+            Message::ColorModeChanged(color_mode) => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    file.color_mode = color_mode;
                 }
             }
             Message::CloseTab(index) => {
@@ -555,30 +563,42 @@ impl Lineme {
                     .padding(3),
                     if file.view_type == ViewType::Timeline {
                         Element::from(
-                            button(
-                                row![text(RESET_ICON).font(ICON_FONT), text("Reset View").size(12.0)]
-                                    .spacing(5)
-                                    .align_y(Alignment::Center),
-                            )
-                            .style(|theme: &iced::Theme, status: button::Status| {
-                                let palette = theme.extended_palette();
-                                let base = button::Style {
-                                    text_color: palette.background.base.text,
-                                    ..Default::default()
-                                };
-                                match status {
-                                    button::Status::Hovered | button::Status::Pressed => button::Style {
-                                        background: Some(palette.background.weak.color.into()),
-                                        ..base
-                                    },
-                                    _ => base,
-                                }
-                            })
-                            .padding(3)
-                            .on_press(Message::ResetView),
+                            row![
+                                text("Color by:").size(12),
+                                pick_list(
+                                    &ColorMode::ALL[..],
+                                    Some(file.color_mode),
+                                    Message::ColorModeChanged,
+                                )
+                                .text_size(12)
+                                .padding(3),
+                                button(
+                                    row![text(RESET_ICON).font(ICON_FONT), text("Reset View").size(12.0)]
+                                        .spacing(5)
+                                        .align_y(Alignment::Center),
+                                )
+                                .style(|theme: &iced::Theme, status: button::Status| {
+                                    let palette = theme.extended_palette();
+                                    let base = button::Style {
+                                        text_color: palette.background.base.text,
+                                        ..Default::default()
+                                    };
+                                    match status {
+                                        button::Status::Hovered | button::Status::Pressed => button::Style {
+                                            background: Some(palette.background.weak.color.into()),
+                                            ..base
+                                        },
+                                        _ => base,
+                                    }
+                                })
+                                .padding(3)
+                                .on_press(Message::ResetView),
+                            ]
+                            .spacing(10)
+                            .align_y(Alignment::Center),
                         )
                     } else {
-                        Space::new().width(0).into()
+                        Element::from(Space::new().width(0))
                     },
                 ]
                 .spacing(10)
@@ -643,6 +663,7 @@ impl Lineme {
             file.viewport_width,
             file.viewport_height,
             self.modifiers,
+            file.color_mode,
         )
     }
 
