@@ -363,6 +363,7 @@ impl Lineme {
             text(format!("Command: {}", file.stats.cmd)),
             text(format!("PID: {}", file.stats.pid)),
             text(format!("Event count: {}", file.stats.event_count)),
+            text(format!("Total duration: {}", format_duration(file.stats.timeline.max_ns - file.stats.timeline.min_ns))),
             button(
                 row![text(OPEN_ICON).font(ICON_FONT), text("Open another file")]
                     .spacing(10)

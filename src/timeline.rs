@@ -56,6 +56,18 @@ pub fn timeline_id() -> iced::widget::Id {
     iced::widget::Id::new("timeline_scrollable")
 }
 
+pub fn format_duration(ns: u64) -> String {
+    if ns >= 1_000_000_000 {
+        format!("{:.2} s", ns as f64 / 1_000_000_000.0)
+    } else if ns >= 1_000_000 {
+        format!("{:.2} ms", ns as f64 / 1_000_000.0)
+    } else if ns >= 1_000 {
+        format!("{:.2} µs", ns as f64 / 1_000.0)
+    } else {
+        format!("{} ns", ns)
+    }
+}
+
 pub fn view<'a>(
     timeline_data: &'a TimelineData,
     zoom_level: f32,
@@ -115,8 +127,11 @@ pub fn view<'a>(
             column![
                 text(format!("Event: {}", event.label)).size(20),
                 text(format!("Thread: {}", event.thread_id)),
-                text(format!("Start: {} ns", event.start_ns)),
-                text(format!("Duration: {} ns", event.duration_ns)),
+                text(format!(
+                    "Start: {}",
+                    format_duration(event.start_ns.saturating_sub(timeline_data.min_ns))
+                )),
+                text(format!("Duration: {}", format_duration(event.duration_ns))),
             ]
             .spacing(5)
             .padding(10),
@@ -391,7 +406,6 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
         );
 
         if total_ns > 0.0 {
-            let canvas_width = bounds.width;
             let ns_per_pixel = 1.0 / self.zoom_level as f64;
 
             let pixel_interval = 100.0;
@@ -407,14 +421,11 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                 base * 10.0
             };
 
-            let first_marker = (self.min_ns as f64 / nice_interval).floor() * nice_interval;
-            let mut current_marker = first_marker;
+            let mut relative_ns = 0.0;
 
-            while ((current_marker - self.min_ns as f64) * self.zoom_level as f64)
-                < canvas_width as f64
+            while (relative_ns * self.zoom_level as f64) < bounds.width as f64 - LABEL_WIDTH as f64
             {
-                let x = ((current_marker - self.min_ns as f64) * self.zoom_level as f64) as f32
-                    + LABEL_WIDTH;
+                let x = (relative_ns * self.zoom_level as f64) as f32 + LABEL_WIDTH;
 
                 if x >= LABEL_WIDTH + self.scroll_offset.x {
                     frame.stroke(
@@ -438,13 +449,13 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                     );
 
                     let time_str = if nice_interval >= 1_000_000_000.0 {
-                        format!("{:.2} s", current_marker / 1_000_000_000.0)
+                        format!("{:.2} s", relative_ns / 1_000_000_000.0)
                     } else if nice_interval >= 1_000_000.0 {
-                        format!("{:.2} ms", current_marker / 1_000_000.0)
+                        format!("{:.2} ms", relative_ns / 1_000_000.0)
                     } else if nice_interval >= 1_000.0 {
-                        format!("{:.2} µs", current_marker / 1_000.0)
+                        format!("{:.2} µs", relative_ns / 1_000.0)
                     } else {
-                        format!("{} ns", current_marker)
+                        format!("{:.0} ns", relative_ns)
                     };
 
                     frame.fill_text(canvas::Text {
@@ -455,7 +466,7 @@ impl<'a> Program<Message> for TimelineProgram<'a> {
                         ..Default::default()
                     });
                 }
-                current_marker += nice_interval;
+                relative_ns += nice_interval;
             }
         }
 
