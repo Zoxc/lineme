@@ -161,15 +161,20 @@ impl Lineme {
     }
 
     fn title(&self) -> String {
+        let app_name = "LineMe";
         if self.show_settings {
-            return "Lineme - Settings".to_string();
+            return format!("{} - Settings", app_name);
         }
+
         if let Some(file) = self.files.get(self.active_tab) {
-            file.path.file_name()
+            let file_name = file
+                .path
+                .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "Lineme".to_string())
+                .unwrap_or_else(|| app_name.to_string());
+            format!("{} - {}", file_name, app_name)
         } else {
-            "Lineme - measureme profdata viewer".to_string()
+            format!("{} - measureme profdata viewer", app_name)
         }
     }
 
@@ -497,11 +502,13 @@ impl Lineme {
                 
                 match status {
                     iced_aw::tab_bar::Status::Active => {
+                        // Use flat styling for active tab — remove the strong
+                        // accent border by setting border width to 0 so there's
+                        // no blue highlight.
                         style.background = Some(palette.background.base.color.into());
                         style.text_color = palette.background.base.text;
                         style.tab_label_background = palette.background.base.color.into();
-                        style.tab_label_border_color = palette.primary.strong.color;
-                        style.tab_label_border_width = 2.0;
+                        style.tab_label_border_width = 0.0;
                     }
                     iced_aw::tab_bar::Status::Hovered => {
                         style.tab_label_background = palette.background.strong.color.into();
@@ -510,6 +517,7 @@ impl Lineme {
                     _ => {
                         style.tab_label_background = palette.background.weak.color.into();
                         style.text_color = palette.background.weak.text;
+                        style.tab_label_border_width = 0.0;
                     }
                 }
                 style
@@ -531,7 +539,11 @@ impl Lineme {
         // bar background/border a neutral grey.
         let header = container(
             row![
-                bar,
+                // Make the tab bar only take the space it needs instead of
+                // expanding to fill the header. Wrapping the `tab_bar` in a
+                // `container` with `Length::Shrink` forces it to size to its
+                // content.
+                container(bar).width(Length::Shrink),
                 Space::new().width(Length::Fill),
                 // Use the same font size as thread labels for button text
                 button(
