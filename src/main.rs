@@ -1,6 +1,8 @@
 mod timeline;
 
 use iced::widget::{button, column, container, pick_list, row, scrollable, text, Space};
+use iced::widget::scrollable::RelativeOffset;
+use iced::widget::operation::snap_to;
 use iced::{Alignment, Element, Length, Task};
 use iced_aw::{tab_bar, TabLabel};
 use std::path::{Path, PathBuf};
@@ -12,6 +14,7 @@ const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';
 const OPEN_ICON: char = '\u{e2c7}';
 const FILE_ICON: char = '\u{e873}';
+const RESET_ICON: char = '\u{e5d5}';
 
 pub fn main() -> iced::Result {
     iced::application(Lineme::new, Lineme::update, Lineme::view)
@@ -62,6 +65,7 @@ enum Message {
     EventSelected(TimelineEvent),
     TimelineZoomed { delta: f32, x: f32 },
     TimelineScroll { offset: iced::Vector },
+    ResetView,
     ToggleThreadCollapse(u64),
     ModifiersChanged(iced::keyboard::Modifiers),
     None,
@@ -231,6 +235,17 @@ impl Lineme {
                     file.scroll_offset = offset;
                 }
             }
+            Message::ResetView => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    file.zoom_level = 1000.0 / total_ns.max(1) as f32;
+                    file.scroll_offset = iced::Vector::default();
+                    return snap_to(
+                        timeline_id(),
+                        RelativeOffset { x: 0.0, y: 0.0 },
+                    );
+                }
+            }
             Message::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers;
             }
@@ -298,6 +313,18 @@ impl Lineme {
                         Some(file.view_type),
                         Message::ViewChanged,
                     ),
+                    if file.view_type == ViewType::Timeline {
+                        Element::from(
+                            button(
+                                row![text(RESET_ICON).font(ICON_FONT), text("Reset View")]
+                                    .spacing(5)
+                                    .align_y(Alignment::Center),
+                            )
+                            .on_press(Message::ResetView),
+                        )
+                    } else {
+                        Space::new().width(0).into()
+                    },
                 ]
                 .spacing(10)
                 .padding(5)
