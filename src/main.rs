@@ -61,10 +61,8 @@ enum Message {
     CloseTab(usize),
     OpenSettings,
     EventSelected(TimelineEvent),
-    TimelineZoomed { delta: f32, x: f32, width: f32 },
-    TimelineScrolled { delta_x: f32, width: f32 },
-    TimelinePanned(u64),
-    TimelineDragPanned { delta_x: f32 },
+    TimelineZoomed { delta: f32, x: f32 },
+    TimelineScroll { offset: iced::Vector },
     None,
 }
 
@@ -81,8 +79,8 @@ struct FileData {
     stats: Stats,
     view_type: ViewType,
     selected_event: Option<TimelineEvent>,
-    view_start_ns: u64,
-    view_end_ns: u64,
+    zoom_level: f32,
+    scroll_offset: iced::Vector,
 }
 
 struct SettingsPage {
@@ -166,15 +164,15 @@ impl Lineme {
                 );
             }
             Message::FileLoaded(path, stats) => {
-                let view_start_ns = stats.timeline.min_ns;
-                let view_end_ns = stats.timeline.max_ns;
+                let total_ns = stats.timeline.max_ns - stats.timeline.min_ns;
+                let zoom_level = 1000.0 / total_ns.max(1) as f32; // Default to 1000px wide
                 self.files.push(FileData { 
                     path, 
                     stats,
                     view_type: ViewType::default(),
                     selected_event: None,
-                    view_start_ns,
-                    view_end_ns,
+                    zoom_level,
+                    scroll_offset: iced::Vector::default(),
                 });
                 self.active_tab = self.files.len() - 1;
                 self.show_settings = false;
@@ -203,55 +201,19 @@ impl Lineme {
                     file.selected_event = Some(event);
                 }
             }
-            Message::TimelineZoomed { delta, x, width } => {
+            Message::TimelineZoomed { delta, x } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let old_duration = file.view_end_ns.saturating_sub(file.view_start_ns) as f64;
-                    if old_duration <= 0.0 { return Task::none(); }
-
-                    let zoom_factor = if delta > 0.0 { 0.9 } else { 1.1 };
-                    let new_duration = (old_duration * zoom_factor) as u64;
+                    let zoom_factor = if delta > 0.0 { 1.1 } else { 0.9 };
+                    file.zoom_level *= zoom_factor;
                     
-                    let total_duration = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
-                    let new_duration = new_duration.clamp(1000, total_duration);
-                    
-                    let time_at_x = file.view_start_ns as f64 + (x as f64 / width as f64) * old_duration;
-                    
-                    let new_start = (time_at_x - (x as f64 / width as f64) * new_duration as f64) as i64;
-                    
-                    file.view_start_ns = new_start.clamp(file.stats.timeline.min_ns as i64, (file.stats.timeline.max_ns - new_duration) as i64) as u64;
-                    file.view_end_ns = file.view_start_ns + new_duration;
+                    // Adjust scroll offset to keep x position stable
+                    let x_on_canvas = x + file.scroll_offset.x;
+                    file.scroll_offset.x = x_on_canvas * zoom_factor - x;
                 }
             }
-            Message::TimelineScrolled { delta_x, width } => {
+            Message::TimelineScroll { offset } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let duration = file.view_end_ns.saturating_sub(file.view_start_ns);
-                    let scroll_amount = (delta_x as f64 / width as f64 * duration as f64) as i64;
-                    
-                    let new_start = (file.view_start_ns as i64 + scroll_amount)
-                        .clamp(file.stats.timeline.min_ns as i64, (file.stats.timeline.max_ns.saturating_sub(duration)) as i64) as u64;
-                        
-                    file.view_start_ns = new_start;
-                    file.view_end_ns = new_start + duration;
-                }
-            }
-            Message::TimelineDragPanned { delta_x } => {
-                if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let duration = file.view_end_ns.saturating_sub(file.view_start_ns);
-                    // We use a fixed reference width for the drag delta to make it feel consistent
-                    let scroll_amount = (delta_x as f64 / 1000.0 * duration as f64) as i64;
-                    
-                    let new_start = (file.view_start_ns as i64 - scroll_amount)
-                        .clamp(file.stats.timeline.min_ns as i64, (file.stats.timeline.max_ns.saturating_sub(duration)) as i64) as u64;
-                        
-                    file.view_start_ns = new_start;
-                    file.view_end_ns = new_start + duration;
-                }
-            }
-            Message::TimelinePanned(new_start) => {
-                if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let duration = file.view_end_ns.saturating_sub(file.view_start_ns);
-                    file.view_start_ns = new_start;
-                    file.view_end_ns = new_start + duration;
+                    file.scroll_offset = offset;
                 }
             }
             Message::None => {}
@@ -348,9 +310,9 @@ impl Lineme {
     fn timeline_view<'a>(&self, file: &'a FileData) -> Element<'a, Message> {
         timeline::view(
             &file.stats.timeline,
-            file.view_start_ns,
-            file.view_end_ns,
+            file.zoom_level,
             &file.selected_event,
+            file.scroll_offset,
         )
     }
 
