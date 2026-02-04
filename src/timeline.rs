@@ -3,12 +3,12 @@ mod threads;
 
 use crate::Message;
 use iced::advanced::widget::{self, Tree, Widget};
-use iced::advanced::{Clipboard, Layout, Shell, layout, renderer};
+use iced::advanced::{layout, renderer, Clipboard, Layout, Shell};
 use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Action;
 use iced::widget::canvas::{self, Canvas, Geometry, Program};
-use iced::widget::{Space, column, container, row, scrollable, text};
+use iced::widget::{column, container, row, scrollable, text, Space};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector};
 use mini_timeline::MiniTimelineProgram;
 use threads::ThreadsProgram;
@@ -241,6 +241,7 @@ struct EventsProgram<'a> {
 struct EventsState {
     modifiers: keyboard::Modifiers,
     hovered_event: Option<TimelineEvent>,
+    last_click: Option<(TimelineEvent, std::time::Instant)>,
 }
 
 impl<'a> EventsProgram<'a> {
@@ -526,6 +527,21 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
                     if let Some(event) = self.find_event_at(position) {
+                        // Detect double-click: if the same event was clicked recently, publish a double-click message.
+                        let now = std::time::Instant::now();
+                        if let Some((prev_event, prev_time)) = &state.last_click {
+                            if prev_event.start_ns == event.start_ns
+                                && prev_event.duration_ns == event.duration_ns
+                                && prev_event.thread_id == event.thread_id
+                                && now.duration_since(*prev_time)
+                                    <= std::time::Duration::from_millis(400)
+                            {
+                                state.last_click = None;
+                                return Some(Action::publish(Message::EventDoubleClicked(event)));
+                            }
+                        }
+
+                        state.last_click = Some((event.clone(), now));
                         return Some(Action::publish(Message::EventSelected(event)));
                     }
                 }

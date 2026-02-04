@@ -64,6 +64,7 @@ enum Message {
     CloseTab(usize),
     OpenSettings,
     EventSelected(TimelineEvent),
+    EventDoubleClicked(TimelineEvent),
     EventHovered(Option<TimelineEvent>),
     TimelineZoomed { delta: f32, x: f32 },
     TimelineScroll {
@@ -238,6 +239,41 @@ impl Lineme {
             Message::EventSelected(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     file.selected_event = Some(event);
+                }
+            }
+            Message::EventDoubleClicked(event) => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let total_ns = file.stats.timeline.max_ns.saturating_sub(file.stats.timeline.min_ns).max(1);
+                    let viewport_width = file.viewport_width.max(1.0);
+
+                    let event_rel_start = event.start_ns.saturating_sub(file.stats.timeline.min_ns);
+                    let event_rel_end = event_rel_start.saturating_add(event.duration_ns);
+
+                    // Add padding of 20% of event duration (10% on each side)
+                    let padding_ns = ((event.duration_ns as f32) * 0.2).round() as u64;
+                    let half_pad = padding_ns / 2;
+
+                    let start_ns = event_rel_start.saturating_sub(half_pad).min(total_ns);
+                    let end_ns = (event_rel_end + half_pad).min(total_ns);
+
+                    let start_fraction = start_ns as f32 / total_ns as f32;
+                    let end_fraction = end_ns as f32 / total_ns as f32;
+
+                    // Zoom so the selected range fills the viewport.
+                    let target_ns = (end_ns.saturating_sub(start_ns)).max(1) as f32;
+                    file.zoom_level = viewport_width / target_ns;
+
+                    let total_width = (total_ns as f32) * file.zoom_level;
+                    let target_x = start_fraction * total_width;
+                    file.scroll_offset.x = target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
+
+                    return scroll_to(
+                        timeline_id(),
+                        AbsoluteOffset {
+                            x: file.scroll_offset.x,
+                            y: file.scroll_offset.y,
+                        },
+                    );
                 }
             }
             Message::EventHovered(event) => {
