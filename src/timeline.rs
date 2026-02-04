@@ -3,12 +3,12 @@ mod threads;
 
 use crate::Message;
 use iced::advanced::widget::{self, Tree, Widget};
-use iced::advanced::{layout, renderer, Clipboard, Layout, Shell};
+use iced::advanced::{Clipboard, Layout, Shell, layout, renderer};
 use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Action;
 use iced::widget::canvas::{self, Canvas, Geometry, Program};
-use iced::widget::{column, container, row, scrollable, text, Space};
+use iced::widget::{Space, column, container, row, scrollable, text};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector};
 use mini_timeline::MiniTimelineProgram;
 use threads::ThreadsProgram;
@@ -19,6 +19,7 @@ pub const MINI_TIMELINE_HEIGHT: f32 = 40.0;
 pub const LANE_HEIGHT: f32 = 20.0;
 pub const LANE_SPACING: f32 = 5.0;
 pub const DRAG_THRESHOLD: f32 = 3.0;
+pub const EVENT_LEFT_PADDING: f32 = 2.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimelineEvent {
@@ -441,12 +442,17 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
                         if rect.width > 20.0 {
                             let mut truncated_label = cur_label.clone();
-                            if truncated_label.len() > (rect.width / 6.0) as usize {
-                                truncated_label.truncate((rect.width / 6.0) as usize);
+                            let avail_chars =
+                                ((rect.width - 4.0 - EVENT_LEFT_PADDING).max(0.0) / 6.0) as usize;
+                            if truncated_label.len() > avail_chars {
+                                truncated_label.truncate(avail_chars);
                             }
                             frame.fill_text(canvas::Text {
                                 content: truncated_label,
-                                position: Point::new(rect.x + 2.0, rect.y + 2.0),
+                                position: Point::new(
+                                    rect.x + 2.0 + EVENT_LEFT_PADDING,
+                                    rect.y + 2.0,
+                                ),
                                 color: Color::from_rgb(0.2, 0.2, 0.2),
                                 size: 10.0.into(),
                                 ..Default::default()
@@ -478,12 +484,14 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
                     if rect.width > 20.0 {
                         let mut truncated_label = cur_label;
-                        if truncated_label.len() > (rect.width / 6.0) as usize {
-                            truncated_label.truncate((rect.width / 6.0) as usize);
+                        let avail_chars =
+                            ((rect.width - 4.0 - EVENT_LEFT_PADDING).max(0.0) / 6.0) as usize;
+                        if truncated_label.len() > avail_chars {
+                            truncated_label.truncate(avail_chars);
                         }
                         frame.fill_text(canvas::Text {
                             content: truncated_label,
-                            position: Point::new(rect.x + 2.0, rect.y + 2.0),
+                            position: Point::new(rect.x + 2.0 + EVENT_LEFT_PADDING, rect.y + 2.0),
                             color: Color::from_rgb(0.2, 0.2, 0.2),
                             size: 10.0.into(),
                             ..Default::default()
