@@ -5,14 +5,15 @@ mod threads;
 use crate::Message;
 use header::HeaderProgram;
 use iced::advanced::widget::{self, Tree, Widget};
-use iced::advanced::{Clipboard, Layout, Shell, layout, renderer};
+use iced::advanced::{layout, renderer, Clipboard, Layout, Shell};
 use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Action;
 use iced::widget::canvas::{self, Canvas, Geometry, Program};
-use iced::widget::{Space, button, column, container, row, scrollable, text};
+use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Renderer, Size, Theme, Vector};
 use mini_timeline::MiniTimelineProgram;
+use std::sync::Arc;
 use threads::ThreadsProgram;
 
 pub const LABEL_WIDTH: f32 = 150.0;
@@ -60,13 +61,26 @@ pub struct TimelineEvent {
 pub struct ThreadData {
     pub thread_id: u64,
     pub events: Vec<TimelineEvent>,
+}
+
+pub type ThreadGroupId = Arc<Vec<Arc<ThreadData>>>;
+pub type ThreadGroupKey = usize;
+
+#[derive(Debug, Clone)]
+pub struct ThreadGroup {
+    pub threads: ThreadGroupId,
+    pub events: Vec<TimelineEvent>,
     pub max_depth: u32,
     pub is_collapsed: bool,
 }
 
+pub fn thread_group_key(group: &ThreadGroup) -> ThreadGroupKey {
+    Arc::as_ptr(&group.threads) as ThreadGroupKey
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TimelineData {
-    pub threads: Vec<ThreadData>,
+    pub thread_groups: Vec<ThreadGroup>,
     pub min_ns: u64,
     pub max_ns: u64,
 }
@@ -89,17 +103,43 @@ pub fn timeline_id() -> iced::widget::Id {
     iced::widget::Id::new("timeline_scrollable")
 }
 
-pub fn total_timeline_height(threads: &[ThreadData]) -> f32 {
+pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f32 {
     let mut total_height = 0.0;
-    for thread in threads {
-        let lane_total_height = if thread.is_collapsed {
+    for group in thread_groups {
+        let lane_total_height = if group.is_collapsed {
             LANE_HEIGHT
         } else {
-            (thread.max_depth + 1) as f32 * LANE_HEIGHT
+            (group.max_depth + 1) as f32 * LANE_HEIGHT
         };
         total_height += lane_total_height + LANE_SPACING;
     }
     total_height
+}
+
+pub fn build_thread_group_events(threads: &[Arc<ThreadData>]) -> (Vec<TimelineEvent>, u32) {
+    let mut events = Vec::new();
+    for thread in threads {
+        events.extend(thread.events.iter().cloned());
+    }
+
+    events.sort_by_key(|event| (event.start_ns, event.thread_id));
+
+    let mut stack: Vec<u64> = Vec::new();
+    for event in events.iter_mut() {
+        let end_ns = event.start_ns + event.duration_ns;
+        while let Some(&last_end) = stack.last() {
+            if last_end <= event.start_ns {
+                stack.pop();
+            } else {
+                break;
+            }
+        }
+        event.depth = stack.len() as u32;
+        stack.push(end_ns);
+    }
+
+    let max_depth = events.iter().map(|event| event.depth).max().unwrap_or(0);
+    (events, max_depth)
 }
 
 pub fn format_duration(ns: u64) -> String {
@@ -116,6 +156,7 @@ pub fn format_duration(ns: u64) -> String {
 
 pub fn view<'a>(
     timeline_data: &'a TimelineData,
+    thread_groups: &'a [ThreadGroup],
     zoom_level: f32,
     selected_event: &'a Option<TimelineEvent>,
     _hovered_event: &'a Option<TimelineEvent>,
@@ -135,7 +176,7 @@ pub fn view<'a>(
             .into();
     }
 
-    let total_height = total_timeline_height(&timeline_data.threads);
+    let total_height = total_timeline_height(thread_groups);
 
     let events_width = (total_ns as f64 * zoom_level as f64).ceil() as f32;
 
@@ -159,14 +200,14 @@ pub fn view<'a>(
     .height(Length::Fixed(HEADER_HEIGHT));
 
     let threads_canvas = Canvas::new(ThreadsProgram {
-        threads: &timeline_data.threads,
+        thread_groups,
         scroll_offset,
     })
     .width(Length::Fixed(LABEL_WIDTH))
     .height(Length::Fill);
 
     let events_canvas = Canvas::new(EventsProgram {
-        threads: &timeline_data.threads,
+        thread_groups,
         min_ns: timeline_data.min_ns,
         max_ns: timeline_data.max_ns,
         zoom_level,
@@ -354,7 +395,7 @@ pub fn view<'a>(
 }
 
 struct EventsProgram<'a> {
-    threads: &'a [ThreadData],
+    thread_groups: &'a [ThreadGroup],
     min_ns: u64,
     max_ns: u64,
     zoom_level: f32,
@@ -379,16 +420,16 @@ impl<'a> EventsProgram<'a> {
     fn find_event_at(&self, position: Point) -> Option<TimelineEvent> {
         let position = position;
         let mut y_offset = 0.0;
-        for thread in self.threads {
-            let lane_total_height = if thread.is_collapsed {
+        for group in self.thread_groups {
+            let lane_total_height = if group.is_collapsed {
                 LANE_HEIGHT
             } else {
-                (thread.max_depth + 1) as f32 * LANE_HEIGHT
+                (group.max_depth + 1) as f32 * LANE_HEIGHT
             };
 
             if position.y >= y_offset && position.y < y_offset + lane_total_height {
-                for event in &thread.events {
-                    if thread.is_collapsed && event.depth > 0 {
+                for event in &group.events {
+                    if group.is_collapsed && event.depth > 0 {
                         continue;
                     }
 
@@ -433,7 +474,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
     ) -> Vec<Geometry> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
-        if self.threads.is_empty() {
+        if self.thread_groups.is_empty() {
             return vec![frame.into_geometry()];
         }
 
@@ -486,11 +527,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         let y_min = self.scroll_offset.y;
         let y_max = self.scroll_offset.y + self.viewport_height;
 
-        for thread in self.threads {
-            let lane_total_height = if thread.is_collapsed {
+        for group in self.thread_groups {
+            let lane_total_height = if group.is_collapsed {
                 LANE_HEIGHT
             } else {
-                (thread.max_depth + 1) as f32 * LANE_HEIGHT
+                (group.max_depth + 1) as f32 * LANE_HEIGHT
             };
 
             // Skip drawing if thread is completely outside vertical viewport
@@ -512,10 +553,10 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             );
 
             let mut last_rects: Vec<Option<(f32, f32, Color, String)>> =
-                vec![None; (thread.max_depth + 1) as usize];
+                vec![None; (group.max_depth + 1) as usize];
 
-            for event in &thread.events {
-                if thread.is_collapsed && event.depth > 0 {
+            for event in &group.events {
+                if group.is_collapsed && event.depth > 0 {
                     continue;
                 }
 
@@ -624,8 +665,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
 
             if let Some(hovered) = &state.hovered_event {
-                if hovered.thread_id == thread.thread_id {
-                    if !thread.is_collapsed || hovered.depth == 0 {
+                if group_contains_thread(group, hovered.thread_id) {
+                    if !group.is_collapsed || hovered.depth == 0 {
                         let x = (hovered.start_ns.saturating_sub(self.min_ns) as f64
                             * self.zoom_level as f64) as f32;
                         let width = (hovered.duration_ns as f64 * self.zoom_level as f64) as f32;
@@ -645,8 +686,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
 
             if let Some(selected) = self.selected_event {
-                if selected.thread_id == thread.thread_id {
-                    if !thread.is_collapsed || selected.depth == 0 {
+                if group_contains_thread(group, selected.thread_id) {
+                    if !group.is_collapsed || selected.depth == 0 {
                         let x = (selected.start_ns.saturating_sub(self.min_ns) as f64
                             * self.zoom_level as f64) as f32;
                         let width = (selected.duration_ns as f64 * self.zoom_level as f64) as f32;
@@ -794,6 +835,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         }
         None
     }
+}
+
+fn group_contains_thread(group: &ThreadGroup, thread_id: u64) -> bool {
+    group
+        .threads
+        .iter()
+        .any(|thread| thread.thread_id == thread_id)
 }
 
 pub struct WheelCatcher<'a, Message, Theme, Renderer> {

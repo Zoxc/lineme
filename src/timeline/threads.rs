@@ -1,33 +1,33 @@
+use crate::timeline::{thread_group_key, ThreadGroup, LANE_HEIGHT, LANE_SPACING};
 use crate::Message;
-use crate::timeline::{LANE_HEIGHT, LANE_SPACING, ThreadData};
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Geometry, Program};
 use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 pub(crate) struct ThreadsProgram<'a> {
-    pub(crate) threads: &'a [ThreadData],
+    pub(crate) thread_groups: &'a [ThreadGroup],
     pub(crate) scroll_offset: Vector,
 }
 
 #[derive(Default)]
 pub(crate) struct ThreadsState {
-    hovered_thread: Option<u64>,
+    hovered_group: Option<usize>,
 }
 
 impl<'a> ThreadsProgram<'a> {
-    fn thread_at(&self, position: Point) -> Option<u64> {
+    fn group_at(&self, position: Point) -> Option<usize> {
         let mut y_offset = 0.0;
         let content_y = position.y + self.scroll_offset.y;
 
-        for thread in self.threads {
-            let lane_total_height = if thread.is_collapsed {
+        for group in self.thread_groups {
+            let lane_total_height = if group.is_collapsed {
                 LANE_HEIGHT
             } else {
-                (thread.max_depth + 1) as f32 * LANE_HEIGHT
+                (group.max_depth + 1) as f32 * LANE_HEIGHT
             };
 
             if content_y >= y_offset && content_y < y_offset + LANE_HEIGHT + 2.0 {
-                return Some(thread.thread_id);
+                return Some(thread_group_key(group));
             }
 
             y_offset += lane_total_height + LANE_SPACING;
@@ -57,16 +57,16 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
         );
 
         let mut y_offset = 0.0;
-        for thread in self.threads {
-            let lane_total_height = if thread.is_collapsed {
+        for group in self.thread_groups {
+            let lane_total_height = if group.is_collapsed {
                 LANE_HEIGHT
             } else {
-                (thread.max_depth + 1) as f32 * LANE_HEIGHT
+                (group.max_depth + 1) as f32 * LANE_HEIGHT
             };
 
             let y = y_offset - self.scroll_offset.y;
             let row_top = y;
-            let is_hovered = state.hovered_thread == Some(thread.thread_id);
+            let is_hovered = state.hovered_group == Some(thread_group_key(group));
             if is_hovered {
                 frame.fill_rectangle(
                     Point::new(0.0, row_top),
@@ -82,7 +82,7 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
                     .with_width(1.0),
             );
 
-            let icon = if thread.is_collapsed { "▶" } else { "▼" };
+            let icon = if group.is_collapsed { "▶" } else { "▼" };
             let icon_box = Rectangle {
                 x: 6.0,
                 y: row_top + 3.0,
@@ -114,7 +114,7 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
             });
 
             frame.fill_text(canvas::Text {
-                content: format!("Thread {}", thread.thread_id),
+                content: group_label(group),
                 position: Point::new(26.0, row_top + 5.0),
                 color: if is_hovered {
                     Color::from_rgb(0.1, 0.2, 0.35)
@@ -141,17 +141,17 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
         if let Event::Mouse(mouse::Event::CursorMoved { .. }) = event {
             let hovered = cursor
                 .position_in(bounds)
-                .and_then(|position| self.thread_at(position));
+                .and_then(|position| self.group_at(position));
 
-            if hovered != state.hovered_thread {
-                state.hovered_thread = hovered;
+            if state.hovered_group != hovered {
+                state.hovered_group = hovered;
             }
         }
 
         if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
             if let Some(position) = cursor.position_in(bounds) {
-                if let Some(thread_id) = self.thread_at(position) {
-                    return Some(Action::publish(Message::ToggleThreadCollapse(thread_id)));
+                if let Some(group_id) = self.group_at(position) {
+                    return Some(Action::publish(Message::ToggleThreadCollapse(group_id)));
                 }
             }
         }
@@ -165,10 +165,19 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
         _bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if state.hovered_thread.is_some() {
+        if state.hovered_group.is_some() {
             mouse::Interaction::Pointer
         } else {
             mouse::Interaction::default()
         }
     }
+}
+
+fn group_label(group: &ThreadGroup) -> String {
+    if group.threads.len() == 1 {
+        if let Some(thread) = group.threads.first() {
+            return format!("Thread {}", thread.thread_id);
+        }
+    }
+    format!("Thread Group ({})", group.threads.len())
 }
