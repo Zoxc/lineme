@@ -782,10 +782,30 @@ impl Lineme {
     fn settings_view(&self) -> Element<'_, Message> {
         // Make the settings panel visually consistent with other panels by using
         // the same themed container and compact label/value rows.
+        let hints = column![
+            text("Hints").size(16),
+            row![text("Left click:").width(Length::Fixed(160.0)).size(12), text("Select an event and show details").size(12)],
+            row![text("Double click:").width(Length::Fixed(160.0)).size(12), text("Zoom to the clicked event (with padding)").size(12)],
+            row![text("Left click + drag (events area):").width(Length::Fixed(160.0)).size(12), text("Pan the timeline").size(12)],
+            row![text("Mouse wheel:").width(Length::Fixed(160.0)).size(12), text("Zoom horizontally centered on the cursor (hold Ctrl to bypass)").size(12)],
+            row![text("Shift + mouse wheel:").width(Length::Fixed(160.0)).size(12), text("Pan horizontally").size(12)],
+            row![text("Mini timeline — left click:").width(Length::Fixed(160.0)).size(12), text("Jump the main view to that position").size(12)],
+            row![text("Mini timeline — right click + drag:").width(Length::Fixed(160.0)).size(12), text("Select a range to zoom the main view to").size(12)],
+            row![text("Thread label click:").width(Length::Fixed(160.0)).size(12), text("Toggle collapse/expand for that thread").size(12)],
+            row![text("Collapse/Expand buttons:").width(Length::Fixed(160.0)).size(12), text("Collapse or expand all threads").size(12)],
+            row![text("Scrollbars:").width(Length::Fixed(160.0)).size(12), text("Use scrollbars for precise horizontal/vertical navigation").size(12)],
+        ]
+        .spacing(6)
+        .padding(6);
+
         let settings_col = column![
             text("Settings").size(20),
             row![text("Open files:").width(Length::Fixed(120.0)).size(12), text(format!("{}", self.files.len())).size(12)],
             text("Welcome to Lineme Settings").size(12),
+            container(hints).padding(6).style(|_theme: &iced::Theme| {
+                // subtle background to separate hints from other settings
+                container::Style::default().background(iced::Color::from_rgb(0.99, 0.99, 0.99))
+            }),
         ]
         .spacing(8)
         .padding(10);
