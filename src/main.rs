@@ -232,7 +232,8 @@ impl Lineme {
                 }
             }
             Message::OpenSettings => {
-                self.show_settings = true;
+                // Toggle settings panel on/off
+                self.show_settings = !self.show_settings;
             }
             Message::EventSelected(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
@@ -413,6 +414,7 @@ impl Lineme {
             row![
                 bar,
                 Space::new().width(Length::Fill),
+                // Settings button acts as a toggle. When active, show a highlighted background.
                 button(text(SETTINGS_ICON).font(ICON_FONT).size(18))
                     .style(|theme: &iced::Theme, status: button::Status| {
                         let palette = theme.extended_palette();
@@ -420,6 +422,14 @@ impl Lineme {
                             text_color: palette.background.weak.text,
                             ..Default::default()
                         };
+                        // Capture current settings state to render active appearance.
+                        let show_settings = self.show_settings;
+                        if show_settings {
+                            return button::Style {
+                                background: Some(palette.background.strong.color.into()),
+                                ..base
+                            };
+                        }
                         match status {
                             button::Status::Hovered | button::Status::Pressed => button::Style {
                                 background: Some(palette.background.strong.color.into()),
@@ -429,8 +439,9 @@ impl Lineme {
                         }
                     })
                     .on_press(Message::OpenSettings),
+                // Use the same font size as thread labels for button text
                 button(
-                    row![text(OPEN_ICON).font(ICON_FONT), text("Open")]
+                    row![text(OPEN_ICON).font(ICON_FONT), text("Open").size(12.0)]
                         .spacing(5)
                         .align_y(Alignment::Center),
                 )
@@ -486,7 +497,7 @@ impl Lineme {
                     if file.view_type == ViewType::Timeline {
                         Element::from(
                             button(
-                                row![text(RESET_ICON).font(ICON_FONT), text("Reset View")]
+                                row![text(RESET_ICON).font(ICON_FONT), text("Reset View").size(12.0)]
                                     .spacing(5)
                                     .align_y(Alignment::Center),
                             )
@@ -548,7 +559,7 @@ impl Lineme {
             text(format!("Event count: {}", file.stats.event_count)),
             text(format!("Total duration: {}", format_duration(file.stats.timeline.max_ns - file.stats.timeline.min_ns))),
             button(
-                row![text(OPEN_ICON).font(ICON_FONT), text("Open another file")]
+                row![text(OPEN_ICON).font(ICON_FONT), text("Open another file").size(12.0)]
                     .spacing(10)
                     .align_y(Alignment::Center)
             )
@@ -581,7 +592,7 @@ impl Lineme {
             text("Welcome to Lineme Settings"),
             text(format!("Currently managing {} open files", self.files.len())),
             button(
-                row![text(OPEN_ICON).font(ICON_FONT), text("Open file from here")]
+                row![text(OPEN_ICON).font(ICON_FONT), text("Open file from here").size(12.0)]
                     .spacing(10)
                     .align_y(Alignment::Center)
             )

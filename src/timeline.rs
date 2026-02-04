@@ -153,12 +153,11 @@ pub fn view<'a>(
             viewport_width: viewport.bounds().width,
         });
 
+    // Mini timeline should span the full window width (including the label area).
     let main_view = column![
-        row![
-            Space::new().width(Length::Fixed(LABEL_WIDTH)),
-            mini_timeline_canvas
-        ]
-        .height(Length::Fixed(MINI_TIMELINE_HEIGHT)),
+        // Full-width mini timeline on its own row.
+        mini_timeline_canvas.height(Length::Fixed(MINI_TIMELINE_HEIGHT)),
+        // Header remains aligned with the events area (leaving space for labels).
         row![
             Space::new().width(Length::Fixed(LABEL_WIDTH)),
             header_canvas
@@ -168,10 +167,12 @@ pub fn view<'a>(
     ]
     .height(Length::Fill);
 
-    let display_event = selected_event.as_ref().or(hovered_event.as_ref());
+    // Only use explicit selections (clicks) to populate the details panel.
+    let display_event = selected_event.as_ref();
 
-    let details_panel = if let Some(event) = display_event {
-        container(column![
+    // Only show the details panel when an event is selected or hovered.
+    if let Some(event) = display_event {
+        let details_panel = container(column![
             row![text("Summary").size(14), Space::new().width(Length::Fill),]
                 .padding(5)
                 .align_y(iced::Alignment::Center),
@@ -216,32 +217,15 @@ pub fn view<'a>(
                     width: 1.0,
                     ..Default::default()
                 })
-        })
-    } else {
-        container(
-            text("Select or hover over an event to see details")
-                .size(12)
-                .color(Color::from_rgb(0.5, 0.5, 0.5)),
-        )
-        .width(Length::Fill)
-        .height(Length::Fixed(150.0))
-        .center_x(Length::Fill)
-        .center_y(Length::Fill)
-        .style(|theme: &Theme| {
-            let palette = theme.extended_palette();
-            container::Style::default()
-                .background(palette.background.base.color)
-                .border(iced::Border {
-                    color: palette.background.strong.color,
-                    width: 1.0,
-                    ..Default::default()
-                })
-        })
-    };
+        });
 
-    column![main_view, details_panel]
-        .height(Length::Fill)
-        .into()
+        column![main_view, details_panel]
+            .height(Length::Fill)
+            .into()
+    } else {
+        // No details to show: return the main view only.
+        main_view.height(Length::Fill).into()
+    }
 }
 
 struct EventsProgram<'a> {
@@ -541,7 +525,6 @@ struct HeaderProgram {
     scroll_offset: Vector,
 }
 
-
 impl Program<Message> for HeaderProgram {
     type State = ();
 
@@ -619,7 +602,6 @@ impl Program<Message> for HeaderProgram {
         vec![frame.into_geometry()]
     }
 }
-
 
 pub struct WheelCatcher<'a, Message, Theme, Renderer> {
     content: Element<'a, Message, Theme, Renderer>,
