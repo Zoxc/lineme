@@ -26,6 +26,8 @@ pub const LANE_HEIGHT: f64 = 20.0_f64;
 pub const LANE_SPACING: f64 = 5.0_f64;
 pub const DRAG_THRESHOLD: f64 = 3.0_f64;
 pub const EVENT_LEFT_PADDING: f64 = 2.0_f64;
+pub const SCROLLBAR_THICKNESS: f32 = 18.0;
+pub const SCROLLBAR_CORNER_GAP: f32 = 6.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ColorMode {
@@ -462,7 +464,7 @@ pub fn view<'a>(
         .width(Length::Fill)
         .height(Length::Fill)
         .direction(scrollable::Direction::Both {
-            vertical: scrollable::Scrollbar::default(),
+            vertical: scrollable::Scrollbar::hidden(),
             horizontal: scrollable::Scrollbar::hidden(),
         })
         .on_scroll(|viewport| Message::TimelineScroll {
@@ -494,14 +496,45 @@ pub fn view<'a>(
         |start_ns| Message::TimelineHorizontalScrolled { start_ns },
     )
     .thumb_fraction(thumb_fraction)
-    .height(Length::Fixed(18.0))
+    .height(Length::Fixed(SCROLLBAR_THICKNESS))
     .width(Length::Fill);
 
+    let total_height_f64 = total_height as f64;
+    let visible_height = viewport_height.max(1.0);
+    let max_scroll_y = (total_height_f64 - visible_height).max(0.0);
+    let thumb_fraction_y = if total_height_f64 > 0.0 {
+        (visible_height / total_height_f64).clamp(0.02, 1.0)
+    } else {
+        1.0
+    };
+    let vertical_scrollbar =
+        scrollbar::vertical_scrollbar(scroll_offset_y, 0.0..=max_scroll_y, |scroll_y| {
+            Message::TimelineVerticalScrolled { scroll_y }
+        })
+        .thumb_fraction(thumb_fraction_y);
+
     let events_column = column![
-        events_view,
-        container(horizontal_scrollbar)
-            .width(Length::Fill)
-            .padding([4.0, 6.0])
+        row![
+            events_view,
+            column![
+                container(vertical_scrollbar)
+                    .width(Length::Fixed(SCROLLBAR_THICKNESS))
+                    .height(Length::Fill)
+                    .padding([4.0, 4.0]),
+                Space::new().height(SCROLLBAR_CORNER_GAP)
+            ]
+            .width(Length::Fixed(SCROLLBAR_THICKNESS))
+            .height(Length::Fill)
+        ]
+        .height(Length::Fill)
+        .width(Length::Fill),
+        row![
+            container(horizontal_scrollbar)
+                .width(Length::Fill)
+                .padding([4.0, 6.0]),
+            Space::new().width(SCROLLBAR_CORNER_GAP),
+            container(Space::new().width(SCROLLBAR_THICKNESS)).padding([4.0, 4.0])
+        ]
     ]
     .height(Length::Fill)
     .width(Length::Fill);
@@ -555,12 +588,6 @@ pub fn view<'a>(
 
     // Only show the details panel when an event is selected or hovered.
     if let Some(event) = display_event {
-        let (view_start_ns, view_end_ns) = viewport_ns_range(
-            scroll_offset_x,
-            viewport_width,
-            zoom_level,
-            timeline_data.min_ns,
-        );
         // Also compute float-precision viewport endpoints (not truncated to u64)
         let view_start_f = (scroll_offset_x / zoom_level).max(0.0) + timeline_data.min_ns as f64;
         let view_end_f = ((scroll_offset_x + viewport_width) / zoom_level).max(0.0)

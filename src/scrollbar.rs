@@ -3,10 +3,10 @@ use iced::widget::canvas::{self, Action, Canvas, Geometry, Program};
 use iced::{Element, Event, Length, Point, Rectangle, Renderer, Theme, Vector};
 use std::sync::Arc;
 
-const DEFAULT_HEIGHT: f32 = 18.0;
-const TRACK_HEIGHT: f32 = 6.0;
+const DEFAULT_THICKNESS: f32 = 18.0;
+const TRACK_THICKNESS: f32 = 6.0;
 const TRACK_PADDING: f32 = 6.0;
-const MIN_THUMB_WIDTH: f32 = 24.0;
+const MIN_THUMB_LENGTH: f32 = 24.0;
 
 pub fn scrollbar<'a, Message>(
     value: f64,
@@ -16,6 +16,23 @@ pub fn scrollbar<'a, Message>(
     Scrollbar::new(value, range, on_change)
 }
 
+pub fn vertical_scrollbar<'a, Message>(
+    value: f64,
+    range: std::ops::RangeInclusive<f64>,
+    on_change: impl Fn(f64) -> Message + 'a,
+) -> Scrollbar<'a, Message> {
+    Scrollbar::new(value, range, on_change)
+        .orientation(Orientation::Vertical)
+        .width(Length::Fixed(DEFAULT_THICKNESS))
+        .height(Length::Fill)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Orientation {
+    Horizontal,
+    Vertical,
+}
+
 pub struct Scrollbar<'a, Message> {
     value: f64,
     min: f64,
@@ -23,6 +40,7 @@ pub struct Scrollbar<'a, Message> {
     thumb_fraction: f64,
     width: Length,
     height: Length,
+    orientation: Orientation,
     on_change: Arc<dyn Fn(f64) -> Message + 'a>,
 }
 
@@ -41,7 +59,8 @@ impl<'a, Message> Scrollbar<'a, Message> {
             max,
             thumb_fraction: 0.2,
             width: Length::Fill,
-            height: Length::Fixed(DEFAULT_HEIGHT),
+            height: Length::Fixed(DEFAULT_THICKNESS),
+            orientation: Orientation::Horizontal,
             on_change: Arc::new(on_change),
         }
     }
@@ -60,6 +79,11 @@ impl<'a, Message> Scrollbar<'a, Message> {
         self.thumb_fraction = fraction.clamp(0.02, 1.0);
         self
     }
+
+    pub fn orientation(mut self, orientation: Orientation) -> Self {
+        self.orientation = orientation;
+        self
+    }
 }
 
 impl<'a, Message> From<Scrollbar<'a, Message>> for Element<'a, Message>
@@ -74,6 +98,7 @@ where
             thumb_fraction,
             width,
             height,
+            orientation,
             on_change,
         } = scrollbar;
         let program = ScrollbarProgram {
@@ -81,6 +106,7 @@ where
             min,
             max,
             thumb_fraction,
+            orientation,
             on_change,
         };
         Canvas::new(program).width(width).height(height).into()
@@ -90,7 +116,7 @@ where
 #[derive(Default)]
 struct ScrollbarState {
     dragging: bool,
-    drag_offset_x: f64,
+    drag_offset: f64,
     last_position: Option<Point>,
 }
 
@@ -99,6 +125,7 @@ struct ScrollbarProgram<'a, Message> {
     min: f64,
     max: f64,
     thumb_fraction: f64,
+    orientation: Orientation,
     on_change: Arc<dyn Fn(f64) -> Message + 'a>,
 }
 
@@ -125,35 +152,72 @@ impl<'a, Message> ScrollbarProgram<'a, Message> {
         }
     }
 
-    fn thumb_width(&self, bounds: Rectangle) -> f64 {
-        let track_width = (bounds.width - TRACK_PADDING * 2.0).max(1.0) as f64;
-        let target = track_width * self.thumb_fraction.clamp(0.02, 1.0);
-        target.max(MIN_THUMB_WIDTH as f64).min(track_width)
-    }
-
-    fn thumb_bounds(&self, bounds: Rectangle) -> Rectangle {
-        let track_width = (bounds.width - TRACK_PADDING * 2.0).max(1.0) as f64;
-        let thumb_width = self.thumb_width(bounds);
-        let available = (track_width - thumb_width).max(0.0);
-        let fraction = self.fraction_from_value();
-        let x = TRACK_PADDING as f64 + available * fraction;
-        let y = (bounds.height - TRACK_HEIGHT) * 0.5;
-
-        Rectangle {
-            x: x as f32,
-            y,
-            width: thumb_width as f32,
-            height: TRACK_HEIGHT,
+    fn track_length(&self, bounds: Rectangle) -> f64 {
+        match self.orientation {
+            Orientation::Horizontal => (bounds.width - TRACK_PADDING * 2.0).max(1.0) as f64,
+            Orientation::Vertical => (bounds.height - TRACK_PADDING * 2.0).max(1.0) as f64,
         }
     }
 
-    fn value_from_local_x(&self, bounds: Rectangle, local_x: f64) -> f64 {
-        let track_width = (bounds.width - TRACK_PADDING * 2.0).max(1.0) as f64;
-        let thumb_width = self.thumb_width(bounds);
-        let available = (track_width - thumb_width).max(0.0);
-        let x = (local_x - TRACK_PADDING as f64).clamp(0.0, available);
-        let fraction = if available == 0.0 { 0.0 } else { x / available };
+    fn thumb_length(&self, bounds: Rectangle) -> f64 {
+        let track_length = self.track_length(bounds);
+        let target = track_length * self.thumb_fraction.clamp(0.02, 1.0);
+        target.max(MIN_THUMB_LENGTH as f64).min(track_length)
+    }
+
+    fn thumb_bounds(&self, bounds: Rectangle) -> Rectangle {
+        let track_length = self.track_length(bounds);
+        let thumb_length = self.thumb_length(bounds);
+        let available = (track_length - thumb_length).max(0.0);
+        let fraction = self.fraction_from_value();
+        let offset = TRACK_PADDING as f64 + available * fraction;
+        match self.orientation {
+            Orientation::Horizontal => {
+                let y = (bounds.height - TRACK_THICKNESS) * 0.5;
+                Rectangle {
+                    x: offset as f32,
+                    y,
+                    width: thumb_length as f32,
+                    height: TRACK_THICKNESS,
+                }
+            }
+            Orientation::Vertical => {
+                let x = (bounds.width - TRACK_THICKNESS) * 0.5;
+                Rectangle {
+                    x,
+                    y: offset as f32,
+                    width: TRACK_THICKNESS,
+                    height: thumb_length as f32,
+                }
+            }
+        }
+    }
+
+    fn value_from_local_axis(&self, bounds: Rectangle, local_axis: f64) -> f64 {
+        let track_length = self.track_length(bounds);
+        let thumb_length = self.thumb_length(bounds);
+        let available = (track_length - thumb_length).max(0.0);
+        let axis = (local_axis - TRACK_PADDING as f64).clamp(0.0, available);
+        let fraction = if available == 0.0 {
+            0.0
+        } else {
+            axis / available
+        };
         self.value_from_fraction(fraction)
+    }
+
+    fn local_axis(&self, local: Point) -> f64 {
+        match self.orientation {
+            Orientation::Horizontal => local.x as f64,
+            Orientation::Vertical => local.y as f64,
+        }
+    }
+
+    fn thumb_axis_start(&self, thumb: Rectangle) -> f64 {
+        match self.orientation {
+            Orientation::Horizontal => thumb.x as f64,
+            Orientation::Vertical => thumb.y as f64,
+        }
     }
 
     fn clamp_local_position(&self, bounds: Rectangle, position: Point) -> Point {
@@ -178,10 +242,26 @@ impl<'a, Message> Program<Message> for ScrollbarProgram<'a, Message> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
         let track_rect = Rectangle {
-            x: TRACK_PADDING,
-            y: (bounds.height - TRACK_HEIGHT) * 0.5,
-            width: (bounds.width - TRACK_PADDING * 2.0).max(1.0),
-            height: TRACK_HEIGHT,
+            x: if self.orientation == Orientation::Horizontal {
+                TRACK_PADDING
+            } else {
+                (bounds.width - TRACK_THICKNESS) * 0.5
+            },
+            y: if self.orientation == Orientation::Horizontal {
+                (bounds.height - TRACK_THICKNESS) * 0.5
+            } else {
+                TRACK_PADDING
+            },
+            width: if self.orientation == Orientation::Horizontal {
+                (bounds.width - TRACK_PADDING * 2.0).max(1.0)
+            } else {
+                TRACK_THICKNESS
+            },
+            height: if self.orientation == Orientation::Horizontal {
+                TRACK_THICKNESS
+            } else {
+                (bounds.height - TRACK_PADDING * 2.0).max(1.0)
+            },
         };
 
         frame.fill_rectangle(
@@ -226,15 +306,16 @@ impl<'a, Message> Program<Message> for ScrollbarProgram<'a, Message> {
 
                 if thumb.contains(local) {
                     state.dragging = true;
-                    state.drag_offset_x = (local.x - thumb.x).max(0.0) as f64;
+                    state.drag_offset =
+                        (self.local_axis(local) - self.thumb_axis_start(thumb)).max(0.0);
                     return Some(Action::capture());
                 }
 
                 if bounds.contains(position) {
                     state.dragging = true;
-                    state.drag_offset_x = self.thumb_width(bounds) * 0.5;
-                    let value =
-                        self.value_from_local_x(bounds, local.x as f64 - state.drag_offset_x);
+                    state.drag_offset = self.thumb_length(bounds) * 0.5;
+                    let value = self
+                        .value_from_local_axis(bounds, self.local_axis(local) - state.drag_offset);
                     return Some(Action::publish((self.on_change)(value)).and_capture());
                 }
             }
@@ -245,8 +326,8 @@ impl<'a, Message> Program<Message> for ScrollbarProgram<'a, Message> {
                 if state.dragging {
                     let clamped = self.clamp_local_position(bounds, *position);
                     let local = clamped - Vector::new(bounds.x, bounds.y);
-                    let value =
-                        self.value_from_local_x(bounds, local.x as f64 - state.drag_offset_x);
+                    let value = self
+                        .value_from_local_axis(bounds, self.local_axis(local) - state.drag_offset);
                     return Some(Action::publish((self.on_change)(value)).and_capture());
                 }
             }
@@ -257,7 +338,8 @@ impl<'a, Message> Program<Message> for ScrollbarProgram<'a, Message> {
             if let Some(position) = state.last_position {
                 let clamped = self.clamp_local_position(bounds, position);
                 let local = clamped - Vector::new(bounds.x, bounds.y);
-                let value = self.value_from_local_x(bounds, local.x as f64 - state.drag_offset_x);
+                let value =
+                    self.value_from_local_axis(bounds, self.local_axis(local) - state.drag_offset);
                 return Some(Action::publish((self.on_change)(value)).and_capture());
             }
         }

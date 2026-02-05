@@ -187,6 +187,9 @@ fn neutral_pick_list_style(
     TimelineHorizontalScrolled {
         start_ns: f64,
     },
+    TimelineVerticalScrolled {
+        scroll_y: f64,
+    },
     TimelinePanned {
         delta: iced::Vector,
     },
@@ -587,6 +590,29 @@ impl Lineme {
                         total_width,
                         viewport_width,
                     );
+
+                    return scroll_to(
+                        timeline_id(),
+                        AbsoluteOffset {
+                            x: stats.scroll_offset_x as f32,
+                            y: stats.scroll_offset_y as f32,
+                        },
+                    );
+                }
+            }
+            Message::TimelineVerticalScrolled { scroll_y } => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let total_height = timeline::total_timeline_height(thread_groups);
+
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
+                    };
+
+                    let viewport_height = stats.viewport_height.max(1.0);
+                    let max_scroll_y = (total_height - viewport_height).max(0.0);
+                    stats.scroll_offset_y = scroll_y.clamp(0.0, max_scroll_y);
 
                     return scroll_to(
                         timeline_id(),
