@@ -4,8 +4,8 @@ use iced::widget::canvas::{self, Geometry, Program};
 use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 use super::{
-    color_from_label, group_total_height, visible_event_indices, ColorMode, ThreadGroup,
-    TimelineEvent,
+    color_from_label, group_total_height, mipmap_levels_for_zoom, visible_event_indices_in,
+    ColorMode, ThreadGroup, TimelineEvent,
 };
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 
@@ -106,31 +106,40 @@ impl<'a> EventsProgram<'a> {
                     self.min_ns,
                 );
 
-                for index in visible_event_indices(group, ns_min, ns_max) {
-                    let event = &group.events[index];
-                    if group.is_collapsed && event.depth > 0 {
-                        continue;
-                    }
+                for level in mipmap_levels_for_zoom(group, self.zoom_level) {
+                    for index in visible_event_indices_in(
+                        &level.events,
+                        &level.events_by_start,
+                        &level.events_by_end,
+                        ns_min,
+                        ns_max,
+                    ) {
+                        let event = &level.events[index];
+                        if group.is_collapsed && event.depth > 0 {
+                            continue;
+                        }
 
-                    let width =
-                        crate::timeline::duration_to_width(event.duration_ns, self.zoom_level);
-                    if width < 5.0 {
-                        continue;
-                    }
+                        let width =
+                            crate::timeline::duration_to_width(event.duration_ns, self.zoom_level);
+                        if width < 5.0 {
+                            continue;
+                        }
 
-                    let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level);
-                    let y = y_offset + event.depth as f32 * LANE_HEIGHT;
-                    let height = LANE_HEIGHT - 2.0;
+                        let x =
+                            crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level);
+                        let y = y_offset + event.depth as f32 * LANE_HEIGHT;
+                        let height = LANE_HEIGHT - 2.0;
 
-                    let rect = Rectangle {
-                        x,
-                        y,
-                        width: width.max(1.0),
-                        height,
-                    };
+                        let rect = Rectangle {
+                            x,
+                            y,
+                            width: width.max(1.0),
+                            height,
+                        };
 
-                    if rect.contains(position) {
-                        return Some(event.clone());
+                        if rect.contains(position) {
+                            return Some(event.clone());
+                        }
                     }
                 }
             }
@@ -220,82 +229,90 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     .with_width(1.0),
             );
 
-            let mut last_rects: Vec<Option<(f32, f32, Color, String, bool)>> =
-                vec![None; (group.max_depth + 1) as usize];
-
-            for index in visible_event_indices(group, ns_min, ns_max) {
-                let event = &group.events[index];
-                if group.is_collapsed && event.depth > 0 {
-                    continue;
-                }
-
-                let width = crate::timeline::duration_to_width(event.duration_ns, self.zoom_level);
-                if width < 1.0 {
-                    continue;
-                }
-
-                let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level);
-
-                // Skip drawing if event is completely outside horizontal viewport
-                if self.viewport_width > 0.0 && (x + width < x_min || x > x_max) {
-                    continue;
-                }
-
-                let depth = event.depth as usize;
-                let color = if event.is_thread_root {
-                    event.color
-                } else {
-                    match self.color_mode {
-                        // When coloring by kind we already stored a kind-based color
-                        // on the TimelineEvent during data loading.
-                        ColorMode::Kind => event.color,
-                        ColorMode::Event => color_from_label(&event.label),
-                    }
-                };
-                let label = &event.label;
-                let is_thread_root = event.is_thread_root;
-
-                if let Some((cur_x, cur_w, cur_color, cur_label, cur_is_root)) =
-                    &mut last_rects[depth]
-                {
-                    let end_x = *cur_x + *cur_w;
-                    if !is_thread_root
-                        && color == *cur_color
-                        && x <= end_x + 0.5
-                        && label == cur_label
-                    {
-                        let new_end = (x + width).max(end_x);
-                        *cur_w = new_end - *cur_x;
+            for level in mipmap_levels_for_zoom(group, self.zoom_level) {
+                let mut last_rects: Vec<Option<(f32, f32, Color, String, bool)>> =
+                    vec![None; (group.max_depth + 1) as usize];
+                for index in visible_event_indices_in(
+                    &level.events,
+                    &level.events_by_start,
+                    &level.events_by_end,
+                    ns_min,
+                    ns_max,
+                ) {
+                    let event = &level.events[index];
+                    if group.is_collapsed && event.depth > 0 {
                         continue;
+                    }
+
+                    let width =
+                        crate::timeline::duration_to_width(event.duration_ns, self.zoom_level);
+                    if width < 1.0 {
+                        continue;
+                    }
+
+                    let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level);
+
+                    // Skip drawing if event is completely outside horizontal viewport
+                    if self.viewport_width > 0.0 && (x + width < x_min || x > x_max) {
+                        continue;
+                    }
+
+                    let depth = event.depth as usize;
+                    let color = if event.is_thread_root {
+                        event.color
                     } else {
+                        match self.color_mode {
+                            // When coloring by kind we already stored a kind-based color
+                            // on the TimelineEvent during data loading.
+                            ColorMode::Kind => event.color,
+                            ColorMode::Event => color_from_label(&event.label),
+                        }
+                    };
+                    let label = &event.label;
+                    let is_thread_root = event.is_thread_root;
+
+                    if let Some((cur_x, cur_w, cur_color, cur_label, cur_is_root)) =
+                        &mut last_rects[depth]
+                    {
+                        let end_x = *cur_x + *cur_w;
+                        if !is_thread_root
+                            && color == *cur_color
+                            && x <= end_x + 0.5
+                            && label == cur_label
+                        {
+                            let new_end = (x + width).max(end_x);
+                            *cur_w = new_end - *cur_x;
+                            continue;
+                        } else {
+                            let y = y_offset + depth as f32 * LANE_HEIGHT;
+                            draw_event_rect(
+                                &mut frame,
+                                *cur_x,
+                                *cur_w,
+                                y,
+                                *cur_color,
+                                cur_label,
+                                *cur_is_root,
+                            );
+                        }
+                    }
+                    last_rects[depth] = Some((x, width, color, label.clone(), is_thread_root));
+                }
+
+                // flush remaining rectangles for this mip level
+                for (depth, rect) in last_rects.into_iter().enumerate() {
+                    if let Some((cur_x, cur_w, cur_color, cur_label, cur_is_root)) = rect {
                         let y = y_offset + depth as f32 * LANE_HEIGHT;
                         draw_event_rect(
                             &mut frame,
-                            *cur_x,
-                            *cur_w,
+                            cur_x,
+                            cur_w,
                             y,
-                            *cur_color,
-                            cur_label,
-                            *cur_is_root,
+                            cur_color,
+                            &cur_label,
+                            cur_is_root,
                         );
                     }
-                }
-                last_rects[depth] = Some((x, width, color, label.clone(), is_thread_root));
-            }
-
-            // flush remaining rectangles using the same helper
-            for (depth, rect) in last_rects.into_iter().enumerate() {
-                if let Some((cur_x, cur_w, cur_color, cur_label, cur_is_root)) = rect {
-                    let y = y_offset + depth as f32 * LANE_HEIGHT;
-                    draw_event_rect(
-                        &mut frame,
-                        cur_x,
-                        cur_w,
-                        y,
-                        cur_color,
-                        &cur_label,
-                        cur_is_root,
-                    );
                 }
             }
 

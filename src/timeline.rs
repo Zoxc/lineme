@@ -72,11 +72,17 @@ pub type ThreadGroupKey = usize;
 #[derive(Debug, Clone)]
 pub struct ThreadGroup {
     pub threads: ThreadGroupId,
+    pub mipmaps: Vec<ThreadGroupMipMap>,
+    pub max_depth: u32,
+    pub is_collapsed: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ThreadGroupMipMap {
+    pub max_duration_ns: u64,
     pub events: Vec<TimelineEvent>,
     pub events_by_start: Vec<usize>,
     pub events_by_end: Vec<usize>,
-    pub max_depth: u32,
-    pub is_collapsed: bool,
 }
 
 pub fn thread_group_key(group: &ThreadGroup) -> ThreadGroupKey {
@@ -199,7 +205,7 @@ pub fn group_total_height(group: &ThreadGroup) -> f32 {
 
 pub fn build_thread_group_events(
     threads: &[Arc<ThreadData>],
-) -> (Vec<TimelineEvent>, u32, Vec<usize>, Vec<usize>) {
+) -> (Vec<TimelineEvent>, u32, Vec<ThreadGroupMipMap>) {
     if threads.len() > 1 {
         let mut events = Vec::new();
 
@@ -237,8 +243,8 @@ pub fn build_thread_group_events(
 
         events.sort_by_key(|event| (event.start_ns, event.thread_id, event.depth));
         let max_depth = events.iter().map(|event| event.depth).max().unwrap_or(0);
-        let (events_by_start, events_by_end) = build_event_indices(&events);
-        return (events, max_depth, events_by_start, events_by_end);
+        let mipmaps = build_thread_group_mipmaps(&events);
+        return (events, max_depth, mipmaps);
     }
 
     let mut events = Vec::new();
@@ -264,8 +270,8 @@ pub fn build_thread_group_events(
     }
 
     let max_depth = events.iter().map(|event| event.depth).max().unwrap_or(0);
-    let (events_by_start, events_by_end) = build_event_indices(&events);
-    (events, max_depth, events_by_start, events_by_end)
+    let mipmaps = build_thread_group_mipmaps(&events);
+    (events, max_depth, mipmaps)
 }
 
 fn event_end_ns(event: &TimelineEvent) -> u64 {
@@ -288,27 +294,69 @@ fn build_event_indices(events: &[TimelineEvent]) -> (Vec<usize>, Vec<usize>) {
     (events_by_start, events_by_end)
 }
 
-fn visible_event_indices(group: &ThreadGroup, ns_min: u64, ns_max: u64) -> Vec<usize> {
-    let events = &group.events;
-    let start_upper = group
-        .events_by_start
-        .partition_point(|&index| events[index].start_ns <= ns_max);
-    let end_lower = group
-        .events_by_end
-        .partition_point(|&index| event_end_ns(&events[index]) < ns_min);
+fn duration_bucket(duration_ns: u64) -> u32 {
+    let duration = duration_ns.max(1);
+    63 - duration.leading_zeros() as u32
+}
+
+fn build_thread_group_mipmaps(events: &[TimelineEvent]) -> Vec<ThreadGroupMipMap> {
+    if events.is_empty() {
+        return Vec::new();
+    }
+
+    let mut buckets: Vec<Vec<TimelineEvent>> = Vec::new();
+    for event in events {
+        let bucket = duration_bucket(event.duration_ns) as usize;
+        if buckets.len() <= bucket {
+            buckets.resize_with(bucket + 1, Vec::new);
+        }
+        buckets[bucket].push(event.clone());
+    }
+
+    let mut mipmaps = Vec::new();
+    for (bucket, events) in buckets.into_iter().enumerate() {
+        if events.is_empty() {
+            continue;
+        }
+        let (events_by_start, events_by_end) = build_event_indices(&events);
+        let max_duration_ns = if bucket >= 63 {
+            u64::MAX
+        } else {
+            (1u64 << (bucket as u32 + 1)).saturating_sub(1)
+        };
+        mipmaps.push(ThreadGroupMipMap {
+            max_duration_ns,
+            events,
+            events_by_start,
+            events_by_end,
+        });
+    }
+
+    mipmaps
+}
+
+fn visible_event_indices_in(
+    events: &[TimelineEvent],
+    events_by_start: &[usize],
+    events_by_end: &[usize],
+    ns_min: u64,
+    ns_max: u64,
+) -> Vec<usize> {
+    let start_upper = events_by_start.partition_point(|&index| events[index].start_ns <= ns_max);
+    let end_lower = events_by_end.partition_point(|&index| event_end_ns(&events[index]) < ns_min);
 
     let start_candidates = start_upper;
-    let end_candidates = group.events_by_end.len().saturating_sub(end_lower);
+    let end_candidates = events_by_end.len().saturating_sub(end_lower);
     let mut indices = Vec::with_capacity(start_candidates.min(end_candidates));
 
     if start_candidates <= end_candidates {
-        for &index in group.events_by_start[..start_upper].iter() {
+        for &index in events_by_start[..start_upper].iter() {
             if event_end_ns(&events[index]) >= ns_min {
                 indices.push(index);
             }
         }
     } else {
-        for &index in group.events_by_end[end_lower..].iter() {
+        for &index in events_by_end[end_lower..].iter() {
             if events[index].start_ns <= ns_max {
                 indices.push(index);
             }
@@ -316,6 +364,20 @@ fn visible_event_indices(group: &ThreadGroup, ns_min: u64, ns_max: u64) -> Vec<u
     }
 
     indices
+}
+
+fn mipmap_level_fits(level: &ThreadGroupMipMap, zoom_level: f32) -> bool {
+    (level.max_duration_ns as f64) * zoom_level as f64 >= 1.0
+}
+
+fn mipmap_levels_for_zoom<'a>(
+    group: &'a ThreadGroup,
+    zoom_level: f32,
+) -> impl Iterator<Item = &'a ThreadGroupMipMap> {
+    group
+        .mipmaps
+        .iter()
+        .filter(move |level| mipmap_level_fits(level, zoom_level))
 }
 
 pub fn format_duration(ns: u64) -> String {

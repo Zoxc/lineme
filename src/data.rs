@@ -145,13 +145,10 @@ pub fn load_profiling_data(path: &Path) -> Result<Stats, String> {
     let mut thread_groups = Vec::new();
     for thread in &thread_data_vec {
         let threads = Arc::new(vec![thread.clone()]);
-        let (events, max_depth, events_by_start, events_by_end) =
-            timeline::build_thread_group_events(&threads);
+        let (_events, max_depth, mipmaps) = timeline::build_thread_group_events(&threads);
         thread_groups.push(ThreadGroup {
             threads,
-            events,
-            events_by_start,
-            events_by_end,
+            mipmaps,
             max_depth,
             is_collapsed: false,
         });
@@ -241,13 +238,10 @@ fn build_merged_thread_groups(threads: &[Arc<ThreadData>]) -> Vec<ThreadGroup> {
                 .map(|(_, thread)| thread)
                 .collect::<Vec<_>>(),
         );
-        let (events, max_depth, events_by_start, events_by_end) =
-            timeline::build_thread_group_events(&threads);
+        let (_events, max_depth, mipmaps) = timeline::build_thread_group_events(&threads);
         thread_groups.push(ThreadGroup {
             threads,
-            events,
-            events_by_start,
-            events_by_end,
+            mipmaps,
             max_depth,
             is_collapsed: false,
         });
