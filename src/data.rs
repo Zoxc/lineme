@@ -12,6 +12,18 @@ pub struct Stats {
     pub pid: u32,
     pub timeline: TimelineData,
     pub merged_thread_groups: Vec<ThreadGroup>,
+    // UI/state fields that are only meaningful once the file is loaded.
+    pub color_mode: timeline::ColorMode,
+    pub selected_event: Option<TimelineEvent>,
+    pub hovered_event: Option<TimelineEvent>,
+    pub merge_threads: bool,
+    pub initial_fit_done: bool,
+    pub view_type: crate::ViewType,
+    pub zoom_level: f32,
+    pub scroll_offset: iced::Vector,
+    pub viewport_width: f32,
+    pub viewport_height: f32,
+    pub load_duration_ns: Option<u64>,
 }
 
 pub fn load_profiling_data(path: &Path) -> Result<Stats, String> {
@@ -166,6 +178,17 @@ pub fn load_profiling_data(path: &Path) -> Result<Stats, String> {
             max_ns,
         },
         merged_thread_groups,
+        color_mode: timeline::ColorMode::default(),
+        selected_event: None,
+        hovered_event: None,
+        merge_threads: false,
+        initial_fit_done: false,
+        view_type: crate::ViewType::default(),
+        zoom_level: 1.0,
+        scroll_offset: iced::Vector::default(),
+        viewport_width: 0.0,
+        viewport_height: 0.0,
+        load_duration_ns: None,
     })
 }
 

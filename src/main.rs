@@ -219,17 +219,6 @@ struct FileData {
     id: u64,
     path: PathBuf,
     load_state: FileLoadState,
-    view_type: ViewType,
-    color_mode: ColorMode,
-    selected_event: Option<TimelineEvent>,
-    hovered_event: Option<TimelineEvent>,
-    merge_threads: bool,
-    zoom_level: f32,
-    scroll_offset: iced::Vector,
-    viewport_width: f32,
-    viewport_height: f32,
-    initial_fit_done: bool,
-    load_duration_ns: Option<u64>,
 }
 
 struct SettingsPage {
@@ -321,25 +310,32 @@ impl Lineme {
             }
             Message::FileLoaded(id, stats, duration_ns) => {
                 if let Some(file) = self.files.iter_mut().find(|file| file.id == id) {
-                    file.load_duration_ns = Some(duration_ns);
+                    // transfer load-duration into Stats and store ready state.
+                    let mut stats = stats;
+                    stats.load_duration_ns = Some(duration_ns);
                     file.load_state = FileLoadState::Ready(stats);
-                    file.initial_fit_done = false;
                 }
             }
-            Message::FileLoadFailed(id, error, duration_ns) => {
+            Message::FileLoadFailed(id, error, _duration_ns) => {
                 if let Some(file) = self.files.iter_mut().find(|file| file.id == id) {
-                    file.load_duration_ns = Some(duration_ns);
                     file.load_state = FileLoadState::Error(error);
                 }
             }
             Message::ViewChanged(view) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    file.view_type = view;
+                    if let FileLoadState::Ready(stats) = &mut file.load_state {
+                        stats.view_type = view;
+                    }
                 }
             }
             Message::ColorModeChanged(color_mode) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    file.color_mode = color_mode;
+                    match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats.color_mode = color_mode,
+                        _ => {
+                            // Keep color_mode in the UI until file loads; nothing to do here
+                        }
+                    }
                 }
             }
             Message::CloseTab(index) => {
@@ -383,20 +379,27 @@ impl Lineme {
             }
             Message::EventSelected(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    file.selected_event = Some(event);
+                    match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats.selected_event = Some(event),
+                        _ => {
+                            // Selection applies only after load; store temporarily on the
+                            // load thread if necessary. For now, discard selection if not
+                            // yet loaded.
+                        }
+                    }
                 }
             }
             Message::EventDoubleClicked(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let (min_ns, max_ns) = match file
-                        .stats()
-                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
-                    {
-                        Some(values) => values,
-                        None => return Task::none(),
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
                     };
+
+                    let min_ns = stats.timeline.min_ns;
+                    let max_ns = stats.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns).max(1);
-                    let viewport_width = file.viewport_width.max(1.0);
+                    let viewport_width = stats.viewport_width.max(1.0);
 
                     let event_rel_start = event.start_ns.saturating_sub(min_ns);
                     let event_rel_end = event_rel_start.saturating_add(event.duration_ns);
@@ -410,51 +413,55 @@ impl Lineme {
 
                     // Zoom so the selected range fills the viewport.
                     let target_ns = (end_ns.saturating_sub(start_ns)).max(1) as f64;
-                    file.zoom_level = (viewport_width as f64 / target_ns) as f32;
+                    stats.zoom_level = (viewport_width as f64 / target_ns) as f32;
 
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, file.zoom_level);
-                    let target_x = crate::timeline::ns_to_x(start_ns, 0, file.zoom_level);
-                    file.scroll_offset.x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
+                    let target_x = crate::timeline::ns_to_x(start_ns, 0, stats.zoom_level);
+                    stats.scroll_offset.x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
 
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
-                            x: file.scroll_offset.x,
-                            y: file.scroll_offset.y,
+                            x: stats.scroll_offset.x,
+                            y: stats.scroll_offset.y,
                         },
                     );
                 }
             }
             Message::EventHovered(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    file.hovered_event = event;
+                    match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats.hovered_event = event,
+                        _ => {
+                            // Hover before load ignored
+                        }
+                    }
                 }
             }
             Message::TimelineZoomed { delta, x } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let (min_ns, max_ns) = match file
-                        .stats()
-                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
-                    {
-                        Some(values) => values,
-                        None => return Task::none(),
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
                     };
+                    let min_ns = stats.timeline.min_ns;
+                    let max_ns = stats.timeline.max_ns;
                     let zoom_factor = if delta > 0.0 { 1.1 } else { 0.9 };
-                    file.zoom_level *= zoom_factor;
+                    stats.zoom_level *= zoom_factor;
 
                     // Adjust scroll offset to keep x position stable
-                    let x_on_canvas = x + file.scroll_offset.x;
-                    file.scroll_offset.x = x_on_canvas * zoom_factor - x;
+                    let x_on_canvas = x + stats.scroll_offset.x;
+                    stats.scroll_offset.x = x_on_canvas * zoom_factor - x;
 
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, file.zoom_level);
-                    let viewport_width = file.viewport_width.max(0.0);
-                    file.scroll_offset.x = crate::timeline::clamp_scroll_x(file.scroll_offset.x, total_width, viewport_width);
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
+                    let viewport_width = stats.viewport_width.max(0.0);
+                    stats.scroll_offset.x = crate::timeline::clamp_scroll_x(stats.scroll_offset.x, total_width, viewport_width);
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
-                            x: file.scroll_offset.x,
-                            y: file.scroll_offset.y,
+                            x: stats.scroll_offset.x,
+                            y: stats.scroll_offset.y,
                         },
                     );
                 }
@@ -465,35 +472,27 @@ impl Lineme {
                 viewport_height,
             } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let (min_ns, max_ns) = match file
-                        .stats()
-                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
-                    {
-                        Some(values) => values,
-                        None => {
-                            file.scroll_offset = offset;
-                            if viewport_width > 0.0 {
-                                file.viewport_width = viewport_width;
-                            }
-                            if viewport_height > 0.0 {
-                                file.viewport_height = viewport_height;
-                            }
-                            return Task::none();
-                        }
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
                     };
-                    file.scroll_offset = offset;
-                    let first_time = file.viewport_width == 0.0 && viewport_width > 0.0;
+
+                    let min_ns = stats.timeline.min_ns;
+                    let max_ns = stats.timeline.max_ns;
+
+                    stats.scroll_offset = offset;
+                    let first_time = stats.viewport_width == 0.0 && viewport_width > 0.0;
                     if viewport_width > 0.0 {
-                        file.viewport_width = viewport_width;
+                        stats.viewport_width = viewport_width;
                     }
                     if viewport_height > 0.0 {
-                        file.viewport_height = viewport_height;
+                        stats.viewport_height = viewport_height;
                     }
 
-                    if first_time || (viewport_width > 0.0 && !file.initial_fit_done) {
+                    if first_time || (viewport_width > 0.0 && !stats.initial_fit_done) {
                         let total_ns = max_ns.saturating_sub(min_ns);
-                        file.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f32;
-                        file.initial_fit_done = true;
+                        stats.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f32;
+                        stats.initial_fit_done = true;
                     }
                 }
             }
@@ -502,25 +501,24 @@ impl Lineme {
                 viewport_width,
             } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let (min_ns, max_ns) = match file
-                        .stats()
-                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
-                    {
-                        Some(values) => values,
-                        None => return Task::none(),
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
                     };
+                    let min_ns = stats.timeline.min_ns;
+                    let max_ns = stats.timeline.max_ns;
                     let total_ns = max_ns.saturating_sub(min_ns);
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, file.zoom_level);
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
                     if total_width > 0.0 {
                         let viewport_width = viewport_width.max(1.0);
                         let target_center = fraction as f32 * total_width;
                         let target_x = target_center - viewport_width / 2.0;
-                        file.scroll_offset.x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
+                        stats.scroll_offset.x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
                         return scroll_to(
                             timeline_id(),
                             AbsoluteOffset {
-                                x: file.scroll_offset.x,
-                                y: file.scroll_offset.y,
+                                x: stats.scroll_offset.x,
+                                y: stats.scroll_offset.y,
                             },
                         );
                     }
@@ -532,79 +530,78 @@ impl Lineme {
                 viewport_width,
             } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let (min_ns, max_ns) = match file
-                        .stats()
-                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
-                    {
-                        Some(values) => values,
-                        None => return Task::none(),
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
                     };
+                    let min_ns = stats.timeline.min_ns;
+                    let max_ns = stats.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
                     let total_ns_f64 = total_ns.max(1) as f64;
                     let range_fraction = (end_fraction - start_fraction).max(0.0) as f64;
                     let target_ns = (range_fraction * total_ns_f64).max(1.0);
-                    file.zoom_level = viewport_width / target_ns as f32;
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, file.zoom_level);
+                    stats.zoom_level = viewport_width / target_ns as f32;
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
                     let target_x = start_fraction * total_width;
-                    file.scroll_offset.x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
+                    stats.scroll_offset.x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
-                            x: file.scroll_offset.x,
-                            y: file.scroll_offset.y,
+                            x: stats.scroll_offset.x,
+                            y: stats.scroll_offset.y,
                         },
                     );
                 }
             }
             Message::TimelinePanned { delta } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let (min_ns, max_ns) = match file
-                        .stats()
-                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
-                    {
-                        Some(values) => values,
-                        None => return Task::none(),
+                    // Get thread_groups and compute total height before taking a
+                    // mutable borrow of file.load_state to avoid borrow conflicts.
+                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let total_height = timeline::total_timeline_height(thread_groups);
+
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
                     };
+                    let min_ns = stats.timeline.min_ns;
+                    let max_ns = stats.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, file.zoom_level);
-                    let viewport_width = file.viewport_width.max(0.0);
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
+                    let viewport_width = stats.viewport_width.max(0.0);
                     let _max_scroll_x = (total_width - viewport_width).max(0.0);
 
-                    let total_height =
-                        timeline::total_timeline_height(file.thread_groups().unwrap_or_default());
-                    let viewport_height = file.viewport_height.max(0.0);
+                    let viewport_height = stats.viewport_height.max(0.0);
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
 
-                    file.scroll_offset.x = crate::timeline::clamp_scroll_x(file.scroll_offset.x - delta.x, total_width, viewport_width);
-                    file.scroll_offset.y =
-                        (file.scroll_offset.y - delta.y).clamp(0.0, max_scroll_y);
+                    stats.scroll_offset.x = crate::timeline::clamp_scroll_x(stats.scroll_offset.x - delta.x, total_width, viewport_width);
+                    stats.scroll_offset.y = (stats.scroll_offset.y - delta.y).clamp(0.0, max_scroll_y);
 
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
-                            x: file.scroll_offset.x,
-                            y: file.scroll_offset.y,
+                            x: stats.scroll_offset.x,
+                            y: stats.scroll_offset.y,
                         },
                     );
                 }
             }
             Message::ResetView => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let (min_ns, max_ns) = match file
-                        .stats()
-                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
-                    {
-                        Some(values) => values,
-                        None => return Task::none(),
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
                     };
+                    let min_ns = stats.timeline.min_ns;
+                    let max_ns = stats.timeline.max_ns;
                     let total_ns = max_ns.saturating_sub(min_ns);
-                    let viewport_width = file.viewport_width.max(0.0);
+                    let viewport_width = stats.viewport_width.max(0.0);
                     if viewport_width > 0.0 {
-                        file.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f32;
+                        stats.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f32;
                     } else {
-                        file.zoom_level = 1000.0 / total_ns.max(1) as f32;
+                        stats.zoom_level = 1000.0 / total_ns.max(1) as f32;
                     }
-                    file.scroll_offset = iced::Vector::default();
+                    stats.scroll_offset = iced::Vector::default();
                     return scroll_to(timeline_id(), AbsoluteOffset { x: 0.0, y: 0.0 });
                 }
             }
@@ -626,7 +623,11 @@ impl Lineme {
 
                     let thread_groups = file.thread_groups().unwrap_or_default();
                     let total_height = timeline::total_timeline_height(thread_groups);
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut file.scroll_offset, total_height) {
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
+                    };
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut stats.scroll_offset, total_height) {
                         return task;
                     }
                 }
@@ -643,7 +644,11 @@ impl Lineme {
 
                     let thread_groups = file.thread_groups().unwrap_or_default();
                     let total_height = timeline::total_timeline_height(thread_groups);
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut file.scroll_offset, total_height) {
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
+                    };
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut stats.scroll_offset, total_height) {
                         return task;
                     }
                 }
@@ -660,21 +665,33 @@ impl Lineme {
 
                     let thread_groups = file.thread_groups().unwrap_or_default();
                     let total_height = timeline::total_timeline_height(thread_groups);
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut file.scroll_offset, total_height) {
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
+                    };
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut stats.scroll_offset, total_height) {
                         return task;
                     }
                 }
             }
             Message::MergeThreadsToggled(enabled) => {
                 if let Some(file) = self.active_file_mut() {
-                    file.merge_threads = enabled;
+                    // Update merge_threads on loaded Stats if present.
+                    match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats.merge_threads = enabled,
+                        _ => {}
+                    }
 
                     let thread_groups = match file.thread_groups() {
                         Some(groups) => groups,
                         None => return Task::none(),
                     };
                     let total_height = timeline::total_timeline_height(thread_groups);
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut file.scroll_offset, total_height) {
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
+                    };
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut stats.scroll_offset, total_height) {
                         return task;
                     }
                 }
@@ -688,22 +705,7 @@ impl Lineme {
         let id = self.next_file_id;
         self.next_file_id = self.next_file_id.wrapping_add(1);
 
-        self.files.push(FileData {
-            id,
-            path: path.clone(),
-            load_state: FileLoadState::Loading,
-            view_type: ViewType::default(),
-            color_mode: ColorMode::default(),
-            selected_event: None,
-            hovered_event: None,
-            merge_threads: false,
-            zoom_level: 1.0,
-            scroll_offset: iced::Vector::default(),
-            viewport_width: 0.0,
-            viewport_height: 0.0,
-            initial_fit_done: false,
-            load_duration_ns: None,
-        });
+        self.files.push(FileData { id, path: path.clone(), load_state: FileLoadState::Loading });
         self.active_tab = self.files.len() - 1;
         self.show_settings = false;
 
@@ -893,7 +895,9 @@ impl Lineme {
         let content: Element<'_, Message> = if self.show_settings {
             self.settings_view()
         } else if let Some(file) = self.files.get(self.active_tab) {
-            let inner_view = match file.view_type {
+            // Use view_type from Stats when available; fall back to default
+            let current_view = file.stats().map(|s| s.view_type).unwrap_or_default();
+            let inner_view = match current_view {
                 ViewType::Stats => self.file_view(file),
                 ViewType::Timeline => self.timeline_view(file),
             };
@@ -904,25 +908,26 @@ impl Lineme {
                         text("View:").size(12),
                         pick_list(
                             &ViewType::ALL[..],
-                            Some(file.view_type),
+                            Some(current_view),
                             Message::ViewChanged
                         )
                         .text_size(12)
                         .padding(3)
                         .style(neutral_pick_list_style),
-                        if file.view_type == ViewType::Timeline {
+                        if current_view == ViewType::Timeline {
                             Element::from(
                                 row![
                                     text("Color by:").size(12),
+                                    // When file is loaded the pick_list reads color mode from Stats.
                                     pick_list(
                                         &ColorMode::ALL[..],
-                                        Some(file.color_mode),
+                                        file.stats().map(|s| s.color_mode),
                                         Message::ColorModeChanged
                                     )
                                     .text_size(12)
                                     .padding(3)
                                     .style(neutral_pick_list_style),
-                                    checkbox(file.merge_threads)
+                                    checkbox(file.stats().map(|s| s.merge_threads).unwrap_or(false))
                                         .label("Merge threads")
                                         .size(14)
                                         .text_size(12)
@@ -1035,7 +1040,7 @@ impl Lineme {
                     row![
                         text("Load time:").width(Length::Fixed(120.0)).size(12),
                         text(
-                            match file.load_duration_ns {
+                            match stats.load_duration_ns {
                                 Some(ns) => format_duration(ns),
                                 None => "unknown".to_string(),
                             }
@@ -1100,18 +1105,20 @@ impl Lineme {
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .into(),
-            FileLoadState::Ready(_) => timeline::view(
-                &file.stats().expect("stats ready").timeline,
-                file.thread_groups().unwrap_or_default(),
-                file.zoom_level,
-                &file.selected_event,
-                &file.hovered_event,
-                file.scroll_offset,
-                file.viewport_width,
-                file.viewport_height,
-                self.modifiers,
-                file.color_mode,
-            ),
+            FileLoadState::Ready(stats) => {
+                timeline::view(
+                    &stats.timeline,
+                    file.thread_groups().unwrap_or_default(),
+                    stats.zoom_level,
+                    &stats.selected_event,
+                    &stats.hovered_event,
+                    stats.scroll_offset,
+                    stats.viewport_width,
+                    stats.viewport_height,
+                    self.modifiers,
+                    stats.color_mode,
+                )
+            }
         }
     }
 
@@ -1239,7 +1246,7 @@ impl FileData {
 
     fn thread_groups(&self) -> Option<&[ThreadGroup]> {
         let stats = self.stats()?;
-        if self.merge_threads {
+        if stats.merge_threads {
             Some(&stats.merged_thread_groups)
         } else {
             Some(&stats.timeline.thread_groups)
@@ -1251,7 +1258,7 @@ impl FileData {
             FileLoadState::Ready(stats) => stats,
             _ => return None,
         };
-        if self.merge_threads {
+        if stats.merge_threads {
             Some(&mut stats.merged_thread_groups)
         } else {
             Some(&mut stats.timeline.thread_groups)
