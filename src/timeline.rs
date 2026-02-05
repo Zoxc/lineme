@@ -4,6 +4,7 @@ mod mini_timeline;
 mod threads;
 mod ticks;
 
+use crate::scrollbar;
 use crate::Message;
 use events::EventsProgram;
 use header::HeaderProgram;
@@ -462,7 +463,7 @@ pub fn view<'a>(
         .height(Length::Fill)
         .direction(scrollable::Direction::Both {
             vertical: scrollable::Scrollbar::default(),
-            horizontal: scrollable::Scrollbar::default(),
+            horizontal: scrollable::Scrollbar::hidden(),
         })
         .on_scroll(|viewport| Message::TimelineScroll {
             offset_x: viewport.absolute_offset().x as f64,
@@ -470,6 +471,40 @@ pub fn view<'a>(
             viewport_width: viewport.bounds().width,
             viewport_height: viewport.bounds().height,
         });
+
+    let total_ns = timeline_data.max_ns.saturating_sub(timeline_data.min_ns) as f64;
+    let visible_ns = if zoom_level > 0.0 {
+        (viewport_width / zoom_level).max(1.0)
+    } else {
+        total_ns.max(1.0)
+    };
+    let max_start_ns_rel = (total_ns - visible_ns).max(0.0);
+    let start_ns_rel = (scroll_offset_x / zoom_level.max(1e-9)).clamp(0.0, total_ns.max(0.0));
+    let min_start_ns = timeline_data.min_ns as f64;
+    let start_ns = min_start_ns + start_ns_rel;
+    let max_start_ns = min_start_ns + max_start_ns_rel;
+    let thumb_fraction = if total_ns > 0.0 {
+        (visible_ns / total_ns).clamp(0.02, 1.0)
+    } else {
+        1.0
+    };
+    let horizontal_scrollbar = scrollbar::scrollbar(
+        start_ns,
+        min_start_ns..=max_start_ns.max(min_start_ns),
+        |start_ns| Message::TimelineHorizontalScrolled { start_ns },
+    )
+    .thumb_fraction(thumb_fraction)
+    .height(Length::Fixed(18.0))
+    .width(Length::Fill);
+
+    let events_column = column![
+        events_view,
+        container(horizontal_scrollbar)
+            .width(Length::Fill)
+            .padding([4.0, 6.0])
+    ]
+    .height(Length::Fill)
+    .width(Length::Fill);
 
     // Mini timeline should span the full window width (including the label area).
     let main_view = column![
@@ -508,7 +543,7 @@ pub fn view<'a>(
                     header_canvas
                 ]
                 .height(Length::Fixed(HEADER_HEIGHT as f32)),
-                row![threads_canvas, events_view].height(Length::Fill)
+                row![threads_canvas, events_column].height(Length::Fill)
             ]
             .height(Length::Fill),
         )

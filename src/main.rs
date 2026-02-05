@@ -152,7 +152,7 @@ fn neutral_pick_list_style(
 }
 
 #[derive(Debug, Clone)]
-enum Message {
+    enum Message {
     TabSelected(usize),
     OpenFile,
     FileSelected(PathBuf),
@@ -184,6 +184,9 @@ enum Message {
         end_fraction: f32,
         viewport_width: f32,
     },
+    TimelineHorizontalScrolled {
+        start_ns: f64,
+    },
     TimelinePanned {
         delta: iced::Vector,
     },
@@ -193,6 +196,7 @@ enum Message {
     ExpandAllThreads,
     MergeThreadsToggled(bool),
     ModifiersChanged(iced::keyboard::Modifiers),
+    
     None,
     RegisterFileExtension,
     RegisterFileExtensionResult(Result<(), String>),
@@ -560,6 +564,39 @@ impl Lineme {
                     }
                 }
             }
+            Message::TimelineHorizontalScrolled { start_ns } => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
+                    };
+                    let min_ns = stats.timeline.min_ns as f64;
+                    let max_ns = stats.timeline.max_ns as f64;
+                    let zoom_level = stats.zoom_level.max(1e-9);
+                    let viewport_width = stats.viewport_width.max(1.0);
+                    let visible_ns = (viewport_width / zoom_level).max(1.0);
+                    let max_start_ns = (max_ns - visible_ns).max(min_ns);
+                    let clamped_start = start_ns.clamp(min_ns, max_start_ns);
+                    stats.scroll_offset_x = (clamped_start - min_ns) * zoom_level;
+
+                    let total_ns = stats.timeline.max_ns.saturating_sub(stats.timeline.min_ns);
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
+                    let viewport_width = stats.viewport_width.max(0.0);
+                    stats.scroll_offset_x = crate::timeline::clamp_scroll_x(
+                        stats.scroll_offset_x,
+                        total_width,
+                        viewport_width,
+                    );
+
+                    return scroll_to(
+                        timeline_id(),
+                        AbsoluteOffset {
+                            x: stats.scroll_offset_x as f32,
+                            y: stats.scroll_offset_y as f32,
+                        },
+                    );
+                }
+            }
             Message::MiniTimelineZoomTo {
                 start_fraction,
                 end_fraction,
@@ -651,6 +688,7 @@ impl Lineme {
             Message::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers;
             }
+            
             Message::ToggleThreadCollapse(thread_id) => {
                 if let Some(file) = self.active_file_mut() {
                     let thread_groups_mut = match file.thread_groups_mut() {
@@ -1256,6 +1294,7 @@ impl Lineme {
             ]
             .spacing(10)
             .align_y(Alignment::Center),
+            
             container(hints).padding(6).style(|_theme: &iced::Theme| {
                 // subtle background to separate hints from other settings
                 container::Style::default().background(iced::Color::from_rgb(0.99, 0.99, 0.99))
