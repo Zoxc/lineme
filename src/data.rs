@@ -1,7 +1,6 @@
-use crate::timeline::{
-    self, ThreadData, ThreadGroup, TimelineData, TimelineEvent, color_from_label,
-};
+use crate::timeline::{self, ThreadData, ThreadGroup, TimelineData, TimelineEvent};
 use analyzeme::ProfilingData;
+use iced::Color;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -23,7 +22,10 @@ pub fn load_profiling_data(path: &Path) -> Result<Stats, String> {
 
     let metadata = data.metadata();
 
-    let mut threads: HashMap<u64, Vec<TimelineEvent>> = HashMap::new();
+    // First gather all parsed events into a temporary buffer so we can
+    // determine the distinct event kinds and assign hues evenly across them.
+    let mut parsed_events: Vec<(u64, String, u64, u64, String, Vec<String>, Option<u64>)> =
+        Vec::new();
     let mut min_ns = u64::MAX;
     let mut max_ns = 0;
     let mut event_count = 0;
@@ -56,20 +58,64 @@ pub fn load_profiling_data(path: &Path) -> Result<Stats, String> {
                     .collect::<Vec<_>>();
                 let payload_integer = event.payload.integer();
 
-                threads.entry(thread_id).or_default().push(TimelineEvent {
-                    label: event.label.to_string(),
-                    start_ns,
-                    duration_ns: end_ns.saturating_sub(start_ns),
-                    depth: 0,
+                parsed_events.push((
                     thread_id,
+                    event.label.to_string(),
+                    start_ns,
+                    end_ns.saturating_sub(start_ns),
                     event_kind,
                     additional_data,
                     payload_integer,
-                    color: color_from_label(&event.label),
-                    is_thread_root: false,
-                });
+                ));
             }
         }
+    }
+
+    // Build a deterministic ordered list of kinds and assign equally spaced hues.
+    use std::collections::BTreeSet;
+    let mut kinds_set: BTreeSet<String> = BTreeSet::new();
+    for (_, _, _, _, kind, _, _) in &parsed_events {
+        kinds_set.insert(kind.clone());
+    }
+    let kinds: Vec<String> = kinds_set.into_iter().collect();
+    let kind_count = kinds.len().max(1);
+
+    let mut kind_color_map: HashMap<String, Color> = HashMap::new();
+    // Start the hue at green (~120°) so the first kind maps to green, then
+    // evenly step around the wheel.
+    let base_hue = 120.0_f32;
+    for (i, kind) in kinds.iter().enumerate() {
+        let step = 360.0 / kind_count as f32;
+        let hue = (base_hue + (i as f32) * step) % 360.0;
+        // Adjust saturation/lightness to better match the previous
+        // hash-derived palette (muted, bright colors concentrated in the
+        // upper RGB range). These values aim to reproduce that look.
+        let color = timeline::color_from_hsl(hue, 0.35, 0.8);
+        kind_color_map.insert(kind.clone(), color);
+    }
+
+    // Now assign TimelineEvent entries into threads using the computed colors.
+    let mut threads: HashMap<u64, Vec<TimelineEvent>> = HashMap::new();
+    for (thread_id, label, start_ns, duration_ns, event_kind, additional_data, payload_integer) in
+        parsed_events
+    {
+        let color = kind_color_map
+            .get(&event_kind)
+            .cloned()
+            .unwrap_or_else(|| timeline::color_from_hsl(0.0, 0.0, 0.85));
+
+        threads.entry(thread_id).or_default().push(TimelineEvent {
+            label,
+            start_ns,
+            duration_ns,
+            depth: 0,
+            thread_id,
+            event_kind,
+            additional_data,
+            payload_integer,
+            color,
+            is_thread_root: false,
+        });
     }
 
     for thread_events in threads.values_mut() {

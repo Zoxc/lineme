@@ -104,6 +104,39 @@ pub fn color_from_label(label: &str) -> Color {
     Color::from_rgb(0.6 + r * 0.3, 0.6 + g * 0.3, 0.6 + b * 0.3)
 }
 
+// Previously we used a small fixed palette and hashing. Instead we assign
+// hues evenly around the color wheel based on the number of distinct event
+// kinds. The actual mapping from kind -> color is built during data loading
+// in `src/data.rs` and stored on each `TimelineEvent`.
+
+/// Convert HSL to RGB Color. Hue is in degrees [0,360), s and l are [0,1].
+pub fn color_from_hsl(h: f32, s: f32, l: f32) -> Color {
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let h_prime = (h / 60.0) % 6.0;
+    let x = c * (1.0 - (h_prime % 2.0 - 1.0).abs());
+
+    let (r1, g1, b1) = if (0.0..1.0).contains(&h_prime) {
+        (c, x, 0.0)
+    } else if (1.0..2.0).contains(&h_prime) {
+        (x, c, 0.0)
+    } else if (2.0..3.0).contains(&h_prime) {
+        (0.0, c, x)
+    } else if (3.0..4.0).contains(&h_prime) {
+        (0.0, x, c)
+    } else if (4.0..5.0).contains(&h_prime) {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+
+    let m = l - c / 2.0;
+    Color::from_rgb(
+        (r1 + m).clamp(0.0, 1.0),
+        (g1 + m).clamp(0.0, 1.0),
+        (b1 + m).clamp(0.0, 1.0),
+    )
+}
+
 pub fn timeline_id() -> iced::widget::Id {
     iced::widget::Id::new("timeline_scrollable")
 }

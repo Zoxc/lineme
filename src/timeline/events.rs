@@ -1,11 +1,11 @@
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
-use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
+use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 use super::{
-    ColorMode, ThreadGroup, TimelineEvent, color_from_label, group_total_height,
-    visible_event_indices,
+    color_from_label, group_total_height, visible_event_indices, ColorMode, ThreadGroup,
+    TimelineEvent,
 };
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 
@@ -247,7 +247,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     event.color
                 } else {
                     match self.color_mode {
-                        ColorMode::Kind => color_from_label(&event.event_kind),
+                        // When coloring by kind we already stored a kind-based color
+                        // on the TimelineEvent during data loading.
+                        ColorMode::Kind => event.color,
                         ColorMode::Event => color_from_label(&event.label),
                     }
                 };
