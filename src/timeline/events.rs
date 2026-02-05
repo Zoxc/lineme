@@ -41,11 +41,8 @@ fn draw_event_rect(
     );
 
     if rect.width > 20.0 {
-        let mut truncated_label = label.to_string();
-        let avail_chars = ((rect.width - 4.0 - EVENT_LEFT_PADDING as f32).max(0.0) / 6.0) as usize;
-        if truncated_label.len() > avail_chars {
-            truncated_label.truncate(avail_chars);
-        }
+        // Draw the full label and rely on the canvas clip region so overflowing
+        // glyphs are visually cropped at the event rectangle boundary.
         frame.with_clip(
             Rectangle {
                 x: rect.x + 1.0,
@@ -55,7 +52,7 @@ fn draw_event_rect(
             },
             |frame| {
                 frame.fill_text(canvas::Text {
-                    content: truncated_label,
+                    content: label.to_string(),
                     position: Point::new(rect.x + 2.0 + EVENT_LEFT_PADDING as f32, rect.y + 2.0),
                     color: if is_root {
                         Color::from_rgb(0.35, 0.35, 0.35)
