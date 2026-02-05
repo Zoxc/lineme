@@ -24,6 +24,61 @@ const RESET_ICON: char = '\u{e5d5}';
 pub const COLLAPSE_ICON: char = '\u{2212}'; // '−' minus sign
 pub const EXPAND_ICON: char = '\u{002B}'; // '+' plus sign
 
+// Try to register the .mm_profdata extension to open with the current executable.
+// On Windows this writes under HKCU\Software\Classes so admin rights aren't required.
+#[allow(dead_code)]
+fn register_file_extension_impl() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::path::PathBuf;
+        use winreg::enums::*;
+        use winreg::RegKey;
+
+        let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {}", e))?;
+        let exe_str = exe
+            .to_str()
+            .ok_or_else(|| "Executable path contains invalid UTF-8".to_string())?
+            .to_string();
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+
+        // Set the extension association to our progid
+        let (ext_key, _disp) = hkcu
+            .create_subkey("Software\\Classes\\.mm_profdata")
+            .map_err(|e| format!("registry create failed: {}", e))?;
+        ext_key
+            .set_value("", &"lineme.mm_profdata")
+            .map_err(|e| format!("registry set failed: {}", e))?;
+
+        // ProgID with friendly name
+        let (progid_key, _disp) = hkcu
+            .create_subkey("Software\\Classes\\lineme.mm_profdata")
+            .map_err(|e| format!("registry create failed: {}", e))?;
+        progid_key
+            .set_value("", &"LineMe measureme profdata")
+            .map_err(|e| format!("registry set failed: {}", e))?;
+
+        // Default icon (optional)
+        let _ = hkcu.create_subkey("Software\\Classes\\lineme.mm_profdata\\DefaultIcon");
+
+        // command to open files
+        let (cmd_key, _disp) = hkcu
+            .create_subkey("Software\\Classes\\lineme.mm_profdata\\shell\\open\\command")
+            .map_err(|e| format!("registry create failed: {}", e))?;
+        let cmd = format!("\"{}\" \"%1\"", exe_str.replace('/', "\\\\"));
+        cmd_key
+            .set_value("", &cmd)
+            .map_err(|e| format!("registry set failed: {}", e))?;
+
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Registering file extensions is only supported on Windows".to_string())
+    }
+}
+
 pub fn main() -> iced::Result {
     iced::application(Lineme::new, Lineme::update, Lineme::view)
         .title(Lineme::title)
@@ -137,6 +192,8 @@ enum Message {
     MergeThreadsToggled(bool),
     ModifiersChanged(iced::keyboard::Modifiers),
     None,
+    RegisterFileExtension,
+    RegisterFileExtensionResult(Result<(), String>),
 }
 
 struct Lineme {
@@ -144,6 +201,8 @@ struct Lineme {
     files: Vec<FileData>,
     show_settings: bool,
     modifiers: iced::keyboard::Modifiers,
+    // last_action_message is shown in settings after operations (windows registry)
+    last_action_message: Option<String>,
     #[allow(dead_code)]
     settings: SettingsPage,
     next_file_id: u64,
@@ -185,6 +244,7 @@ impl Lineme {
             files: Vec::new(),
             show_settings: false,
             modifiers: iced::keyboard::Modifiers::default(),
+            last_action_message: None,
             settings: SettingsPage { show_details: true },
             next_file_id: 0,
         };
@@ -293,6 +353,33 @@ impl Lineme {
             Message::OpenSettings => {
                 // Toggle settings panel on/off
                 self.show_settings = !self.show_settings;
+            }
+            Message::RegisterFileExtension => {
+                // Run registration off the UI thread and report result back
+                return Task::perform(
+                    async move {
+                        let (tx, rx) = oneshot::channel();
+                        std::thread::spawn(move || {
+                            let res = register_file_extension_impl();
+                            let _ = tx.send(res);
+                        });
+
+                        match rx.await {
+                            Ok(r) => Message::RegisterFileExtensionResult(r),
+                            Err(_) => Message::RegisterFileExtensionResult(Err(
+                                "Registration task failed".to_string(),
+                            )),
+                        }
+                    },
+                    |m| m,
+                );
+            }
+            Message::RegisterFileExtensionResult(res) => {
+                self.last_action_message = Some(match res {
+                    Ok(()) => "Registered .mm_profdata for current user".to_string(),
+                    Err(e) => format!("Registration failed: {}", e),
+                });
+                self.show_settings = true;
             }
             Message::EventSelected(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
@@ -1114,6 +1201,20 @@ impl Lineme {
                 text(format!("{}", self.files.len())).size(12)
             ],
             text("Welcome to Lineme Settings").size(12),
+            // Register file extension button + result message
+            row![
+                button(text("Register .mm_profdata").size(12))
+                    .style(crate::ui::neutral_button_style)
+                    .on_press(Message::RegisterFileExtension),
+                // show last action result if present
+                if let Some(msg) = &self.last_action_message {
+                    Element::from(text(msg).size(12))
+                } else {
+                    Element::from(Space::new().width(Length::Fill))
+                }
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
             container(hints).padding(6).style(|_theme: &iced::Theme| {
                 // subtle background to separate hints from other settings
                 container::Style::default().background(iced::Color::from_rgb(0.99, 0.99, 0.99))
