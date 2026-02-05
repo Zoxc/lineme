@@ -5,10 +5,12 @@ use iced::widget::operation::scroll_to;
 use iced::widget::scrollable::AbsoluteOffset;
 use iced::widget::{Space, button, checkbox, column, container, pick_list, row, scrollable, text};
 use iced::{Alignment, Element, Length, Task};
+use iced::futures::channel::oneshot;
 use iced_aw::{TabLabel, tab_bar};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::thread;
 use timeline::{ColorMode, *};
 
 pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
@@ -105,8 +107,8 @@ enum Message {
     TabSelected(usize),
     OpenFile,
     FileSelected(PathBuf),
-    FileLoaded(PathBuf, Stats),
-    ErrorOccurred(String),
+    FileLoaded(u64, Stats),
+    FileLoadFailed(u64, String),
     ViewChanged(ViewType),
     ColorModeChanged(ColorMode),
     CloseTab(usize),
@@ -151,11 +153,20 @@ struct Lineme {
     modifiers: iced::keyboard::Modifiers,
     #[allow(dead_code)]
     settings: SettingsPage,
+    next_file_id: u64,
+}
+
+#[derive(Debug, Clone)]
+enum FileLoadState {
+    Loading,
+    Ready(Stats),
+    Error(String),
 }
 
 struct FileData {
+    id: u64,
     path: PathBuf,
-    stats: Stats,
+    load_state: FileLoadState,
     view_type: ViewType,
     color_mode: ColorMode,
     selected_event: Option<TimelineEvent>,
@@ -175,31 +186,23 @@ struct SettingsPage {
 
 impl Lineme {
     fn new() -> (Self, Task<Message>) {
-        let mut initial_task = Task::none();
+        let mut app = Lineme {
+            active_tab: 0,
+            files: Vec::new(),
+            show_settings: false,
+            modifiers: iced::keyboard::Modifiers::default(),
+            settings: SettingsPage { show_details: true },
+            next_file_id: 0,
+        };
 
-        if let Some(path_str) = std::env::args().nth(1) {
+        let initial_task = if let Some(path_str) = std::env::args().nth(1) {
             let path = PathBuf::from(path_str);
-            initial_task = Task::perform(
-                async move {
-                    match load_profiling_data(&path) {
-                        Ok(stats) => Message::FileLoaded(path, stats),
-                        Err(e) => Message::ErrorOccurred(e),
-                    }
-                },
-                |msg| msg,
-            );
-        }
+            app.start_loading_file(path)
+        } else {
+            Task::none()
+        };
 
-        (
-            Lineme {
-                active_tab: 0,
-                files: Vec::new(),
-                show_settings: false,
-                modifiers: iced::keyboard::Modifiers::default(),
-                settings: SettingsPage { show_details: true },
-            },
-            initial_task,
-        )
+        (app, initial_task)
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
@@ -260,36 +263,18 @@ impl Lineme {
                 );
             }
             Message::FileSelected(path) => {
-                return Task::perform(
-                    async move {
-                        match load_profiling_data(&path) {
-                            Ok(stats) => Message::FileLoaded(path, stats),
-                            Err(e) => Message::ErrorOccurred(e),
-                        }
-                    },
-                    |msg| msg,
-                );
+                return self.start_loading_file(path);
             }
-            Message::FileLoaded(path, stats) => {
-                self.files.push(FileData {
-                    path,
-                    stats,
-                    view_type: ViewType::default(),
-                    color_mode: ColorMode::default(),
-                    selected_event: None,
-                    hovered_event: None,
-                    merge_threads: false,
-                    zoom_level: 1.0,
-                    scroll_offset: iced::Vector::default(),
-                    viewport_width: 0.0,
-                    viewport_height: 0.0,
-                    initial_fit_done: false,
-                });
-                self.active_tab = self.files.len() - 1;
-                self.show_settings = false;
+            Message::FileLoaded(id, stats) => {
+                if let Some(file) = self.files.iter_mut().find(|file| file.id == id) {
+                    file.load_state = FileLoadState::Ready(stats);
+                    file.initial_fit_done = false;
+                }
             }
-            Message::ErrorOccurred(e) => {
-                eprintln!("Error: {}", e);
+            Message::FileLoadFailed(id, error) => {
+                if let Some(file) = self.files.iter_mut().find(|file| file.id == id) {
+                    file.load_state = FileLoadState::Error(error);
+                }
             }
             Message::ViewChanged(view) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
@@ -320,15 +305,17 @@ impl Lineme {
             }
             Message::EventDoubleClicked(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let total_ns = file
-                        .stats
-                        .timeline
-                        .max_ns
-                        .saturating_sub(file.stats.timeline.min_ns)
-                        .max(1);
+                    let (min_ns, max_ns) = match file
+                        .stats()
+                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
+                    {
+                        Some(values) => values,
+                        None => return Task::none(),
+                    };
+                    let total_ns = max_ns.saturating_sub(min_ns).max(1);
                     let viewport_width = file.viewport_width.max(1.0);
 
-                    let event_rel_start = event.start_ns.saturating_sub(file.stats.timeline.min_ns);
+                    let event_rel_start = event.start_ns.saturating_sub(min_ns);
                     let event_rel_end = event_rel_start.saturating_add(event.duration_ns);
 
                     // Add padding of 20% of event duration (10% on each side)
@@ -363,6 +350,13 @@ impl Lineme {
             }
             Message::TimelineZoomed { delta, x } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let (min_ns, max_ns) = match file
+                        .stats()
+                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
+                    {
+                        Some(values) => values,
+                        None => return Task::none(),
+                    };
                     let zoom_factor = if delta > 0.0 { 1.1 } else { 0.9 };
                     file.zoom_level *= zoom_factor;
 
@@ -370,7 +364,7 @@ impl Lineme {
                     let x_on_canvas = x + file.scroll_offset.x;
                     file.scroll_offset.x = x_on_canvas * zoom_factor - x;
 
-                    let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    let total_ns = max_ns.saturating_sub(min_ns);
                     let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
                     let viewport_width = file.viewport_width.max(0.0);
                     let max_scroll = (total_width - viewport_width).max(0.0);
@@ -390,6 +384,22 @@ impl Lineme {
                 viewport_height,
             } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let (min_ns, max_ns) = match file
+                        .stats()
+                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
+                    {
+                        Some(values) => values,
+                        None => {
+                            file.scroll_offset = offset;
+                            if viewport_width > 0.0 {
+                                file.viewport_width = viewport_width;
+                            }
+                            if viewport_height > 0.0 {
+                                file.viewport_height = viewport_height;
+                            }
+                            return Task::none();
+                        }
+                    };
                     file.scroll_offset = offset;
                     let first_time = file.viewport_width == 0.0 && viewport_width > 0.0;
                     if viewport_width > 0.0 {
@@ -400,7 +410,7 @@ impl Lineme {
                     }
 
                     if first_time || (viewport_width > 0.0 && !file.initial_fit_done) {
-                        let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                        let total_ns = max_ns.saturating_sub(min_ns);
                         file.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f32;
                         file.initial_fit_done = true;
                     }
@@ -411,7 +421,14 @@ impl Lineme {
                 viewport_width,
             } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    let (min_ns, max_ns) = match file
+                        .stats()
+                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
+                    {
+                        Some(values) => values,
+                        None => return Task::none(),
+                    };
+                    let total_ns = max_ns.saturating_sub(min_ns);
                     let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
                     if total_width > 0.0 {
                         let viewport_width = viewport_width.max(1.0);
@@ -435,7 +452,14 @@ impl Lineme {
                 viewport_width,
             } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    let (min_ns, max_ns) = match file
+                        .stats()
+                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
+                    {
+                        Some(values) => values,
+                        None => return Task::none(),
+                    };
+                    let total_ns = max_ns.saturating_sub(min_ns);
                     let total_ns_f64 = total_ns.max(1) as f64;
                     let range_fraction = (end_fraction - start_fraction).max(0.0) as f64;
                     let target_ns = (range_fraction * total_ns_f64).max(1.0);
@@ -455,12 +479,21 @@ impl Lineme {
             }
             Message::TimelinePanned { delta } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    let (min_ns, max_ns) = match file
+                        .stats()
+                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
+                    {
+                        Some(values) => values,
+                        None => return Task::none(),
+                    };
+                    let total_ns = max_ns.saturating_sub(min_ns);
                     let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
                     let viewport_width = file.viewport_width.max(0.0);
                     let max_scroll_x = (total_width - viewport_width).max(0.0);
 
-                    let total_height = timeline::total_timeline_height(file.thread_groups());
+                    let total_height = timeline::total_timeline_height(
+                        file.thread_groups().unwrap_or_default(),
+                    );
                     let viewport_height = file.viewport_height.max(0.0);
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
 
@@ -480,7 +513,14 @@ impl Lineme {
             }
             Message::ResetView => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let total_ns = file.stats.timeline.max_ns - file.stats.timeline.min_ns;
+                    let (min_ns, max_ns) = match file
+                        .stats()
+                        .map(|stats| (stats.timeline.min_ns, stats.timeline.max_ns))
+                    {
+                        Some(values) => values,
+                        None => return Task::none(),
+                    };
+                    let total_ns = max_ns.saturating_sub(min_ns);
                     let viewport_width = file.viewport_width.max(0.0);
                     if viewport_width > 0.0 {
                         file.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f32;
@@ -496,14 +536,17 @@ impl Lineme {
             }
             Message::ToggleThreadCollapse(thread_id) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    if let Some(group) = file
-                        .thread_groups_mut()
+                    let thread_groups = match file.thread_groups_mut() {
+                        Some(groups) => groups,
+                        None => return Task::none(),
+                    };
+                    if let Some(group) = thread_groups
                         .iter_mut()
                         .find(|group| timeline::thread_group_key(group) == thread_id)
                     {
                         group.is_collapsed = !group.is_collapsed;
                     }
-                    let total_height = timeline::total_timeline_height(file.thread_groups());
+                    let total_height = timeline::total_timeline_height(thread_groups);
                     if file.scroll_offset.y > total_height {
                         file.scroll_offset.y = total_height;
                         return scroll_to(
@@ -518,10 +561,14 @@ impl Lineme {
             }
             Message::CollapseAllThreads => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    for group in file.thread_groups_mut() {
+                    let thread_groups = match file.thread_groups_mut() {
+                        Some(groups) => groups,
+                        None => return Task::none(),
+                    };
+                    for group in thread_groups.iter_mut() {
                         group.is_collapsed = true;
                     }
-                    let total_height = timeline::total_timeline_height(file.thread_groups());
+                    let total_height = timeline::total_timeline_height(thread_groups);
                     if file.scroll_offset.y > total_height {
                         file.scroll_offset.y = total_height;
                         return scroll_to(
@@ -536,12 +583,14 @@ impl Lineme {
             }
             Message::ExpandAllThreads => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let thread_groups = file.thread_groups_mut();
-                    for group in thread_groups {
+                    let thread_groups = match file.thread_groups_mut() {
+                        Some(groups) => groups,
+                        None => return Task::none(),
+                    };
+                    for group in thread_groups.iter_mut() {
                         group.is_collapsed = false;
                     }
-                    let total_height =
-                        timeline::total_timeline_height(file.thread_groups());
+                    let total_height = timeline::total_timeline_height(thread_groups);
                     if file.scroll_offset.y > total_height {
                         file.scroll_offset.y = total_height;
                         return scroll_to(
@@ -557,7 +606,11 @@ impl Lineme {
             Message::MergeThreadsToggled(enabled) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     file.merge_threads = enabled;
-                    let total_height = timeline::total_timeline_height(file.thread_groups());
+                    let thread_groups = match file.thread_groups() {
+                        Some(groups) => groups,
+                        None => return Task::none(),
+                    };
+                    let total_height = timeline::total_timeline_height(thread_groups);
                     if file.scroll_offset.y > total_height {
                         file.scroll_offset.y = total_height;
                         return scroll_to(
@@ -573,6 +626,53 @@ impl Lineme {
             Message::None => {}
         }
         Task::none()
+    }
+
+    fn start_loading_file(&mut self, path: PathBuf) -> Task<Message> {
+        let id = self.next_file_id;
+        self.next_file_id = self.next_file_id.wrapping_add(1);
+
+        self.files.push(FileData {
+            id,
+            path: path.clone(),
+            load_state: FileLoadState::Loading,
+            view_type: ViewType::default(),
+            color_mode: ColorMode::default(),
+            selected_event: None,
+            hovered_event: None,
+            merge_threads: false,
+            zoom_level: 1.0,
+            scroll_offset: iced::Vector::default(),
+            viewport_width: 0.0,
+            viewport_height: 0.0,
+            initial_fit_done: false,
+        });
+        self.active_tab = self.files.len() - 1;
+        self.show_settings = false;
+
+        Task::perform(
+            async move {
+                let (tx, rx) = oneshot::channel();
+                thread::spawn(move || {
+                    let result = std::panic::catch_unwind(|| load_profiling_data(&path));
+                    let outcome = match result {
+                        Ok(result) => result,
+                        Err(payload) => Err(format_panic_payload(payload)),
+                    };
+                    let _ = tx.send(outcome);
+                });
+
+                match rx.await {
+                    Ok(Ok(stats)) => Message::FileLoaded(id, stats),
+                    Ok(Err(error)) => Message::FileLoadFailed(id, error),
+                    Err(_) => Message::FileLoadFailed(
+                        id,
+                        "Loading thread exited before sending results".to_string(),
+                    ),
+                }
+            },
+            |msg| msg,
+        )
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -615,6 +715,12 @@ impl Lineme {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "Unknown".to_string());
+
+            let label = match &file.load_state {
+                FileLoadState::Loading => format!("{} (loading...)", label),
+                FileLoadState::Error(_) => format!("{} (error)", label),
+                FileLoadState::Ready(_) => label,
+            };
 
             bar = bar.push(i, TabLabel::IconText(FILE_ICON, label));
         }
@@ -703,89 +809,93 @@ impl Lineme {
                 ViewType::Timeline => self.timeline_view(file),
             };
 
-            let view_selector_bar = container(
-                row![
-                    text("View:").size(12),
-                    pick_list(
-                        &ViewType::ALL[..],
-                        Some(file.view_type),
-                        Message::ViewChanged
-                    )
-                    .text_size(12)
-                    .padding(3)
-                    .style(neutral_pick_list_style),
-                    if file.view_type == ViewType::Timeline {
-                        Element::from(
-                            row![
-                                text("Color by:").size(12),
-                                pick_list(
-                                    &ColorMode::ALL[..],
-                                    Some(file.color_mode),
-                                    Message::ColorModeChanged
-                                )
-                                .text_size(12)
-                                .padding(3)
-                                .style(neutral_pick_list_style),
-                                checkbox(file.merge_threads)
-                                    .label("Merge threads")
-                                    .size(14)
-                                    .text_size(12)
-                                    .on_toggle(Message::MergeThreadsToggled),
-                                button(
-                                    row![
-                                        text(RESET_ICON).font(ICON_FONT),
-                                        text("Reset View").size(12.0)
-                                    ]
-                                    .spacing(5)
-                                    .align_y(Alignment::Center),
-                                )
-                                .style(|theme: &iced::Theme, status: button::Status| {
-                                    let palette = theme.extended_palette();
-                                    let base = button::Style {
-                                        text_color: palette.background.base.text,
-                                        ..Default::default()
-                                    };
-                                    match status {
-                                        button::Status::Hovered | button::Status::Pressed => {
-                                            button::Style {
-                                                background: Some(
-                                                    palette.background.weak.color.into(),
-                                                ),
-                                                ..base
-                                            }
-                                        }
-                                        _ => base,
-                                    }
-                                })
-                                .padding(3)
-                                .on_press(Message::ResetView),
-                            ]
-                            .spacing(10)
-                            .align_y(Alignment::Center),
+            if matches!(file.load_state, FileLoadState::Ready(_)) {
+                let view_selector_bar = container(
+                    row![
+                        text("View:").size(12),
+                        pick_list(
+                            &ViewType::ALL[..],
+                            Some(file.view_type),
+                            Message::ViewChanged
                         )
-                    } else {
-                        Element::from(Space::new().width(0))
-                    },
-                ]
-                .spacing(10)
-                .padding(5)
-                .align_y(Alignment::Center),
-            )
-            .width(Length::Fill)
-            .style(|_theme: &iced::Theme| {
-                // Make the selector container a neutral grey to match the header.
-                container::Style::default()
-                    .background(iced::Color::from_rgb(0.95, 0.95, 0.95))
-                    .border(iced::Border {
-                        color: iced::Color::from_rgb(0.8, 0.8, 0.8),
-                        width: 1.0,
-                        ..Default::default()
-                    })
-            });
+                        .text_size(12)
+                        .padding(3)
+                        .style(neutral_pick_list_style),
+                        if file.view_type == ViewType::Timeline {
+                            Element::from(
+                                row![
+                                    text("Color by:").size(12),
+                                    pick_list(
+                                        &ColorMode::ALL[..],
+                                        Some(file.color_mode),
+                                        Message::ColorModeChanged
+                                    )
+                                    .text_size(12)
+                                    .padding(3)
+                                    .style(neutral_pick_list_style),
+                                    checkbox(file.merge_threads)
+                                        .label("Merge threads")
+                                        .size(14)
+                                        .text_size(12)
+                                        .on_toggle(Message::MergeThreadsToggled),
+                                    button(
+                                        row![
+                                            text(RESET_ICON).font(ICON_FONT),
+                                            text("Reset View").size(12.0)
+                                        ]
+                                        .spacing(5)
+                                        .align_y(Alignment::Center),
+                                    )
+                                    .style(|theme: &iced::Theme, status: button::Status| {
+                                        let palette = theme.extended_palette();
+                                        let base = button::Style {
+                                            text_color: palette.background.base.text,
+                                            ..Default::default()
+                                        };
+                                        match status {
+                                            button::Status::Hovered | button::Status::Pressed => {
+                                                button::Style {
+                                                    background: Some(
+                                                        palette.background.weak.color.into(),
+                                                    ),
+                                                    ..base
+                                                }
+                                            }
+                                            _ => base,
+                                        }
+                                    })
+                                    .padding(3)
+                                    .on_press(Message::ResetView),
+                                ]
+                                .spacing(10)
+                                .align_y(Alignment::Center),
+                            )
+                        } else {
+                            Element::from(Space::new().width(0))
+                        },
+                    ]
+                    .spacing(10)
+                    .padding(5)
+                    .align_y(Alignment::Center),
+                )
+                .width(Length::Fill)
+                .style(|_theme: &iced::Theme| {
+                    // Make the selector container a neutral grey to match the header.
+                    container::Style::default()
+                        .background(iced::Color::from_rgb(0.95, 0.95, 0.95))
+                        .border(iced::Border {
+                            color: iced::Color::from_rgb(0.8, 0.8, 0.8),
+                            width: 1.0,
+                            ..Default::default()
+                        })
+                });
 
-            column![view_selector_bar, inner_view]
-                .height(Length::Fill)
-                .into()
+                column![view_selector_bar, inner_view]
+                    .height(Length::Fill)
+                    .into()
+            } else {
+                inner_view
+            }
         } else {
             container(text("Open a file to start").size(20))
                 .width(Length::Fill)
@@ -799,35 +909,50 @@ impl Lineme {
     }
 
     fn file_view<'a>(&self, file: &'a FileData) -> Element<'a, Message> {
-        // Use the same compact label/value layout and theme-aware container used
-        // elsewhere so the stats panel visually matches the rest of the app.
-        let stats_col = column![
-            row![
-                text("File:").width(Length::Fixed(120.0)).size(12),
-                text(format!("{}", file.path.display())).size(12)
-            ],
-            row![
-                text("Command:").width(Length::Fixed(120.0)).size(12),
-                text(&file.stats.cmd).size(12)
-            ],
-            row![
-                text("PID:").width(Length::Fixed(120.0)).size(12),
-                text(format!("{}", file.stats.pid)).size(12)
-            ],
-            row![
-                text("Event count:").width(Length::Fixed(120.0)).size(12),
-                text(format!("{}", file.stats.event_count)).size(12)
-            ],
-            row![
-                text("Total duration:").width(Length::Fixed(120.0)).size(12),
-                text(format_duration(
-                    file.stats.timeline.max_ns - file.stats.timeline.min_ns
-                ))
-                .size(12)
-            ],
-        ]
-        .spacing(8)
-        .padding(10);
+        let stats_col = match &file.load_state {
+            FileLoadState::Loading => column![
+                text("Loading profiling data...").size(14),
+                text(format!("{}", file.path.display())).size(12),
+            ]
+            .spacing(8)
+            .padding(10),
+            FileLoadState::Error(error) => column![
+                text("Failed to load profiling data").size(14),
+                text(format!("{}", file.path.display())).size(12),
+                text(error).size(12),
+            ]
+            .spacing(8)
+            .padding(10),
+            FileLoadState::Ready(stats) => {
+                // Use the same compact label/value layout and theme-aware container used
+                // elsewhere so the stats panel visually matches the rest of the app.
+                column![
+                    row![
+                        text("File:").width(Length::Fixed(120.0)).size(12),
+                        text(format!("{}", file.path.display())).size(12)
+                    ],
+                    row![
+                        text("Command:").width(Length::Fixed(120.0)).size(12),
+                        text(&stats.cmd).size(12)
+                    ],
+                    row![
+                        text("PID:").width(Length::Fixed(120.0)).size(12),
+                        text(format!("{}", stats.pid)).size(12)
+                    ],
+                    row![
+                        text("Event count:").width(Length::Fixed(120.0)).size(12),
+                        text(format!("{}", stats.event_count)).size(12)
+                    ],
+                    row![
+                        text("Total duration:").width(Length::Fixed(120.0)).size(12),
+                        text(format_duration(stats.timeline.max_ns - stats.timeline.min_ns))
+                            .size(12)
+                    ],
+                ]
+                .spacing(8)
+                .padding(10)
+            }
+        };
 
         let content =
             container(stats_col)
@@ -854,18 +979,39 @@ impl Lineme {
     }
 
     fn timeline_view<'a>(&self, file: &'a FileData) -> Element<'a, Message> {
-        timeline::view(
-            &file.stats.timeline,
-            file.thread_groups(),
-            file.zoom_level,
-            &file.selected_event,
-            &file.hovered_event,
-            file.scroll_offset,
-            file.viewport_width,
-            file.viewport_height,
-            self.modifiers,
-            file.color_mode,
-        )
+        match &file.load_state {
+            FileLoadState::Loading => container(text("Processing file...").size(16))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into(),
+            FileLoadState::Error(error) => container(
+                column![
+                    text("Unable to render timeline").size(16),
+                    text(format!("{}", file.path.display())).size(12),
+                    text(error).size(12),
+                ]
+                .spacing(6),
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .into(),
+            FileLoadState::Ready(_) => timeline::view(
+                &file.stats().expect("stats ready").timeline,
+                file.thread_groups().unwrap_or_default(),
+                file.zoom_level,
+                &file.selected_event,
+                &file.hovered_event,
+                file.scroll_offset,
+                file.viewport_width,
+                file.viewport_height,
+                self.modifiers,
+                file.color_mode,
+            ),
+        }
     }
 
     fn settings_view(&self) -> Element<'_, Message> {
@@ -963,19 +1109,31 @@ impl Lineme {
 }
 
 impl FileData {
-    fn thread_groups(&self) -> &[ThreadGroup] {
-        if self.merge_threads {
-            &self.stats.merged_thread_groups
-        } else {
-            &self.stats.timeline.thread_groups
+    fn stats(&self) -> Option<&Stats> {
+        match &self.load_state {
+            FileLoadState::Ready(stats) => Some(stats),
+            _ => None,
         }
     }
 
-    fn thread_groups_mut(&mut self) -> &mut [ThreadGroup] {
+    fn thread_groups(&self) -> Option<&[ThreadGroup]> {
+        let stats = self.stats()?;
         if self.merge_threads {
-            &mut self.stats.merged_thread_groups
+            Some(&stats.merged_thread_groups)
         } else {
-            &mut self.stats.timeline.thread_groups
+            Some(&stats.timeline.thread_groups)
+        }
+    }
+
+    fn thread_groups_mut(&mut self) -> Option<&mut [ThreadGroup]> {
+        let stats = match &mut self.load_state {
+            FileLoadState::Ready(stats) => stats,
+            _ => return None,
+        };
+        if self.merge_threads {
+            Some(&mut stats.merged_thread_groups)
+        } else {
+            Some(&mut stats.timeline.thread_groups)
         }
     }
 }
@@ -1181,4 +1339,14 @@ fn build_merged_thread_groups(threads: &[Arc<ThreadData>]) -> Vec<ThreadGroup> {
     }
 
     thread_groups
+}
+
+fn format_panic_payload(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        format!("Loading thread panicked: {}", message)
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        format!("Loading thread panicked: {}", message)
+    } else {
+        "Loading thread panicked with unknown payload".to_string()
+    }
 }
