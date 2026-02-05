@@ -95,17 +95,23 @@ pub struct EventsState {
 
 impl<'a> EventsProgram<'a> {
     fn find_event_at(&self, position: Point) -> Option<TimelineEvent> {
+        let zoom_level = self.zoom_level.max(1e-9);
+        let scroll_offset_x_px = (self.scroll_offset_x * zoom_level) as f32;
+        let content_position = Point::new(
+            position.x + scroll_offset_x_px,
+            position.y + self.scroll_offset_y as f32,
+        );
         let mut y_offset: f64 = 0.0;
         for group in self.thread_groups {
             let lane_total_height = group_total_height(group);
 
-            if (position.y as f64) >= y_offset
-                && (position.y as f64) < (y_offset + lane_total_height as f64)
+            if (content_position.y as f64) >= y_offset
+                && (content_position.y as f64) < (y_offset + lane_total_height as f64)
             {
                 let (ns_min, ns_max) = crate::timeline::viewport_ns_range(
                     self.scroll_offset_x,
                     self.viewport_width,
-                    self.zoom_level,
+                    zoom_level,
                     self.min_ns,
                 );
 
@@ -129,9 +135,8 @@ impl<'a> EventsProgram<'a> {
                             continue;
                         }
 
-                        let x =
-                            crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level)
-                                as f32;
+                        let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level)
+                            as f32;
                         let y = y_offset as f32 + event.depth as f32 * (LANE_HEIGHT as f32);
                         let height = (LANE_HEIGHT - 2.0) as f32;
 
@@ -142,7 +147,7 @@ impl<'a> EventsProgram<'a> {
                             height,
                         };
 
-                        if rect.contains(position) {
+                        if rect.contains(content_position) {
                             return Some(event.clone());
                         }
                     }
@@ -171,17 +176,24 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             return vec![frame.into_geometry()];
         }
 
+        let viewport_width = if self.viewport_width > 0.0 {
+            self.viewport_width
+        } else {
+            bounds.width as f64
+        };
+        let viewport_height = if self.viewport_height > 0.0 {
+            self.viewport_height
+        } else {
+            bounds.height as f64
+        };
+
         // Draw vertical tick guide lines matching the header ticks.
         let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
         let zoom_level = self.zoom_level.max(1e-9);
         let scroll_offset_x_px = self.scroll_offset_x * zoom_level;
-        let x_min = scroll_offset_x_px;
-        let x_max = scroll_offset_x_px + self.viewport_width;
-        let _x_min_f = x_min as f32;
-        let _x_max_f = x_max as f32;
         let ns_min = self.scroll_offset_x.max(0.0) as u64 + self.min_ns;
         let ns_max =
-            (self.scroll_offset_x + self.viewport_width / zoom_level).max(0.0) as u64 + self.min_ns;
+            (self.scroll_offset_x + viewport_width / zoom_level).max(0.0) as u64 + self.min_ns;
 
         if total_ns > 0.0 {
             // ns per pixel given current zoom: 1 / zoom_level
@@ -190,21 +202,29 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             let ns_interval = pixel_interval as f64 * ns_per_pixel;
             let nice_interval = crate::timeline::ticks::nice_interval(ns_interval);
 
-            let mut relative_ns = if self.viewport_width > 0.0 {
-                (x_min as f64 / zoom_level / nice_interval).floor() * nice_interval
+            let mut relative_ns = if viewport_width > 0.0 {
+                (scroll_offset_x_px / zoom_level / nice_interval).floor() * nice_interval
             } else {
                 0.0
             };
 
             while relative_ns <= total_ns {
-                let x = (relative_ns * zoom_level) as f32;
-                if self.viewport_width > 0.0 && (x as f64) > x_max {
+                let x_screen = (relative_ns * zoom_level - scroll_offset_x_px) as f32;
+                if viewport_width > 0.0 && (x_screen as f64) > viewport_width {
                     break;
+                }
+
+                if x_screen < 0.0 {
+                    relative_ns += nice_interval;
+                    continue;
                 }
 
                 // Draw faint vertical line across the events area.
                 frame.stroke(
-                    &canvas::Path::line(Point::new(x, 0.0), Point::new(x, bounds.height)),
+                    &canvas::Path::line(
+                        Point::new(x_screen, 0.0),
+                        Point::new(x_screen, bounds.height),
+                    ),
                     canvas::Stroke::default()
                         .with_color(Color::from_rgba(0.5, 0.5, 0.5, 0.3))
                         .with_width(1.0),
@@ -216,7 +236,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
         let mut y_offset: f64 = 0.0;
         let y_min = self.scroll_offset_y;
-        let y_max = self.scroll_offset_y + self.viewport_height;
+        let y_max = self.scroll_offset_y + viewport_height;
 
         for group in self.thread_groups {
             let lane_total_height = group_total_height(group);
@@ -229,11 +249,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 continue;
             }
 
+            let row_y = y_offset as f32 - self.scroll_offset_y as f32;
             frame.stroke(
-                &canvas::Path::line(
-                    Point::new(0.0, y_offset as f32),
-                    Point::new(bounds.width, y_offset as f32),
-                ),
+                &canvas::Path::line(Point::new(0.0, row_y), Point::new(bounds.width, row_y)),
                 canvas::Stroke::default()
                     .with_color(Color::from_rgb(0.9, 0.9, 0.9))
                     .with_width(1.0),
@@ -262,8 +280,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level) as f32;
 
                     // Skip drawing if event is completely outside horizontal viewport
-                    if self.viewport_width > 0.0
-                        && ((x as f64 + width as f64) < x_min || (x as f64) > x_max)
+                    let x_screen = x - scroll_offset_x_px as f32;
+                    if viewport_width > 0.0
+                        && ((x_screen + width) < 0.0 || (x_screen as f64) > viewport_width)
                     {
                         continue;
                     }
@@ -282,8 +301,18 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     let label = &event.label;
                     let is_thread_root = event.is_thread_root;
 
-                    let y = y_offset as f32 + depth as f32 * (LANE_HEIGHT as f32);
-                    draw_event_rect(&mut frame, x, width, y, color, label, is_thread_root);
+                    let x_screen = x - scroll_offset_x_px as f32;
+                    let y_screen = y_offset as f32 - self.scroll_offset_y as f32
+                        + depth as f32 * (LANE_HEIGHT as f32);
+                    draw_event_rect(
+                        &mut frame,
+                        x_screen,
+                        width,
+                        y_screen,
+                        color,
+                        label,
+                        is_thread_root,
+                    );
                 }
             }
 
@@ -295,11 +324,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         let width =
                             crate::timeline::duration_to_width(hovered.duration_ns, zoom_level)
                                 as f32;
-                        let y = y_offset as f32 + hovered.depth as f32 * (LANE_HEIGHT as f32);
+                        let x_screen = x - scroll_offset_x_px as f32;
+                        let y = y_offset as f32 - self.scroll_offset_y as f32
+                            + hovered.depth as f32 * (LANE_HEIGHT as f32);
 
                         frame.stroke(
                             &canvas::Path::rectangle(
-                                Point::new(x, y + 1.0),
+                                Point::new(x_screen, y + 1.0),
                                 Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
                             ),
                             canvas::Stroke::default()
@@ -318,11 +349,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         let width =
                             crate::timeline::duration_to_width(selected.duration_ns, zoom_level)
                                 as f32;
-                        let y = y_offset as f32 + selected.depth as f32 * (LANE_HEIGHT as f32);
+                        let x_screen = x - scroll_offset_x_px as f32;
+                        let y = y_offset as f32 - self.scroll_offset_y as f32
+                            + selected.depth as f32 * (LANE_HEIGHT as f32);
 
                         frame.stroke(
                             &canvas::Path::rectangle(
-                                Point::new(x, y + 1.0),
+                                Point::new(x_screen, y + 1.0),
                                 Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
                             ),
                             canvas::Stroke::default()
@@ -424,7 +457,6 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
             iced::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
                 if let Some(position) = cursor.position_in(bounds) {
-                    let scroll_offset_x_px = self.scroll_offset_x * self.zoom_level.max(1e-9);
                     // Shift + wheel: pan horizontally
                     if state.modifiers.shift() {
                         match delta {
@@ -449,8 +481,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
                                 if y.abs() > 0.0 {
                                     let viewport_width = self.viewport_width.max(0.0);
-                                    let cursor_x = (position.x as f64 - scroll_offset_x_px)
-                                        .clamp(0.0, viewport_width);
+                                    let cursor_x = (position.x as f64).clamp(0.0, viewport_width);
                                     return Some(canvas::Action::publish(
                                         Message::TimelineZoomed {
                                             delta: *y,

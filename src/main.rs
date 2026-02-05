@@ -6,15 +6,13 @@ mod timeline;
 mod ui;
 use data::{FileData, format_panic_payload, load_profiling_data};
 use iced::futures::channel::oneshot;
-use iced::widget::operation::scroll_to;
-use iced::widget::scrollable::AbsoluteOffset;
 use iced::widget::{Space, button, checkbox, column, container, pick_list, row, text};
 use iced::{Alignment, Element, Length, Task};
 use iced_aw::{TabLabel, tab_bar};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Instant;
-use timeline::{ColorMode, ThreadGroup, TimelineEvent, format_duration, timeline_id};
+use timeline::{ColorMode, ThreadGroup, TimelineEvent, format_duration};
 
 pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';
@@ -391,16 +389,7 @@ impl Lineme {
                             let was_empty = stats.selected_event.is_none();
                             stats.selected_event = Some(event);
                             if was_empty {
-                                return scroll_to(
-                                    timeline_id(),
-                                    AbsoluteOffset {
-                                        x: Lineme::scroll_offset_x_px(
-                                            stats.scroll_offset_x,
-                                            stats.zoom_level,
-                                        ),
-                                        y: stats.scroll_offset_y as f32,
-                                    },
-                                );
+                                return Task::none();
                             }
                         }
                         _ => {
@@ -444,16 +433,7 @@ impl Lineme {
                         stats.zoom_level,
                     );
 
-                    return scroll_to(
-                        timeline_id(),
-                        AbsoluteOffset {
-                            x: Lineme::scroll_offset_x_px(
-                                stats.scroll_offset_x,
-                                stats.zoom_level,
-                            ),
-                            y: stats.scroll_offset_y as f32,
-                        },
-                    );
+                    return Task::none();
                 }
             }
             Message::EventHovered(event) => {
@@ -491,16 +471,7 @@ impl Lineme {
                         viewport_width,
                         stats.zoom_level,
                     );
-                    return scroll_to(
-                        timeline_id(),
-                        AbsoluteOffset {
-                            x: Lineme::scroll_offset_x_px(
-                                stats.scroll_offset_x,
-                                stats.zoom_level,
-                            ),
-                            y: stats.scroll_offset_y as f32,
-                        },
-                    );
+                    return Task::none();
                 }
             }
             Message::TimelineViewportChanged {
@@ -556,13 +527,7 @@ impl Lineme {
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
                     stats.scroll_offset_y = stats.scroll_offset_y.clamp(0.0, max_scroll_y);
 
-                    return scroll_to(
-                        timeline_id(),
-                        AbsoluteOffset {
-                            x: Lineme::scroll_offset_x_px(stats.scroll_offset_x, stats.zoom_level),
-                            y: stats.scroll_offset_y as f32,
-                        },
-                    );
+                    return Task::none();
                 }
             }
             Message::MiniTimelineJump {
@@ -599,16 +564,7 @@ impl Lineme {
                             viewport_width,
                             stats.zoom_level,
                         );
-                        return scroll_to(
-                            timeline_id(),
-                            AbsoluteOffset {
-                                x: Lineme::scroll_offset_x_px(
-                                    stats.scroll_offset_x,
-                                    stats.zoom_level,
-                                ),
-                                y: stats.scroll_offset_y as f32,
-                            },
-                        );
+                        return Task::none();
                     }
                 }
             }
@@ -634,16 +590,7 @@ impl Lineme {
                         stats.zoom_level,
                     );
 
-                    return scroll_to(
-                        timeline_id(),
-                        AbsoluteOffset {
-                            x: Lineme::scroll_offset_x_px(
-                                stats.scroll_offset_x,
-                                stats.zoom_level,
-                            ),
-                            y: stats.scroll_offset_y as f32,
-                        },
-                    );
+                    return Task::none();
                 }
             }
             Message::TimelineVerticalScrolled { scroll_y } => {
@@ -660,16 +607,7 @@ impl Lineme {
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
                     stats.scroll_offset_y = scroll_y.clamp(0.0, max_scroll_y);
 
-                    return scroll_to(
-                        timeline_id(),
-                        AbsoluteOffset {
-                            x: Lineme::scroll_offset_x_px(
-                                stats.scroll_offset_x,
-                                stats.zoom_level,
-                            ),
-                            y: stats.scroll_offset_y as f32,
-                        },
-                    );
+                    return Task::none();
                 }
             }
             Message::MiniTimelineZoomTo {
@@ -702,16 +640,7 @@ impl Lineme {
                         viewport_width,
                         stats.zoom_level,
                     );
-                    return scroll_to(
-                        timeline_id(),
-                        AbsoluteOffset {
-                            x: Lineme::scroll_offset_x_px(
-                                stats.scroll_offset_x,
-                                stats.zoom_level,
-                            ),
-                            y: stats.scroll_offset_y as f32,
-                        },
-                    );
+                    return Task::none();
                 }
             }
             Message::TimelinePanned { delta } => {
@@ -744,16 +673,7 @@ impl Lineme {
                     );
                     stats.scroll_offset_y = (stats.scroll_offset_y - delta.y as f64).clamp(0.0, max_scroll_y);
 
-                    return scroll_to(
-                        timeline_id(),
-                        AbsoluteOffset {
-                            x: Lineme::scroll_offset_x_px(
-                                stats.scroll_offset_x,
-                                stats.zoom_level,
-                            ),
-                            y: stats.scroll_offset_y as f32,
-                        },
-                    );
+                    return Task::none();
                 }
             }
             Message::ResetView => {
@@ -773,7 +693,7 @@ impl Lineme {
                     }
                     stats.scroll_offset_x = 0.0_f64;
                     stats.scroll_offset_y = 0.0_f64;
-                    return scroll_to(timeline_id(), AbsoluteOffset { x: 0.0_f32, y: 0.0_f32 });
+                    return Task::none();
                 }
             }
             Message::ModifiersChanged(modifiers) => {
@@ -799,14 +719,10 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(
-                        &mut stats.scroll_offset_x,
+                    Lineme::clamp_vertical_scroll_if_needed(
                         &mut stats.scroll_offset_y,
                         total_height,
-                        stats.zoom_level,
-                    ) {
-                        return task;
-                    }
+                    );
                 }
             }
             Message::CollapseAllThreads => {
@@ -825,14 +741,10 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(
-                        &mut stats.scroll_offset_x,
+                    Lineme::clamp_vertical_scroll_if_needed(
                         &mut stats.scroll_offset_y,
                         total_height,
-                        stats.zoom_level,
-                    ) {
-                        return task;
-                    }
+                    );
                 }
             }
             Message::ExpandAllThreads => {
@@ -851,14 +763,10 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(
-                        &mut stats.scroll_offset_x,
+                    Lineme::clamp_vertical_scroll_if_needed(
                         &mut stats.scroll_offset_y,
                         total_height,
-                        stats.zoom_level,
-                    ) {
-                        return task;
-                    }
+                    );
                 }
             }
             Message::MergeThreadsToggled(enabled) => {
@@ -878,14 +786,10 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(
-                        &mut stats.scroll_offset_x,
+                    Lineme::clamp_vertical_scroll_if_needed(
                         &mut stats.scroll_offset_y,
                         total_height,
-                        stats.zoom_level,
-                    ) {
-                        return task;
-                    }
+                    );
                 }
             }
             Message::None => {}
@@ -936,56 +840,13 @@ impl Lineme {
 
     // Helper used after operations that can change the total vertical height of
     // the timeline (collapse/expand, merge threads, ...). If the current
-    // vertical scroll is beyond the new total height, clamp it and return a
-    // `scroll_to` task to update the UI. Otherwise return None.
-    // Note: this helper was useful during refactor but borrowing conflicts made it
-    // less ergonomic than local handling. Keeping it in case future refactors
-    // reuse it; otherwise it can be removed.
-    #[allow(dead_code)]
-    fn clamp_vertical_scroll_and_scroll_to_if_needed(
-        scroll_offset_x: &mut f64,
-        scroll_offset_y: &mut f64,
-        thread_groups: &[timeline::ThreadGroup],
-        zoom_level: f64,
-    ) -> Option<Task<Message>> {
-        let total_height = timeline::total_timeline_height(thread_groups) as f64;
+    // vertical scroll is beyond the new total height, clamp it.
+    fn clamp_vertical_scroll_if_needed(scroll_offset_y: &mut f64, total_height: f64) -> bool {
         if *scroll_offset_y > total_height {
             *scroll_offset_y = total_height;
-            return Some(scroll_to(
-                timeline_id(),
-                AbsoluteOffset {
-                    x: (*scroll_offset_x * zoom_level.max(1e-9)) as f32,
-                    y: *scroll_offset_y as f32,
-                },
-            ));
+            return true;
         }
-        None
-    }
-
-    // Variant that accepts a precomputed total height to avoid borrowing `file`
-    // for both mutable and immutable references at the same time.
-    #[allow(dead_code)]
-    fn clamp_vertical_scroll_and_scroll_to_if_needed_total(
-        scroll_offset_x: &mut f64,
-        scroll_offset_y: &mut f64,
-        total_height: f64,
-        zoom_level: f64,
-    ) -> Option<Task<Message>> {
-        if *scroll_offset_y > total_height {
-            *scroll_offset_y = total_height;
-            return Some(scroll_to(
-                timeline_id(),
-                AbsoluteOffset {
-                    x: (*scroll_offset_x * zoom_level.max(1e-9)) as f32,
-                    y: *scroll_offset_y as f32,
-                },
-            ));
-        }
-        None
-    }
-
-    fn scroll_offset_x_px(scroll_offset_x: f64, zoom_level: f64) -> f32 {
-        (scroll_offset_x * zoom_level.max(1e-9)) as f32
+        false
     }
 
     fn view(&self) -> Element<'_, Message> {

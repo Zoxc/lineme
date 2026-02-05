@@ -146,10 +146,6 @@ pub fn color_from_hsl(h: f32, s: f32, l: f32) -> Color {
     )
 }
 
-pub fn timeline_id() -> iced::widget::Id {
-    iced::widget::Id::new("timeline_scrollable")
-}
-
 pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f64 {
     let mut total_height = 0.0_f64;
     for group in thread_groups {
