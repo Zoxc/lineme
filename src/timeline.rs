@@ -555,6 +555,16 @@ pub fn view<'a>(
 
     // Only show the details panel when an event is selected or hovered.
     if let Some(event) = display_event {
+        let (view_start_ns, view_end_ns) = viewport_ns_range(
+            scroll_offset_x,
+            viewport_width,
+            zoom_level,
+            timeline_data.min_ns,
+        );
+        // Also compute float-precision viewport endpoints (not truncated to u64)
+        let view_start_f = (scroll_offset_x / zoom_level).max(0.0) + timeline_data.min_ns as f64;
+        let view_end_f = ((scroll_offset_x + viewport_width) / zoom_level).max(0.0)
+            + timeline_data.min_ns as f64;
         // Build details column, including one row per additional_data item.
         let mut details_col = column![
             row![
@@ -579,6 +589,16 @@ pub fn view<'a>(
             row![
                 text("Duration:").width(Length::Fixed(80.0)).size(12),
                 text(format_duration(event.duration_ns)).size(12)
+            ],
+            // Debug: show current visible view start/end with float precision
+            row![
+                text("View:").width(Length::Fixed(80.0)).size(12),
+                text(format!(
+                    "{:.12} — {:.12}",
+                    view_start_f - timeline_data.min_ns as f64,
+                    view_end_f - timeline_data.min_ns as f64
+                ))
+                .size(12)
             ],
         ]
         .spacing(5)
@@ -608,10 +628,11 @@ pub fn view<'a>(
                     let palette = theme.extended_palette();
                     container::Style::default().background(palette.background.strong.color)
                 }),
+            // Details content grows to fit (no fixed height) so debug rows are visible
             details_col,
         ])
         .width(Length::Fill)
-        .height(Length::Fixed(150.0))
+        // No fixed height: allow the details panel to size to its content
         .style(|theme: &Theme| {
             let palette = theme.extended_palette();
             container::Style::default()
