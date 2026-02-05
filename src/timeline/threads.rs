@@ -1,5 +1,7 @@
+use crate::timeline::{
+    group_total_height, thread_group_key, ThreadGroup, LANE_HEIGHT, LANE_SPACING,
+};
 use crate::Message;
-use crate::timeline::{LANE_HEIGHT, LANE_SPACING, ThreadGroup, thread_group_key};
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Geometry, Program};
 use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme, Vector};
@@ -20,11 +22,7 @@ impl<'a> ThreadsProgram<'a> {
         let content_y = position.y + self.scroll_offset.y;
 
         for group in self.thread_groups {
-            let lane_total_height = if group.is_collapsed {
-                LANE_HEIGHT
-            } else {
-                (group.max_depth + 1) as f32 * LANE_HEIGHT
-            };
+            let lane_total_height = group_total_height(group);
 
             if content_y >= y_offset && content_y < y_offset + LANE_HEIGHT + 2.0 {
                 return Some(thread_group_key(group));
@@ -58,11 +56,7 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
 
         let mut y_offset = 0.0;
         for group in self.thread_groups {
-            let lane_total_height = if group.is_collapsed {
-                LANE_HEIGHT
-            } else {
-                (group.max_depth + 1) as f32 * LANE_HEIGHT
-            };
+            let lane_total_height = group_total_height(group);
 
             let y = y_offset - self.scroll_offset.y;
             let row_top = y;

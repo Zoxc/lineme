@@ -1,10 +1,74 @@
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
-use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
+use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
 
-use super::{ColorMode, ThreadGroup, TimelineEvent, color_from_label, visible_event_indices};
+use super::{
+    color_from_label, group_total_height, visible_event_indices, ColorMode, ThreadGroup,
+    TimelineEvent,
+};
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
+
+fn draw_event_rect(
+    frame: &mut canvas::Frame,
+    x: f32,
+    width: f32,
+    y: f32,
+    color: Color,
+    label: &str,
+    is_root: bool,
+) {
+    let rect = Rectangle {
+        x,
+        y: y + 1.0,
+        width: width.max(1.0),
+        height: LANE_HEIGHT - 2.0,
+    };
+
+    frame.fill_rectangle(rect.position(), rect.size(), color);
+
+    let border_color = if is_root {
+        Color::from_rgba(0.0, 0.0, 0.0, 0.35)
+    } else {
+        Color::from_rgba(0.0, 0.0, 0.0, 0.2)
+    };
+
+    frame.stroke(
+        &canvas::Path::rectangle(rect.position(), rect.size()),
+        canvas::Stroke::default()
+            .with_color(border_color)
+            .with_width(1.0),
+    );
+
+    if rect.width > 20.0 {
+        let mut truncated_label = label.to_string();
+        let avail_chars = ((rect.width - 4.0 - EVENT_LEFT_PADDING).max(0.0) / 6.0) as usize;
+        if truncated_label.len() > avail_chars {
+            truncated_label.truncate(avail_chars);
+        }
+        frame.with_clip(
+            Rectangle {
+                x: rect.x + 1.0,
+                y: rect.y + 1.0,
+                width: rect.width - 2.0,
+                height: rect.height - 2.0,
+            },
+            |frame| {
+                frame.fill_text(canvas::Text {
+                    content: truncated_label,
+                    position: Point::new(rect.x + 2.0 + EVENT_LEFT_PADDING, rect.y + 2.0),
+                    color: if is_root {
+                        Color::from_rgb(0.35, 0.35, 0.35)
+                    } else {
+                        Color::from_rgb(0.2, 0.2, 0.2)
+                    },
+                    size: 12.0.into(),
+                    ..Default::default()
+                });
+            },
+        );
+    }
+}
 
 pub struct EventsProgram<'a> {
     pub thread_groups: &'a [ThreadGroup],
@@ -32,11 +96,7 @@ impl<'a> EventsProgram<'a> {
     fn find_event_at(&self, position: Point) -> Option<TimelineEvent> {
         let mut y_offset = 0.0;
         for group in self.thread_groups {
-            let lane_total_height = if group.is_collapsed {
-                LANE_HEIGHT
-            } else {
-                (group.max_depth + 1) as f32 * LANE_HEIGHT
-            };
+            let lane_total_height = group_total_height(group);
 
             if position.y >= y_offset && position.y < y_offset + lane_total_height {
                 let ns_min = (self.scroll_offset.x as f64 / self.zoom_level as f64).max(0.0) as u64
@@ -149,11 +209,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         let y_max = self.scroll_offset.y + self.viewport_height;
 
         for group in self.thread_groups {
-            let lane_total_height = if group.is_collapsed {
-                LANE_HEIGHT
-            } else {
-                (group.max_depth + 1) as f32 * LANE_HEIGHT
-            };
+            let lane_total_height = group_total_height(group);
 
             // Skip drawing if thread is completely outside vertical viewport
             if self.viewport_height > 0.0
@@ -221,122 +277,33 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         continue;
                     } else {
                         let y = y_offset + depth as f32 * LANE_HEIGHT;
-                        let rect = Rectangle {
-                            x: *cur_x,
-                            y: y + 1.0,
-                            width: cur_w.max(1.0),
-                            height: LANE_HEIGHT - 2.0,
-                        };
-
-                        frame.fill_rectangle(rect.position(), rect.size(), *cur_color);
-
-                        let border_color = if *cur_is_root {
-                            Color::from_rgba(0.0, 0.0, 0.0, 0.35)
-                        } else {
-                            Color::from_rgba(0.0, 0.0, 0.0, 0.2)
-                        };
-
-                        frame.stroke(
-                            &canvas::Path::rectangle(rect.position(), rect.size()),
-                            canvas::Stroke::default()
-                                .with_color(border_color)
-                                .with_width(1.0),
+                        draw_event_rect(
+                            &mut frame,
+                            *cur_x,
+                            *cur_w,
+                            y,
+                            *cur_color,
+                            cur_label,
+                            *cur_is_root,
                         );
-
-                        if rect.width > 20.0 {
-                            let mut truncated_label = cur_label.clone();
-                            let avail_chars =
-                                ((rect.width - 4.0 - EVENT_LEFT_PADDING).max(0.0) / 6.0) as usize;
-                            if truncated_label.len() > avail_chars {
-                                truncated_label.truncate(avail_chars);
-                            }
-                            frame.with_clip(
-                                Rectangle {
-                                    x: rect.x + 1.0,
-                                    y: rect.y + 1.0,
-                                    width: rect.width - 2.0,
-                                    height: rect.height - 2.0,
-                                },
-                                |frame| {
-                                    frame.fill_text(canvas::Text {
-                                        content: truncated_label,
-                                        position: Point::new(
-                                            rect.x + 2.0 + EVENT_LEFT_PADDING,
-                                            rect.y + 2.0,
-                                        ),
-                                        color: if *cur_is_root {
-                                            Color::from_rgb(0.35, 0.35, 0.35)
-                                        } else {
-                                            Color::from_rgb(0.2, 0.2, 0.2)
-                                        },
-                                        size: 12.0.into(),
-                                        ..Default::default()
-                                    });
-                                },
-                            );
-                        }
                     }
                 }
                 last_rects[depth] = Some((x, width, color, label.clone(), is_thread_root));
             }
 
+            // flush remaining rectangles using the same helper
             for (depth, rect) in last_rects.into_iter().enumerate() {
                 if let Some((cur_x, cur_w, cur_color, cur_label, cur_is_root)) = rect {
                     let y = y_offset + depth as f32 * LANE_HEIGHT;
-                    let rect = Rectangle {
-                        x: cur_x,
-                        y: y + 1.0,
-                        width: cur_w.max(1.0),
-                        height: LANE_HEIGHT - 2.0,
-                    };
-
-                    frame.fill_rectangle(rect.position(), rect.size(), cur_color);
-
-                    let border_color = if cur_is_root {
-                        Color::from_rgba(0.0, 0.0, 0.0, 0.35)
-                    } else {
-                        Color::from_rgba(0.0, 0.0, 0.0, 0.2)
-                    };
-
-                    frame.stroke(
-                        &canvas::Path::rectangle(rect.position(), rect.size()),
-                        canvas::Stroke::default()
-                            .with_color(border_color)
-                            .with_width(1.0),
+                    draw_event_rect(
+                        &mut frame,
+                        cur_x,
+                        cur_w,
+                        y,
+                        cur_color,
+                        &cur_label,
+                        cur_is_root,
                     );
-
-                    if rect.width > 20.0 {
-                        let mut truncated_label = cur_label;
-                        let avail_chars =
-                            ((rect.width - 4.0 - EVENT_LEFT_PADDING).max(0.0) / 6.0) as usize;
-                        if truncated_label.len() > avail_chars {
-                            truncated_label.truncate(avail_chars);
-                        }
-                        frame.with_clip(
-                            Rectangle {
-                                x: rect.x + 1.0,
-                                y: rect.y + 1.0,
-                                width: rect.width - 2.0,
-                                height: rect.height - 2.0,
-                            },
-                            |frame| {
-                                frame.fill_text(canvas::Text {
-                                    content: truncated_label,
-                                    position: Point::new(
-                                        rect.x + 2.0 + EVENT_LEFT_PADDING,
-                                        rect.y + 2.0,
-                                    ),
-                                    color: if cur_is_root {
-                                        Color::from_rgb(0.35, 0.35, 0.35)
-                                    } else {
-                                        Color::from_rgb(0.2, 0.2, 0.2)
-                                    },
-                                    size: 12.0.into(),
-                                    ..Default::default()
-                                });
-                            },
-                        );
-                    }
                 }
             }
 

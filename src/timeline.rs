@@ -7,11 +7,11 @@ use crate::Message;
 use events::EventsProgram;
 use header::HeaderProgram;
 use iced::advanced::widget::{self, Tree, Widget};
-use iced::advanced::{Clipboard, Layout, Shell, layout, renderer};
+use iced::advanced::{layout, renderer, Clipboard, Layout, Shell};
 use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Canvas;
-use iced::widget::{Space, button, column, container, row, scrollable, text};
+use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
 use mini_timeline::MiniTimelineProgram;
 use std::sync::Arc;
@@ -110,14 +110,20 @@ pub fn timeline_id() -> iced::widget::Id {
 pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f32 {
     let mut total_height = 0.0;
     for group in thread_groups {
-        let lane_total_height = if group.is_collapsed {
-            LANE_HEIGHT
-        } else {
-            (group.max_depth + 1) as f32 * LANE_HEIGHT
-        };
+        let lane_total_height = group_total_height(group);
         total_height += lane_total_height + LANE_SPACING;
     }
     total_height
+}
+
+/// Return the total vertical height occupied by a thread group (all lanes),
+/// respecting collapsed state.
+pub fn group_total_height(group: &ThreadGroup) -> f32 {
+    if group.is_collapsed {
+        LANE_HEIGHT
+    } else {
+        (group.max_depth + 1) as f32 * LANE_HEIGHT
+    }
 }
 
 pub fn build_thread_group_events(
