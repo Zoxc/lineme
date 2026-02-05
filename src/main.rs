@@ -10,6 +10,7 @@ use iced::{Alignment, Element, Length, Task};
 use iced_aw::{TabLabel, tab_bar};
 use std::path::PathBuf;
 use std::thread;
+use std::time::Instant;
 use timeline::{ColorMode, *};
 
 pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
@@ -97,8 +98,8 @@ enum Message {
     TabSelected(usize),
     OpenFile,
     FileSelected(PathBuf),
-    FileLoaded(u64, Stats),
-    FileLoadFailed(u64, String),
+    FileLoaded(u64, Stats, u64),
+    FileLoadFailed(u64, String, u64),
     ViewChanged(ViewType),
     ColorModeChanged(ColorMode),
     CloseTab(usize),
@@ -167,6 +168,7 @@ struct FileData {
     viewport_width: f32,
     viewport_height: f32,
     initial_fit_done: bool,
+    load_duration_ns: Option<u64>,
 }
 
 struct SettingsPage {
@@ -255,14 +257,16 @@ impl Lineme {
             Message::FileSelected(path) => {
                 return self.start_loading_file(path);
             }
-            Message::FileLoaded(id, stats) => {
+            Message::FileLoaded(id, stats, duration_ns) => {
                 if let Some(file) = self.files.iter_mut().find(|file| file.id == id) {
+                    file.load_duration_ns = Some(duration_ns);
                     file.load_state = FileLoadState::Ready(stats);
                     file.initial_fit_done = false;
                 }
             }
-            Message::FileLoadFailed(id, error) => {
+            Message::FileLoadFailed(id, error, duration_ns) => {
                 if let Some(file) = self.files.iter_mut().find(|file| file.id == id) {
+                    file.load_duration_ns = Some(duration_ns);
                     file.load_state = FileLoadState::Error(error);
                 }
             }
@@ -652,6 +656,7 @@ impl Lineme {
             viewport_width: 0.0,
             viewport_height: 0.0,
             initial_fit_done: false,
+            load_duration_ns: None,
         });
         self.active_tab = self.files.len() - 1;
         self.show_settings = false;
@@ -660,20 +665,23 @@ impl Lineme {
             async move {
                 let (tx, rx) = oneshot::channel();
                 thread::spawn(move || {
+                    let start = Instant::now();
                     let result = std::panic::catch_unwind(|| load_profiling_data(&path));
                     let outcome = match result {
                         Ok(result) => result,
                         Err(payload) => Err(format_panic_payload(payload)),
                     };
-                    let _ = tx.send(outcome);
+                    let duration_ns = start.elapsed().as_nanos() as u64;
+                    let _ = tx.send((outcome, duration_ns));
                 });
 
                 match rx.await {
-                    Ok(Ok(stats)) => Message::FileLoaded(id, stats),
-                    Ok(Err(error)) => Message::FileLoadFailed(id, error),
+                    Ok((Ok(stats), duration)) => Message::FileLoaded(id, stats, duration),
+                    Ok((Err(error), duration)) => Message::FileLoadFailed(id, error, duration),
                     Err(_) => Message::FileLoadFailed(
                         id,
                         "Loading thread exited before sending results".to_string(),
+                        0,
                     ),
                 }
             },
@@ -952,6 +960,16 @@ impl Lineme {
                     row![
                         text("Event count:").width(Length::Fixed(120.0)).size(12),
                         text(format!("{}", stats.event_count)).size(12)
+                    ],
+                    row![
+                        text("Load time:").width(Length::Fixed(120.0)).size(12),
+                        text(
+                            match file.load_duration_ns {
+                                Some(ns) => format_duration(ns),
+                                None => "unknown".to_string(),
+                            }
+                        )
+                        .size(12)
                     ],
                     row![
                         text("Total duration:").width(Length::Fixed(120.0)).size(12),
