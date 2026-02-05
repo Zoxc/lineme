@@ -381,7 +381,19 @@ impl Lineme {
             Message::EventSelected(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     match &mut file.load_state {
-                        FileLoadState::Ready(stats) => stats.selected_event = Some(event),
+                        FileLoadState::Ready(stats) => {
+                            let was_empty = stats.selected_event.is_none();
+                            stats.selected_event = Some(event);
+                            if was_empty {
+                                return scroll_to(
+                                    timeline_id(),
+                                    AbsoluteOffset {
+                                        x: stats.scroll_offset_x as f32,
+                                        y: stats.scroll_offset_y as f32,
+                                    },
+                                );
+                            }
+                        }
                         _ => {
                             // Selection applies only after load; store temporarily on the
                             // load thread if necessary. For now, discard selection if not
@@ -492,9 +504,18 @@ impl Lineme {
                         stats.viewport_height = viewport_height as f64;
                     }
 
-                    if first_time || (viewport_width > 0.0 && !stats.initial_fit_done) {
+                    let has_user_view = stats.zoom_level != 1.0
+                        || stats.scroll_offset_x != 0.0
+                        || stats.scroll_offset_y != 0.0;
+                    let should_initial_fit = (first_time || (viewport_width > 0.0 && !stats.initial_fit_done))
+                        && !has_user_view;
+
+                    if should_initial_fit {
                         let total_ns = max_ns.saturating_sub(min_ns);
-                        stats.zoom_level = (viewport_width - 2.0).max(1.0) as f64 / total_ns.max(1) as f64;
+                        stats.zoom_level = (viewport_width - 2.0).max(1.0) as f64
+                            / total_ns.max(1) as f64;
+                        stats.initial_fit_done = true;
+                    } else if viewport_width > 0.0 && !stats.initial_fit_done {
                         stats.initial_fit_done = true;
                     }
                 }
@@ -510,10 +531,21 @@ impl Lineme {
                     };
                     let min_ns = stats.timeline.min_ns;
                     let max_ns = stats.timeline.max_ns;
+                    let provided_viewport_width = viewport_width.max(1.0) as f64;
+                    if stats.viewport_width == 0.0 {
+                        stats.viewport_width = provided_viewport_width;
+                    }
+
+                    let viewport_width = stats.viewport_width.max(1.0);
+                    if !stats.initial_fit_done {
+                        let total_ns = max_ns.saturating_sub(min_ns).max(1);
+                        stats.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns as f64;
+                        stats.initial_fit_done = true;
+                    }
+
                     let total_ns = max_ns.saturating_sub(min_ns);
                     let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
                     if total_width > 0.0 {
-                        let viewport_width = viewport_width.max(1.0) as f64;
                         let target_center = fraction as f64 * total_width;
                         let target_x = target_center - viewport_width / 2.0;
                         stats.scroll_offset_x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
@@ -543,18 +575,24 @@ impl Lineme {
                     let total_ns_f64 = total_ns.max(1) as f64;
                     let range_fraction = (end_fraction - start_fraction).max(0.0) as f64;
                     let target_ns = (range_fraction * total_ns_f64).max(1.0);
-                    stats.zoom_level = viewport_width as f64 / target_ns;
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
-                        let target_x = start_fraction as f64 * total_width;
-                        stats.scroll_offset_x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width as f64);
-                        return scroll_to(
-                            timeline_id(),
-                            AbsoluteOffset {
-                                x: stats.scroll_offset_x as f32,
-                                y: stats.scroll_offset_y as f32,
-                            },
-                        );
+                    let provided_viewport_width = viewport_width.max(1.0) as f64;
+                    if stats.viewport_width == 0.0 {
+                        stats.viewport_width = provided_viewport_width;
                     }
+                    let viewport_width = stats.viewport_width.max(1.0);
+                    stats.zoom_level = viewport_width / target_ns;
+                    stats.initial_fit_done = true;
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
+                    let target_x = start_fraction as f64 * total_width;
+                    stats.scroll_offset_x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
+                    return scroll_to(
+                        timeline_id(),
+                        AbsoluteOffset {
+                            x: stats.scroll_offset_x as f32,
+                            y: stats.scroll_offset_y as f32,
+                        },
+                    );
+                }
             }
             Message::TimelinePanned { delta } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
