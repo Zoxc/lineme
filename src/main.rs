@@ -1,5 +1,6 @@
 mod data;
 mod timeline;
+mod ui;
 use iced::widget::operation::scroll_to;
 use iced::widget::scrollable::AbsoluteOffset;
 use iced::widget::{Space, button, checkbox, column, container, pick_list, row, scrollable, text};
@@ -735,44 +736,22 @@ impl Lineme {
                         .spacing(5)
                         .align_y(Alignment::Center),
                 )
-                .style(|theme: &iced::Theme, status: button::Status| {
-                    let palette = theme.extended_palette();
-                    let base = button::Style {
-                        text_color: palette.background.weak.text,
-                        ..Default::default()
-                    };
-                    match status {
-                        button::Status::Hovered | button::Status::Pressed => button::Style {
-                            background: Some(palette.background.strong.color.into()),
-                            ..base
-                        },
-                        _ => base,
-                    }
-                })
+                .style(crate::ui::neutral_button_style)
                 .on_press(Message::OpenFile),
                 // Settings button acts as a toggle. When active, show a highlighted background.
                 button(text(SETTINGS_ICON).font(ICON_FONT).size(18))
                     .style(|theme: &iced::Theme, status: button::Status| {
-                        let palette = theme.extended_palette();
-                        let base = button::Style {
-                            text_color: palette.background.weak.text,
-                            ..Default::default()
-                        };
                         // Capture current settings state to render active appearance.
                         let show_settings = self.show_settings;
                         if show_settings {
+                            let palette = theme.extended_palette();
                             return button::Style {
                                 background: Some(palette.background.strong.color.into()),
-                                ..base
+                                text_color: palette.background.weak.text,
+                                ..Default::default()
                             };
                         }
-                        match status {
-                            button::Status::Hovered | button::Status::Pressed => button::Style {
-                                background: Some(palette.background.strong.color.into()),
-                                ..base
-                            },
-                            _ => base,
-                        }
+                        crate::ui::neutral_button_style(theme, status)
                     })
                     .on_press(Message::OpenSettings),
             ]

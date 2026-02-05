@@ -350,24 +350,7 @@ pub fn view<'a>(
                                     .align_y(iced::Alignment::Center),
                             )
                             .padding(6)
-                            .style(|theme: &Theme, status: button::Status| {
-                                let palette = theme.extended_palette();
-                                let base = button::Style {
-                                    text_color: palette.background.weak.text,
-                                    ..Default::default()
-                                };
-                                match status {
-                                    button::Status::Hovered | button::Status::Pressed => {
-                                        button::Style {
-                                            background: Some(
-                                                palette.background.strong.color.into(),
-                                            ),
-                                            ..base
-                                        }
-                                    }
-                                    _ => base,
-                                }
-                            })
+                            .style(crate::ui::neutral_button_style)
                             .on_press(Message::CollapseAllThreads),
                             // Expand button with short text
                             button(
@@ -376,24 +359,7 @@ pub fn view<'a>(
                                     .align_y(iced::Alignment::Center),
                             )
                             .padding(6)
-                            .style(|theme: &Theme, status: button::Status| {
-                                let palette = theme.extended_palette();
-                                let base = button::Style {
-                                    text_color: palette.background.weak.text,
-                                    ..Default::default()
-                                };
-                                match status {
-                                    button::Status::Hovered | button::Status::Pressed => {
-                                        button::Style {
-                                            background: Some(
-                                                palette.background.strong.color.into(),
-                                            ),
-                                            ..base
-                                        }
-                                    }
-                                    _ => base,
-                                }
-                            })
+                            .style(crate::ui::neutral_button_style)
                             .on_press(Message::ExpandAllThreads),
                         ]
                         .spacing(5)
