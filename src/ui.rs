@@ -1,5 +1,5 @@
-use iced::widget::button;
 use iced::Theme;
+use iced::widget::button;
 
 pub fn neutral_button_style(theme: &Theme, status: button::Status) -> button::Style {
     let palette = theme.extended_palette();

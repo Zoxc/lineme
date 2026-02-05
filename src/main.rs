@@ -1,16 +1,16 @@
 mod data;
 mod timeline;
 mod ui;
+use data::{Stats, format_panic_payload, load_profiling_data};
+use iced::futures::channel::oneshot;
 use iced::widget::operation::scroll_to;
 use iced::widget::scrollable::AbsoluteOffset;
 use iced::widget::{Space, button, checkbox, column, container, pick_list, row, scrollable, text};
 use iced::{Alignment, Element, Length, Task};
-use iced::futures::channel::oneshot;
 use iced_aw::{TabLabel, tab_bar};
 use std::path::PathBuf;
 use std::thread;
 use timeline::{ColorMode, *};
-use data::{load_profiling_data, format_panic_payload, Stats};
 
 pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';
@@ -29,7 +29,6 @@ pub fn main() -> iced::Result {
         .theme(Lineme::theme)
         .run()
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ViewType {
@@ -482,9 +481,8 @@ impl Lineme {
                     let viewport_width = file.viewport_width.max(0.0);
                     let max_scroll_x = (total_width - viewport_width).max(0.0);
 
-                    let total_height = timeline::total_timeline_height(
-                        file.thread_groups().unwrap_or_default(),
-                    );
+                    let total_height =
+                        timeline::total_timeline_height(file.thread_groups().unwrap_or_default());
                     let viewport_height = file.viewport_height.max(0.0);
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
 
@@ -914,8 +912,10 @@ impl Lineme {
                     ],
                     row![
                         text("Total duration:").width(Length::Fixed(120.0)).size(12),
-                        text(format_duration(stats.timeline.max_ns - stats.timeline.min_ns))
-                            .size(12)
+                        text(format_duration(
+                            stats.timeline.max_ns - stats.timeline.min_ns
+                        ))
+                        .size(12)
                     ],
                 ]
                 .spacing(8)

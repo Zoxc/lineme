@@ -1,5 +1,5 @@
 use crate::timeline::{
-    self, color_from_label, ThreadData, ThreadGroup, TimelineData, TimelineEvent,
+    self, ThreadData, ThreadGroup, TimelineData, TimelineEvent, color_from_label,
 };
 use analyzeme::ProfilingData;
 use std::collections::HashMap;
