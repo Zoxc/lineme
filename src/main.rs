@@ -455,13 +455,15 @@ impl Lineme {
                     let min_ns = stats.timeline.min_ns;
                     let max_ns = stats.timeline.max_ns;
                     let zoom_factor = if delta > 0.0 { 1.1_f64 } else { 0.9_f64 };
-                    stats.zoom_level *= zoom_factor;
+
+                    let old_zoom = stats.zoom_level.max(1e-9);
+                    let new_zoom = (old_zoom * zoom_factor).max(1e-9);
 
                     // Adjust scroll offset to keep x position stable (work in f64)
-                    let zoom_level = stats.zoom_level.max(1e-9);
-                    let x_on_canvas = x as f64 + stats.scroll_offset_x * zoom_level;
+                    let x_on_canvas = x as f64 + stats.scroll_offset_x * old_zoom;
                     let new_scroll_px = x_on_canvas * zoom_factor - x as f64;
-                    stats.scroll_offset_x = new_scroll_px / zoom_level;
+                    stats.zoom_level = new_zoom;
+                    stats.scroll_offset_x = new_scroll_px / new_zoom;
 
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
                     let viewport_width = stats.viewport_width.max(0.0_f64);

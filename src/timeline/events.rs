@@ -462,29 +462,44 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                                 if y.abs() > 0.0 {
                                     // Map wheel "lines" to pixels for a comfortable pan speed
                                     let scroll_amount = (*y as f32) * 30.0;
-                                    return Some(canvas::Action::publish(
-                                        Message::TimelinePanned {
+                                    return Some(
+                                        canvas::Action::publish(Message::TimelinePanned {
                                             delta: Vector::new(scroll_amount, 0.0),
-                                        },
-                                    ));
+                                        })
+                                        .and_capture(),
+                                    );
                                 }
                             }
                         }
-                    // Control (or other) keys: default behavior handled elsewhere — we only
-                    // intercept wheel when control is NOT held to provide zoom by wheel.
-                    } else if !state.modifiers.control() {
+                    } else if state.modifiers.control() {
+                        match delta {
+                            iced::mouse::ScrollDelta::Lines { x: _, y }
+                            | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
+                                if y.abs() > 0.0 {
+                                    let scroll_amount = (*y as f32) * 30.0;
+                                    return Some(
+                                        canvas::Action::publish(Message::TimelinePanned {
+                                            delta: Vector::new(0.0, scroll_amount),
+                                        })
+                                        .and_capture(),
+                                    );
+                                }
+                            }
+                        }
+                    } else {
                         match delta {
                             iced::mouse::ScrollDelta::Lines { x: _, y }
                             | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
                                 if y.abs() > 0.0 {
                                     let viewport_width = self.viewport_width.max(0.0);
                                     let cursor_x = (position.x as f64).clamp(0.0, viewport_width);
-                                    return Some(canvas::Action::publish(
-                                        Message::TimelineZoomed {
+                                    return Some(
+                                        canvas::Action::publish(Message::TimelineZoomed {
                                             delta: *y,
                                             x: cursor_x as f32,
-                                        },
-                                    ));
+                                        })
+                                        .and_capture(),
+                                    );
                                 }
                             }
                         }

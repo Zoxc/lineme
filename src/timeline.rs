@@ -401,7 +401,7 @@ pub fn view<'a>(
     scroll_offset_y: f64,
     viewport_width: f64,
     viewport_height: f64,
-    modifiers: keyboard::Modifiers,
+    _modifiers: keyboard::Modifiers,
     color_mode: ColorMode,
 ) -> Element<'a, Message> {
     let total_ns = timeline_data.max_ns - timeline_data.min_ns;
@@ -459,7 +459,7 @@ pub fn view<'a>(
     .height(Length::Fill);
 
     let events_view = container(ViewportCatcher::new(
-        WheelCatcher::new(events_canvas, modifiers),
+        WheelCatcher::new(events_canvas),
         |size| Message::TimelineViewportChanged {
             viewport_width: size.width,
             viewport_height: size.height,
@@ -685,7 +685,6 @@ fn group_contains_thread(group: &ThreadGroup, thread_id: u64) -> bool {
 
 pub struct WheelCatcher<'a, Message, Theme, Renderer> {
     content: Element<'a, Message, Theme, Renderer>,
-    modifiers: keyboard::Modifiers,
 }
 
 pub struct ViewportCatcher<'a, Message, Theme, Renderer> {
@@ -840,13 +839,9 @@ where
 }
 
 impl<'a, Message, Theme, Renderer> WheelCatcher<'a, Message, Theme, Renderer> {
-    pub fn new(
-        content: impl Into<Element<'a, Message, Theme, Renderer>>,
-        modifiers: keyboard::Modifiers,
-    ) -> Self {
+    pub fn new(content: impl Into<Element<'a, Message, Theme, Renderer>>) -> Self {
         Self {
             content: content.into(),
-            modifiers,
         }
     }
 }
@@ -931,9 +926,7 @@ where
         );
 
         if let Event::Mouse(mouse::Event::WheelScrolled { .. }) = event {
-            if !self.modifiers.control() {
-                shell.capture_event();
-            }
+            shell.capture_event();
         }
     }
 
