@@ -230,8 +230,6 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             );
 
             for level in mipmap_levels_for_zoom(group, self.zoom_level) {
-                let mut last_rects: Vec<Option<(f32, f32, Color, String, bool)>> =
-                    vec![None; (group.max_depth + 1) as usize];
                 for index in visible_event_indices_in(
                     &level.events,
                     &level.events_by_start,
@@ -271,48 +269,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     let label = &event.label;
                     let is_thread_root = event.is_thread_root;
 
-                    if let Some((cur_x, cur_w, cur_color, cur_label, cur_is_root)) =
-                        &mut last_rects[depth]
-                    {
-                        let end_x = *cur_x + *cur_w;
-                        if !is_thread_root
-                            && color == *cur_color
-                            && x <= end_x + 0.5
-                            && label == cur_label
-                        {
-                            let new_end = (x + width).max(end_x);
-                            *cur_w = new_end - *cur_x;
-                            continue;
-                        } else {
-                            let y = y_offset + depth as f32 * LANE_HEIGHT;
-                            draw_event_rect(
-                                &mut frame,
-                                *cur_x,
-                                *cur_w,
-                                y,
-                                *cur_color,
-                                cur_label,
-                                *cur_is_root,
-                            );
-                        }
-                    }
-                    last_rects[depth] = Some((x, width, color, label.clone(), is_thread_root));
-                }
-
-                // flush remaining rectangles for this mip level
-                for (depth, rect) in last_rects.into_iter().enumerate() {
-                    if let Some((cur_x, cur_w, cur_color, cur_label, cur_is_root)) = rect {
-                        let y = y_offset + depth as f32 * LANE_HEIGHT;
-                        draw_event_rect(
-                            &mut frame,
-                            cur_x,
-                            cur_w,
-                            y,
-                            cur_color,
-                            &cur_label,
-                            cur_is_root,
-                        );
-                    }
+                    let y = y_offset + depth as f32 * LANE_HEIGHT;
+                    draw_event_rect(&mut frame, x, width, y, color, label, is_thread_root);
                 }
             }
 
