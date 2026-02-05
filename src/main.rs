@@ -3,7 +3,7 @@
 mod data;
 mod timeline;
 mod ui;
-use data::{Stats, format_panic_payload, load_profiling_data};
+use data::{FileData, format_panic_payload, load_profiling_data};
 use iced::futures::channel::oneshot;
 use iced::widget::operation::scroll_to;
 use iced::widget::scrollable::AbsoluteOffset;
@@ -155,7 +155,7 @@ enum Message {
     TabSelected(usize),
     OpenFile,
     FileSelected(PathBuf),
-    FileLoaded(u64, Stats, u64),
+    FileLoaded(u64, FileData, u64),
     FileLoadFailed(u64, String, u64),
     ViewChanged(ViewType),
     ColorModeChanged(ColorMode),
@@ -198,7 +198,7 @@ enum Message {
 
 struct Lineme {
     active_tab: usize,
-    files: Vec<FileData>,
+    files: Vec<FileTab>,
     show_settings: bool,
     modifiers: iced::keyboard::Modifiers,
     // last_action_message is shown in settings after operations (windows registry)
@@ -211,11 +211,11 @@ struct Lineme {
 #[derive(Debug, Clone)]
 enum FileLoadState {
     Loading,
-    Ready(Stats),
+    Ready(FileData),
     Error(String),
 }
 
-struct FileData {
+struct FileTab {
     id: u64,
     path: PathBuf,
     load_state: FileLoadState,
@@ -310,7 +310,7 @@ impl Lineme {
             }
             Message::FileLoaded(id, stats, duration_ns) => {
                 if let Some(file) = self.files.iter_mut().find(|file| file.id == id) {
-                    // transfer load-duration into Stats and store ready state.
+                    // transfer load-duration into FileData and store ready state.
                     let mut stats = stats;
                     stats.load_duration_ns = Some(duration_ns);
                     file.load_state = FileLoadState::Ready(stats);
@@ -676,7 +676,7 @@ impl Lineme {
             }
             Message::MergeThreadsToggled(enabled) => {
                 if let Some(file) = self.active_file_mut() {
-                    // Update merge_threads on loaded Stats if present.
+                    // Update merge_threads on loaded FileData if present.
                     match &mut file.load_state {
                         FileLoadState::Ready(stats) => stats.merge_threads = enabled,
                         _ => {}
@@ -705,7 +705,7 @@ impl Lineme {
         let id = self.next_file_id;
         self.next_file_id = self.next_file_id.wrapping_add(1);
 
-        self.files.push(FileData { id, path: path.clone(), load_state: FileLoadState::Loading });
+        self.files.push(FileTab { id, path: path.clone(), load_state: FileLoadState::Loading });
         self.active_tab = self.files.len() - 1;
         self.show_settings = false;
 
@@ -738,7 +738,7 @@ impl Lineme {
     }
 
     // Convenience accessor for the currently active file (mutable).
-    fn active_file_mut(&mut self) -> Option<&mut FileData> {
+    fn active_file_mut(&mut self) -> Option<&mut FileTab> {
         self.files.get_mut(self.active_tab)
     }
 
@@ -895,7 +895,7 @@ impl Lineme {
         let content: Element<'_, Message> = if self.show_settings {
             self.settings_view()
         } else if let Some(file) = self.files.get(self.active_tab) {
-            // Use view_type from Stats when available; fall back to default
+            // Use view_type from FileData when available; fall back to default
             let current_view = file.stats().map(|s| s.view_type).unwrap_or_default();
             let inner_view = match current_view {
                 ViewType::Stats => self.file_view(file),
@@ -1002,7 +1002,7 @@ impl Lineme {
         column![header, content].height(Length::Fill).into()
     }
 
-    fn file_view<'a>(&self, file: &'a FileData) -> Element<'a, Message> {
+    fn file_view<'a>(&self, file: &'a FileTab) -> Element<'a, Message> {
         let stats_col = match &file.load_state {
             FileLoadState::Loading => column![
                 text("Loading profiling data...").size(14),
@@ -1084,7 +1084,7 @@ impl Lineme {
             .into()
     }
 
-    fn timeline_view<'a>(&self, file: &'a FileData) -> Element<'a, Message> {
+    fn timeline_view<'a>(&self, file: &'a FileTab) -> Element<'a, Message> {
         match &file.load_state {
             FileLoadState::Loading => container(text("Processing file...").size(16))
                 .width(Length::Fill)
@@ -1236,8 +1236,8 @@ impl Lineme {
     }
 }
 
-impl FileData {
-    fn stats(&self) -> Option<&Stats> {
+impl FileTab {
+    fn stats(&self) -> Option<&FileData> {
         match &self.load_state {
             FileLoadState::Ready(stats) => Some(stats),
             _ => None,

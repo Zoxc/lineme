@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub struct Stats {
+pub struct FileData {
     pub event_count: usize,
     pub cmd: String,
     pub pid: u32,
@@ -26,7 +26,7 @@ pub struct Stats {
     pub load_duration_ns: Option<u64>,
 }
 
-pub fn load_profiling_data(path: &Path) -> Result<Stats, String> {
+pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
     let stem = path.with_extension("");
 
     let data = ProfilingData::new(&stem)
@@ -168,7 +168,7 @@ pub fn load_profiling_data(path: &Path) -> Result<Stats, String> {
 
     let merged_thread_groups = build_merged_thread_groups(&thread_data_vec);
 
-    Ok(Stats {
+    Ok(FileData {
         event_count,
         cmd: metadata.cmd.clone(),
         pid: metadata.process_id,
