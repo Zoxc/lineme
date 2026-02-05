@@ -612,108 +612,70 @@ impl Lineme {
                 self.modifiers = modifiers;
             }
             Message::ToggleThreadCollapse(thread_id) => {
-                if let Some(file) = self.files.get_mut(self.active_tab) {
-                    {
-                        let thread_groups_mut = match file.thread_groups_mut() {
-                            Some(groups) => groups,
-                            None => return Task::none(),
-                        };
-                        if let Some(group) = thread_groups_mut
-                            .iter_mut()
-                            .find(|group| timeline::thread_group_key(group) == thread_id)
-                        {
-                            group.is_collapsed = !group.is_collapsed;
-                        }
-                    }
-                    let total_height = {
-                        let thread_groups = file.thread_groups().unwrap_or_default();
-                        timeline::total_timeline_height(thread_groups)
+                if let Some(file) = self.active_file_mut() {
+                    let thread_groups_mut = match file.thread_groups_mut() {
+                        Some(groups) => groups,
+                        None => return Task::none(),
                     };
-                    if file.scroll_offset.y > total_height {
-                        file.scroll_offset.y = total_height;
-                        return scroll_to(
-                            timeline_id(),
-                            AbsoluteOffset {
-                                x: file.scroll_offset.x,
-                                y: file.scroll_offset.y,
-                            },
-                        );
+                    if let Some(group) = thread_groups_mut
+                        .iter_mut()
+                        .find(|group| timeline::thread_group_key(group) == thread_id)
+                    {
+                        group.is_collapsed = !group.is_collapsed;
+                    }
+
+                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let total_height = timeline::total_timeline_height(thread_groups);
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut file.scroll_offset, total_height) {
+                        return task;
                     }
                 }
             }
             Message::CollapseAllThreads => {
-                if let Some(file) = self.files.get_mut(self.active_tab) {
-                    {
-                        let thread_groups_mut = match file.thread_groups_mut() {
-                            Some(groups) => groups,
-                            None => return Task::none(),
-                        };
-                        for group in thread_groups_mut.iter_mut() {
-                            group.is_collapsed = true;
-                        }
-                    }
-                    let total_height = {
-                        let thread_groups = file.thread_groups().unwrap_or_default();
-                        timeline::total_timeline_height(thread_groups)
+                if let Some(file) = self.active_file_mut() {
+                    let thread_groups_mut = match file.thread_groups_mut() {
+                        Some(groups) => groups,
+                        None => return Task::none(),
                     };
-                    if file.scroll_offset.y > total_height {
-                        file.scroll_offset.y = total_height;
-                        return scroll_to(
-                            timeline_id(),
-                            AbsoluteOffset {
-                                x: file.scroll_offset.x,
-                                y: file.scroll_offset.y,
-                            },
-                        );
+                    for group in thread_groups_mut.iter_mut() {
+                        group.is_collapsed = true;
+                    }
+
+                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let total_height = timeline::total_timeline_height(thread_groups);
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut file.scroll_offset, total_height) {
+                        return task;
                     }
                 }
             }
             Message::ExpandAllThreads => {
-                if let Some(file) = self.files.get_mut(self.active_tab) {
-                    {
-                        let thread_groups_mut = match file.thread_groups_mut() {
-                            Some(groups) => groups,
-                            None => return Task::none(),
-                        };
-                        for group in thread_groups_mut.iter_mut() {
-                            group.is_collapsed = false;
-                        }
-                    }
-                    let total_height = {
-                        let thread_groups = file.thread_groups().unwrap_or_default();
-                        timeline::total_timeline_height(thread_groups)
+                if let Some(file) = self.active_file_mut() {
+                    let thread_groups_mut = match file.thread_groups_mut() {
+                        Some(groups) => groups,
+                        None => return Task::none(),
                     };
-                    if file.scroll_offset.y > total_height {
-                        file.scroll_offset.y = total_height;
-                        return scroll_to(
-                            timeline_id(),
-                            AbsoluteOffset {
-                                x: file.scroll_offset.x,
-                                y: file.scroll_offset.y,
-                            },
-                        );
+                    for group in thread_groups_mut.iter_mut() {
+                        group.is_collapsed = false;
+                    }
+
+                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let total_height = timeline::total_timeline_height(thread_groups);
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut file.scroll_offset, total_height) {
+                        return task;
                     }
                 }
             }
             Message::MergeThreadsToggled(enabled) => {
-                if let Some(file) = self.files.get_mut(self.active_tab) {
+                if let Some(file) = self.active_file_mut() {
                     file.merge_threads = enabled;
-                    let total_height = {
-                        let thread_groups = match file.thread_groups() {
-                            Some(groups) => groups,
-                            None => return Task::none(),
-                        };
-                        timeline::total_timeline_height(thread_groups)
+
+                    let thread_groups = match file.thread_groups() {
+                        Some(groups) => groups,
+                        None => return Task::none(),
                     };
-                    if file.scroll_offset.y > total_height {
-                        file.scroll_offset.y = total_height;
-                        return scroll_to(
-                            timeline_id(),
-                            AbsoluteOffset {
-                                x: file.scroll_offset.x,
-                                y: file.scroll_offset.y,
-                            },
-                        );
+                    let total_height = timeline::total_timeline_height(thread_groups);
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut file.scroll_offset, total_height) {
+                        return task;
                     }
                 }
             }
@@ -773,6 +735,11 @@ impl Lineme {
         )
     }
 
+    // Convenience accessor for the currently active file (mutable).
+    fn active_file_mut(&mut self) -> Option<&mut FileData> {
+        self.files.get_mut(self.active_tab)
+    }
+
     // Helper used after operations that can change the total vertical height of
     // the timeline (collapse/expand, merge threads, ...). If the current
     // vertical scroll is beyond the new total height, clamp it and return a
@@ -786,6 +753,26 @@ impl Lineme {
         thread_groups: &[timeline::ThreadGroup],
     ) -> Option<Task<Message>> {
         let total_height = timeline::total_timeline_height(thread_groups);
+        if scroll_offset.y > total_height {
+            scroll_offset.y = total_height;
+            return Some(scroll_to(
+                timeline_id(),
+                AbsoluteOffset {
+                    x: scroll_offset.x,
+                    y: scroll_offset.y,
+                },
+            ));
+        }
+        None
+    }
+
+    // Variant that accepts a precomputed total height to avoid borrowing `file`
+    // for both mutable and immutable references at the same time.
+    #[allow(dead_code)]
+    fn clamp_vertical_scroll_and_scroll_to_if_needed_total(
+        scroll_offset: &mut iced::Vector,
+        total_height: f32,
+    ) -> Option<Task<Message>> {
         if scroll_offset.y > total_height {
             scroll_offset.y = total_height;
             return Some(scroll_to(
