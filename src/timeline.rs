@@ -150,6 +150,43 @@ pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f32 {
     total_height
 }
 
+// Small collection of coord/zoom helper utilities shared across the
+// timeline-related modules. These encapsulate common conversions between
+// nanoseconds and canvas pixels, total width computation and simple clamping
+// logic used throughout the codebase.
+pub fn total_ns(min_ns: u64, max_ns: u64) -> u64 {
+    max_ns.saturating_sub(min_ns)
+}
+
+pub fn total_width_from_ns(total_ns: u64, zoom_level: f32) -> f32 {
+    (total_ns as f64 * zoom_level as f64).ceil() as f32
+}
+
+pub fn clamp_scroll_x(scroll_x: f32, total_width: f32, viewport_width: f32) -> f32 {
+    scroll_x.clamp(0.0, (total_width - viewport_width).max(0.0))
+}
+
+pub fn ns_to_x(start_ns: u64, min_ns: u64, zoom_level: f32) -> f32 {
+    ((start_ns.saturating_sub(min_ns) as f64) * zoom_level as f64) as f32
+}
+
+pub fn duration_to_width(duration_ns: u64, zoom_level: f32) -> f32 {
+    (duration_ns as f64 * zoom_level as f64) as f32
+}
+
+pub fn viewport_ns_range(
+    scroll_x: f32,
+    viewport_width: f32,
+    zoom_level: f32,
+    min_ns: u64,
+) -> (u64, u64) {
+    let x_min = scroll_x;
+    let x_max = scroll_x + viewport_width;
+    let ns_min = (x_min as f64 / zoom_level as f64).max(0.0) as u64 + min_ns;
+    let ns_max = (x_max as f64 / zoom_level as f64).max(0.0) as u64 + min_ns;
+    (ns_min, ns_max)
+}
+
 /// Return the total vertical height occupied by a thread group (all lanes),
 /// respecting collapsed state.
 pub fn group_total_height(group: &ThreadGroup) -> f32 {

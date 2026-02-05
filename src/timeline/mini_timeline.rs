@@ -79,7 +79,7 @@ impl Program<Message> for MiniTimelineProgram {
             Color::WHITE,
         );
 
-        let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
+        let total_ns = crate::timeline::total_ns(self.min_ns, self.max_ns) as f64;
         if total_ns <= 0.0 || bounds.width <= 0.0 {
             return vec![frame.into_geometry()];
         }

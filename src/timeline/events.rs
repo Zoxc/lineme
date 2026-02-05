@@ -99,12 +99,12 @@ impl<'a> EventsProgram<'a> {
             let lane_total_height = group_total_height(group);
 
             if position.y >= y_offset && position.y < y_offset + lane_total_height {
-                let ns_min = (self.scroll_offset.x as f64 / self.zoom_level as f64).max(0.0) as u64
-                    + self.min_ns;
-                let ns_max = ((self.scroll_offset.x + self.viewport_width) as f64
-                    / self.zoom_level as f64)
-                    .max(0.0) as u64
-                    + self.min_ns;
+                let (ns_min, ns_max) = crate::timeline::viewport_ns_range(
+                    self.scroll_offset.x,
+                    self.viewport_width,
+                    self.zoom_level,
+                    self.min_ns,
+                );
 
                 for index in visible_event_indices(group, ns_min, ns_max) {
                     let event = &group.events[index];
@@ -112,13 +112,13 @@ impl<'a> EventsProgram<'a> {
                         continue;
                     }
 
-                    let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
+                    let width =
+                        crate::timeline::duration_to_width(event.duration_ns, self.zoom_level);
                     if width < 5.0 {
                         continue;
                     }
 
-                    let x = (event.start_ns.saturating_sub(self.min_ns) as f64
-                        * self.zoom_level as f64) as f32;
+                    let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level);
                     let y = y_offset + event.depth as f32 * LANE_HEIGHT;
                     let height = LANE_HEIGHT - 2.0;
 
@@ -229,13 +229,12 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     continue;
                 }
 
-                let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
+                let width = crate::timeline::duration_to_width(event.duration_ns, self.zoom_level);
                 if width < 1.0 {
                     continue;
                 }
 
-                let x = (event.start_ns.saturating_sub(self.min_ns) as f64 * self.zoom_level as f64)
-                    as f32;
+                let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level);
 
                 // Skip drawing if event is completely outside horizontal viewport
                 if self.viewport_width > 0.0 && (x + width < x_min || x > x_max) {
@@ -303,9 +302,15 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             if let Some(hovered) = &state.hovered_event {
                 if super::group_contains_thread(group, hovered.thread_id) {
                     if !group.is_collapsed || hovered.depth == 0 {
-                        let x = (hovered.start_ns.saturating_sub(self.min_ns) as f64
-                            * self.zoom_level as f64) as f32;
-                        let width = (hovered.duration_ns as f64 * self.zoom_level as f64) as f32;
+                        let x = crate::timeline::ns_to_x(
+                            hovered.start_ns,
+                            self.min_ns,
+                            self.zoom_level,
+                        );
+                        let width = crate::timeline::duration_to_width(
+                            hovered.duration_ns,
+                            self.zoom_level,
+                        );
                         let y = y_offset + hovered.depth as f32 * LANE_HEIGHT;
 
                         frame.stroke(
@@ -324,9 +329,15 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             if let Some(selected) = self.selected_event {
                 if super::group_contains_thread(group, selected.thread_id) {
                     if !group.is_collapsed || selected.depth == 0 {
-                        let x = (selected.start_ns.saturating_sub(self.min_ns) as f64
-                            * self.zoom_level as f64) as f32;
-                        let width = (selected.duration_ns as f64 * self.zoom_level as f64) as f32;
+                        let x = crate::timeline::ns_to_x(
+                            selected.start_ns,
+                            self.min_ns,
+                            self.zoom_level,
+                        );
+                        let width = crate::timeline::duration_to_width(
+                            selected.duration_ns,
+                            self.zoom_level,
+                        );
                         let y = y_offset + selected.depth as f32 * LANE_HEIGHT;
 
                         frame.stroke(

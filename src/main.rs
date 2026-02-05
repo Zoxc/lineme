@@ -395,7 +395,7 @@ impl Lineme {
                         Some(values) => values,
                         None => return Task::none(),
                     };
-                    let total_ns = max_ns.saturating_sub(min_ns).max(1);
+                    let total_ns = crate::timeline::total_ns(min_ns, max_ns).max(1);
                     let viewport_width = file.viewport_width.max(1.0);
 
                     let event_rel_start = event.start_ns.saturating_sub(min_ns);
@@ -412,10 +412,9 @@ impl Lineme {
                     let target_ns = (end_ns.saturating_sub(start_ns)).max(1) as f64;
                     file.zoom_level = (viewport_width as f64 / target_ns) as f32;
 
-                    let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
-                    let target_x = (start_ns as f64 * file.zoom_level as f64) as f32;
-                    file.scroll_offset.x =
-                        target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, file.zoom_level);
+                    let target_x = crate::timeline::ns_to_x(start_ns, 0, file.zoom_level);
+                    file.scroll_offset.x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
 
                     return scroll_to(
                         timeline_id(),
@@ -447,11 +446,10 @@ impl Lineme {
                     let x_on_canvas = x + file.scroll_offset.x;
                     file.scroll_offset.x = x_on_canvas * zoom_factor - x;
 
-                    let total_ns = max_ns.saturating_sub(min_ns);
-                    let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
+                    let total_ns = crate::timeline::total_ns(min_ns, max_ns);
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, file.zoom_level);
                     let viewport_width = file.viewport_width.max(0.0);
-                    let max_scroll = (total_width - viewport_width).max(0.0);
-                    file.scroll_offset.x = file.scroll_offset.x.clamp(0.0, max_scroll);
+                    file.scroll_offset.x = crate::timeline::clamp_scroll_x(file.scroll_offset.x, total_width, viewport_width);
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
@@ -512,13 +510,12 @@ impl Lineme {
                         None => return Task::none(),
                     };
                     let total_ns = max_ns.saturating_sub(min_ns);
-                    let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, file.zoom_level);
                     if total_width > 0.0 {
                         let viewport_width = viewport_width.max(1.0);
                         let target_center = fraction as f32 * total_width;
-                        let mut target_x = target_center - viewport_width / 2.0;
-                        target_x = target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
-                        file.scroll_offset.x = target_x;
+                        let target_x = target_center - viewport_width / 2.0;
+                        file.scroll_offset.x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
                         return scroll_to(
                             timeline_id(),
                             AbsoluteOffset {
@@ -542,15 +539,14 @@ impl Lineme {
                         Some(values) => values,
                         None => return Task::none(),
                     };
-                    let total_ns = max_ns.saturating_sub(min_ns);
+                    let total_ns = crate::timeline::total_ns(min_ns, max_ns);
                     let total_ns_f64 = total_ns.max(1) as f64;
                     let range_fraction = (end_fraction - start_fraction).max(0.0) as f64;
                     let target_ns = (range_fraction * total_ns_f64).max(1.0);
                     file.zoom_level = viewport_width / target_ns as f32;
-                    let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, file.zoom_level);
                     let target_x = start_fraction * total_width;
-                    file.scroll_offset.x =
-                        target_x.clamp(0.0, (total_width - viewport_width).max(0.0));
+                    file.scroll_offset.x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
@@ -569,18 +565,17 @@ impl Lineme {
                         Some(values) => values,
                         None => return Task::none(),
                     };
-                    let total_ns = max_ns.saturating_sub(min_ns);
-                    let total_width = (total_ns as f64 * file.zoom_level as f64).ceil() as f32;
+                    let total_ns = crate::timeline::total_ns(min_ns, max_ns);
+                    let total_width = crate::timeline::total_width_from_ns(total_ns, file.zoom_level);
                     let viewport_width = file.viewport_width.max(0.0);
-                    let max_scroll_x = (total_width - viewport_width).max(0.0);
+                    let _max_scroll_x = (total_width - viewport_width).max(0.0);
 
                     let total_height =
                         timeline::total_timeline_height(file.thread_groups().unwrap_or_default());
                     let viewport_height = file.viewport_height.max(0.0);
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
 
-                    file.scroll_offset.x =
-                        (file.scroll_offset.x - delta.x).clamp(0.0, max_scroll_x);
+                    file.scroll_offset.x = crate::timeline::clamp_scroll_x(file.scroll_offset.x - delta.x, total_width, viewport_width);
                     file.scroll_offset.y =
                         (file.scroll_offset.y - delta.y).clamp(0.0, max_scroll_y);
 
