@@ -13,7 +13,7 @@ use iced::advanced::{layout, renderer, Clipboard, Layout, Shell};
 use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Canvas;
-use iced::widget::{button, column, container, row, scrollable, text, Space};
+use iced::widget::{button, column, container, row, text, Space};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Theme};
 use mini_timeline::MiniTimelineProgram;
 use std::sync::Arc;
@@ -420,8 +420,6 @@ pub fn view<'a>(
 
     let total_height = total_timeline_height(thread_groups) as f32;
 
-    let events_width = (total_ns as f64 * zoom_level).ceil() as f32;
-
     let scroll_offset_x_px = scroll_offset_x * zoom_level;
     let mini_timeline_canvas = Canvas::new(MiniTimelineProgram {
         min_ns: timeline_data.min_ns,
@@ -461,23 +459,19 @@ pub fn view<'a>(
         viewport_height,
         color_mode,
     })
-    .width(Length::Fixed(events_width))
-    .height(Length::Fixed(total_height));
+    .width(Length::Fill)
+    .height(Length::Fill);
 
-    let events_view = scrollable(WheelCatcher::new(events_canvas, modifiers))
-        .id(timeline_id())
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .direction(scrollable::Direction::Both {
-            vertical: scrollable::Scrollbar::hidden(),
-            horizontal: scrollable::Scrollbar::hidden(),
-        })
-        .on_scroll(|viewport| Message::TimelineScroll {
-            offset_x: viewport.absolute_offset().x as f64,
-            offset_y: viewport.absolute_offset().y as f64,
-            viewport_width: viewport.bounds().width,
-            viewport_height: viewport.bounds().height,
-        });
+    let events_view = container(ViewportCatcher::new(
+        WheelCatcher::new(events_canvas, modifiers),
+        |size| Message::TimelineViewportChanged {
+            viewport_width: size.width,
+            viewport_height: size.height,
+        },
+    ))
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .clip(true);
 
     let total_ns = timeline_data.max_ns.saturating_sub(timeline_data.min_ns) as f64;
     let visible_ns = if zoom_level > 0.0 {
@@ -696,6 +690,157 @@ fn group_contains_thread(group: &ThreadGroup, thread_id: u64) -> bool {
 pub struct WheelCatcher<'a, Message, Theme, Renderer> {
     content: Element<'a, Message, Theme, Renderer>,
     modifiers: keyboard::Modifiers,
+}
+
+pub struct ViewportCatcher<'a, Message, Theme, Renderer> {
+    content: Element<'a, Message, Theme, Renderer>,
+    on_resize: Box<dyn Fn(Size<f32>) -> Message + 'a>,
+}
+
+impl<'a, Message, Theme, Renderer> ViewportCatcher<'a, Message, Theme, Renderer> {
+    pub fn new(
+        content: impl Into<Element<'a, Message, Theme, Renderer>>,
+        on_resize: impl Fn(Size<f32>) -> Message + 'a,
+    ) -> Self {
+        Self {
+            content: content.into(),
+            on_resize: Box::new(on_resize),
+        }
+    }
+}
+
+impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for ViewportCatcher<'a, Message, Theme, Renderer>
+where
+    Renderer: iced::advanced::Renderer,
+{
+    fn tag(&self) -> widget::tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> widget::tree::State {
+        widget::tree::State::new(Option::<Size<f32>>::None)
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+
+        let bounds = layout.bounds();
+        let new_size = Size::new(bounds.width, bounds.height);
+        let last_size = tree.state.downcast_mut::<Option<Size<f32>>>();
+        let changed = match *last_size {
+            Some(size) => size != new_size,
+            None => true,
+        };
+        if changed {
+            *last_size = Some(new_size);
+            shell.publish((self.on_resize)(new_size));
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn widget::Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+}
+
+impl<'a, Message, Theme, Renderer> From<ViewportCatcher<'a, Message, Theme, Renderer>>
+    for Element<'a, Message, Theme, Renderer>
+where
+    Message: 'a,
+    Theme: 'a,
+    Renderer: iced::advanced::Renderer + 'a,
+{
+    fn from(catcher: ViewportCatcher<'a, Message, Theme, Renderer>) -> Self {
+        Self::new(catcher)
+    }
 }
 
 impl<'a, Message, Theme, Renderer> WheelCatcher<'a, Message, Theme, Renderer> {
