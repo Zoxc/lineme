@@ -1,11 +1,11 @@
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
-use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
+use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
 
 use super::{
-    color_from_label, group_total_height, visible_event_indices, ColorMode, ThreadGroup,
-    TimelineEvent,
+    ColorMode, ThreadGroup, TimelineEvent, color_from_label, group_total_height,
+    visible_event_indices,
 };
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 
@@ -230,7 +230,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
 
                 let width = (event.duration_ns as f64 * self.zoom_level as f64) as f32;
-                if width < 5.0 {
+                if width < 1.0 {
                     continue;
                 }
 
