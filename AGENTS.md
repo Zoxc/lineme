@@ -20,6 +20,7 @@ This document provides context and guidelines for AI agents working on the `line
 
 ## File Overview
 - `src/main.rs`: Main application entry point, state management (Elm Architecture), and tab management.
+- `src/scrollbar.rs`: Custom canvas-based scrollbar component (unconnected, f64-based).
 - `src/timeline.rs`: Core timeline visualization logic, including event details and coordinate mapping.
 - `src/timeline/header.rs`: Renders the time axis and markers at the top of the timeline.
 - `src/timeline/threads.rs`: Handles thread label rendering and interaction (collapse/expand).

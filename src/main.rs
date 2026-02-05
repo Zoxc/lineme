@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod data;
+mod scrollbar;
 mod timeline;
 mod ui;
 use data::{FileData, format_panic_payload, load_profiling_data};
