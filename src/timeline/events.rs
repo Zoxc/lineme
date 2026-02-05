@@ -22,7 +22,7 @@ fn draw_event_rect(
         x,
         y: y + 1.0,
         width: width.max(1.0),
-        height: LANE_HEIGHT - 2.0,
+        height: (LANE_HEIGHT - 2.0) as f32,
     };
 
     frame.fill_rectangle(rect.position(), rect.size(), color);
@@ -42,7 +42,7 @@ fn draw_event_rect(
 
     if rect.width > 20.0 {
         let mut truncated_label = label.to_string();
-        let avail_chars = ((rect.width - 4.0 - EVENT_LEFT_PADDING).max(0.0) / 6.0) as usize;
+        let avail_chars = ((rect.width - 4.0 - EVENT_LEFT_PADDING as f32).max(0.0) / 6.0) as usize;
         if truncated_label.len() > avail_chars {
             truncated_label.truncate(avail_chars);
         }
@@ -56,7 +56,7 @@ fn draw_event_rect(
             |frame| {
                 frame.fill_text(canvas::Text {
                     content: truncated_label,
-                    position: Point::new(rect.x + 2.0 + EVENT_LEFT_PADDING, rect.y + 2.0),
+                    position: Point::new(rect.x + 2.0 + EVENT_LEFT_PADDING as f32, rect.y + 2.0),
                     color: if is_root {
                         Color::from_rgb(0.35, 0.35, 0.35)
                     } else {
@@ -74,11 +74,12 @@ pub struct EventsProgram<'a> {
     pub thread_groups: &'a [ThreadGroup],
     pub min_ns: u64,
     pub max_ns: u64,
-    pub zoom_level: f32,
+    pub zoom_level: f64,
     pub selected_event: &'a Option<TimelineEvent>,
-    pub scroll_offset: Vector,
-    pub viewport_width: f32,
-    pub viewport_height: f32,
+    pub scroll_offset_x: f64,
+    pub scroll_offset_y: f64,
+    pub viewport_width: f64,
+    pub viewport_height: f64,
     pub color_mode: ColorMode,
 }
 
@@ -94,13 +95,15 @@ pub struct EventsState {
 
 impl<'a> EventsProgram<'a> {
     fn find_event_at(&self, position: Point) -> Option<TimelineEvent> {
-        let mut y_offset = 0.0;
+        let mut y_offset: f64 = 0.0;
         for group in self.thread_groups {
             let lane_total_height = group_total_height(group);
 
-            if position.y >= y_offset && position.y < y_offset + lane_total_height {
+            if (position.y as f64) >= y_offset
+                && (position.y as f64) < (y_offset + lane_total_height as f64)
+            {
                 let (ns_min, ns_max) = crate::timeline::viewport_ns_range(
-                    self.scroll_offset.x,
+                    self.scroll_offset_x,
                     self.viewport_width,
                     self.zoom_level,
                     self.min_ns,
@@ -120,15 +123,17 @@ impl<'a> EventsProgram<'a> {
                         }
 
                         let width =
-                            crate::timeline::duration_to_width(event.duration_ns, self.zoom_level);
+                            crate::timeline::duration_to_width(event.duration_ns, self.zoom_level)
+                                as f32;
                         if width < 5.0 {
                             continue;
                         }
 
                         let x =
-                            crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level);
-                        let y = y_offset + event.depth as f32 * LANE_HEIGHT;
-                        let height = LANE_HEIGHT - 2.0;
+                            crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level)
+                                as f32;
+                        let y = y_offset as f32 + event.depth as f32 * (LANE_HEIGHT as f32);
+                        let height = (LANE_HEIGHT - 2.0) as f32;
 
                         let rect = Rectangle {
                             x,
@@ -143,7 +148,7 @@ impl<'a> EventsProgram<'a> {
                     }
                 }
             }
-            y_offset += lane_total_height + super::LANE_SPACING;
+            y_offset += lane_total_height as f64 + super::LANE_SPACING as f64;
         }
         None
     }
@@ -168,10 +173,12 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
         // Draw vertical tick guide lines matching the header ticks.
         let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
-        let x_min = self.scroll_offset.x;
-        let x_max = self.scroll_offset.x + self.viewport_width;
-        let ns_min = (x_min as f64 / self.zoom_level as f64).max(0.0) as u64 + self.min_ns;
-        let ns_max = (x_max as f64 / self.zoom_level as f64).max(0.0) as u64 + self.min_ns;
+        let x_min = self.scroll_offset_x;
+        let x_max = self.scroll_offset_x + self.viewport_width;
+        let _x_min_f = x_min as f32;
+        let _x_max_f = x_max as f32;
+        let ns_min = (x_min / self.zoom_level).max(0.0) as u64 + self.min_ns;
+        let ns_max = (x_max / self.zoom_level).max(0.0) as u64 + self.min_ns;
 
         if total_ns > 0.0 {
             // ns per pixel given current zoom: 1 / zoom_level
@@ -187,8 +194,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             };
 
             while relative_ns <= total_ns {
-                let x = (relative_ns * self.zoom_level as f64) as f32;
-                if self.viewport_width > 0.0 && x > x_max {
+                let x = (relative_ns * self.zoom_level) as f32;
+                if self.viewport_width > 0.0 && (x as f64) > x_max {
                     break;
                 }
 
@@ -204,25 +211,25 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
         }
 
-        let mut y_offset = 0.0;
-        let y_min = self.scroll_offset.y;
-        let y_max = self.scroll_offset.y + self.viewport_height;
+        let mut y_offset: f64 = 0.0;
+        let y_min = self.scroll_offset_y;
+        let y_max = self.scroll_offset_y + self.viewport_height;
 
         for group in self.thread_groups {
             let lane_total_height = group_total_height(group);
 
             // Skip drawing if thread is completely outside vertical viewport
             if self.viewport_height > 0.0
-                && (y_offset + lane_total_height < y_min || y_offset > y_max)
+                && ((y_offset + lane_total_height as f64) < y_min || y_offset > y_max)
             {
-                y_offset += lane_total_height + super::LANE_SPACING;
+                y_offset += lane_total_height as f64 + super::LANE_SPACING as f64;
                 continue;
             }
 
             frame.stroke(
                 &canvas::Path::line(
-                    Point::new(0.0, y_offset),
-                    Point::new(bounds.width, y_offset),
+                    Point::new(0.0, y_offset as f32),
+                    Point::new(bounds.width, y_offset as f32),
                 ),
                 canvas::Stroke::default()
                     .with_color(Color::from_rgb(0.9, 0.9, 0.9))
@@ -243,15 +250,19 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     }
 
                     let width =
-                        crate::timeline::duration_to_width(event.duration_ns, self.zoom_level);
+                        crate::timeline::duration_to_width(event.duration_ns, self.zoom_level)
+                            as f32;
                     if width < 1.0 {
                         continue;
                     }
 
-                    let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level);
+                    let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level)
+                        as f32;
 
                     // Skip drawing if event is completely outside horizontal viewport
-                    if self.viewport_width > 0.0 && (x + width < x_min || x > x_max) {
+                    if self.viewport_width > 0.0
+                        && ((x as f64 + width as f64) < x_min || (x as f64) > x_max)
+                    {
                         continue;
                     }
 
@@ -269,7 +280,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     let label = &event.label;
                     let is_thread_root = event.is_thread_root;
 
-                    let y = y_offset + depth as f32 * LANE_HEIGHT;
+                    let y = y_offset as f32 + depth as f32 * (LANE_HEIGHT as f32);
                     draw_event_rect(&mut frame, x, width, y, color, label, is_thread_root);
                 }
             }
@@ -281,17 +292,17 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             hovered.start_ns,
                             self.min_ns,
                             self.zoom_level,
-                        );
+                        ) as f32;
                         let width = crate::timeline::duration_to_width(
                             hovered.duration_ns,
                             self.zoom_level,
-                        );
-                        let y = y_offset + hovered.depth as f32 * LANE_HEIGHT;
+                        ) as f32;
+                        let y = y_offset as f32 + hovered.depth as f32 * (LANE_HEIGHT as f32);
 
                         frame.stroke(
                             &canvas::Path::rectangle(
                                 Point::new(x, y + 1.0),
-                                Size::new(width.max(1.0), LANE_HEIGHT - 2.0),
+                                Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
                             ),
                             canvas::Stroke::default()
                                 .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.3))
@@ -308,17 +319,17 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             selected.start_ns,
                             self.min_ns,
                             self.zoom_level,
-                        );
+                        ) as f32;
                         let width = crate::timeline::duration_to_width(
                             selected.duration_ns,
                             self.zoom_level,
-                        );
-                        let y = y_offset + selected.depth as f32 * LANE_HEIGHT;
+                        ) as f32;
+                        let y = y_offset as f32 + selected.depth as f32 * (LANE_HEIGHT as f32);
 
                         frame.stroke(
                             &canvas::Path::rectangle(
                                 Point::new(x, y + 1.0),
-                                Size::new(width.max(1.0), LANE_HEIGHT - 2.0),
+                                Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
                             ),
                             canvas::Stroke::default()
                                 .with_color(Color::from_rgb(0.0, 0.4, 0.8))
@@ -328,7 +339,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
             }
 
-            y_offset += lane_total_height + super::LANE_SPACING;
+            y_offset += lane_total_height as f64 + super::LANE_SPACING as f64;
         }
 
         vec![frame.into_geometry()]
@@ -352,7 +363,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 ) = (state.press_position, event)
                 {
                     let delta = *position - press_position;
-                    if !state.dragging && delta.x.hypot(delta.y) > super::DRAG_THRESHOLD {
+                    if !state.dragging && delta.x.hypot(delta.y) > super::DRAG_THRESHOLD as f32 {
                         state.dragging = true;
                     }
                 }
@@ -443,12 +454,12 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
                                 if y.abs() > 0.0 {
                                     let viewport_width = self.viewport_width.max(0.0);
-                                    let cursor_x = (position.x - self.scroll_offset.x)
+                                    let cursor_x = (position.x as f64 - self.scroll_offset_x)
                                         .clamp(0.0, viewport_width);
                                     return Some(canvas::Action::publish(
                                         Message::TimelineZoomed {
                                             delta: *y,
-                                            x: cursor_x,
+                                            x: cursor_x as f32,
                                         },
                                     ));
                                 }

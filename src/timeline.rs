@@ -13,18 +13,18 @@ use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Canvas;
 use iced::widget::{button, column, container, row, scrollable, text, Space};
-use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Theme, Vector};
+use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Theme};
 use mini_timeline::MiniTimelineProgram;
 use std::sync::Arc;
 use threads::ThreadsProgram;
 
-pub const LABEL_WIDTH: f32 = 150.0;
-pub const HEADER_HEIGHT: f32 = 30.0;
-pub const MINI_TIMELINE_HEIGHT: f32 = 40.0;
-pub const LANE_HEIGHT: f32 = 20.0;
-pub const LANE_SPACING: f32 = 5.0;
-pub const DRAG_THRESHOLD: f32 = 3.0;
-pub const EVENT_LEFT_PADDING: f32 = 2.0;
+pub const LABEL_WIDTH: f64 = 150.0_f64;
+pub const HEADER_HEIGHT: f64 = 30.0_f64;
+pub const MINI_TIMELINE_HEIGHT: f64 = 40.0_f64;
+pub const LANE_HEIGHT: f64 = 20.0_f64;
+pub const LANE_SPACING: f64 = 5.0_f64;
+pub const DRAG_THRESHOLD: f64 = 3.0_f64;
+pub const EVENT_LEFT_PADDING: f64 = 2.0_f64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ColorMode {
@@ -147,8 +147,8 @@ pub fn timeline_id() -> iced::widget::Id {
     iced::widget::Id::new("timeline_scrollable")
 }
 
-pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f32 {
-    let mut total_height = 0.0;
+pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f64 {
+    let mut total_height = 0.0_f64;
     for group in thread_groups {
         let lane_total_height = group_total_height(group);
         total_height += lane_total_height + LANE_SPACING;
@@ -156,50 +156,46 @@ pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f32 {
     total_height
 }
 
-// Small collection of coord/zoom helper utilities shared across the
-// timeline-related modules. These encapsulate common conversions between
-// nanoseconds and canvas pixels, total width computation and simple clamping
-// logic used throughout the codebase.
 pub fn total_ns(min_ns: u64, max_ns: u64) -> u64 {
     max_ns.saturating_sub(min_ns)
 }
 
-pub fn total_width_from_ns(total_ns: u64, zoom_level: f32) -> f32 {
-    (total_ns as f64 * zoom_level as f64).ceil() as f32
+pub fn total_width_from_ns(total_ns: u64, zoom_level: f64) -> f64 {
+    (total_ns as f64 * zoom_level).ceil()
 }
 
-pub fn clamp_scroll_x(scroll_x: f32, total_width: f32, viewport_width: f32) -> f32 {
+pub fn clamp_scroll_x(scroll_x: f64, total_width: f64, viewport_width: f64) -> f64 {
     scroll_x.clamp(0.0, (total_width - viewport_width).max(0.0))
 }
 
-pub fn ns_to_x(start_ns: u64, min_ns: u64, zoom_level: f32) -> f32 {
-    ((start_ns.saturating_sub(min_ns) as f64) * zoom_level as f64) as f32
+pub fn ns_to_x(start_ns: u64, min_ns: u64, zoom_level: f64) -> f64 {
+    (start_ns.saturating_sub(min_ns) as f64) * zoom_level
 }
 
-pub fn duration_to_width(duration_ns: u64, zoom_level: f32) -> f32 {
-    (duration_ns as f64 * zoom_level as f64) as f32
+pub fn duration_to_width(duration_ns: u64, zoom_level: f64) -> f64 {
+    duration_ns as f64 * zoom_level
 }
 
 pub fn viewport_ns_range(
-    scroll_x: f32,
-    viewport_width: f32,
-    zoom_level: f32,
+    scroll_x: f64,
+    viewport_width: f64,
+    zoom_level: f64,
     min_ns: u64,
 ) -> (u64, u64) {
     let x_min = scroll_x;
     let x_max = scroll_x + viewport_width;
-    let ns_min = (x_min as f64 / zoom_level as f64).max(0.0) as u64 + min_ns;
-    let ns_max = (x_max as f64 / zoom_level as f64).max(0.0) as u64 + min_ns;
+    let ns_min = (x_min / zoom_level).max(0.0) as u64 + min_ns;
+    let ns_max = (x_max / zoom_level).max(0.0) as u64 + min_ns;
     (ns_min, ns_max)
 }
 
 /// Return the total vertical height occupied by a thread group (all lanes),
 /// respecting collapsed state.
-pub fn group_total_height(group: &ThreadGroup) -> f32 {
+pub fn group_total_height(group: &ThreadGroup) -> f64 {
     if group.is_collapsed {
         LANE_HEIGHT
     } else {
-        (group.max_depth + 1) as f32 * LANE_HEIGHT
+        (group.max_depth + 1) as f64 * LANE_HEIGHT
     }
 }
 
@@ -366,13 +362,13 @@ fn visible_event_indices_in(
     indices
 }
 
-fn mipmap_level_fits(level: &ThreadGroupMipMap, zoom_level: f32) -> bool {
-    (level.max_duration_ns as f64) * zoom_level as f64 >= 1.0
+fn mipmap_level_fits(level: &ThreadGroupMipMap, zoom_level: f64) -> bool {
+    (level.max_duration_ns as f64) * zoom_level >= 1.0
 }
 
 fn mipmap_levels_for_zoom<'a>(
     group: &'a ThreadGroup,
-    zoom_level: f32,
+    zoom_level: f64,
 ) -> impl Iterator<Item = &'a ThreadGroupMipMap> {
     group
         .mipmaps
@@ -395,12 +391,13 @@ pub fn format_duration(ns: u64) -> String {
 pub fn view<'a>(
     timeline_data: &'a TimelineData,
     thread_groups: &'a [ThreadGroup],
-    zoom_level: f32,
+    zoom_level: f64,
     selected_event: &'a Option<TimelineEvent>,
     _hovered_event: &'a Option<TimelineEvent>,
-    scroll_offset: Vector,
-    viewport_width: f32,
-    viewport_height: f32,
+    scroll_offset_x: f64,
+    scroll_offset_y: f64,
+    viewport_width: f64,
+    viewport_height: f64,
     modifiers: keyboard::Modifiers,
     color_mode: ColorMode,
 ) -> Element<'a, Message> {
@@ -414,34 +411,34 @@ pub fn view<'a>(
             .into();
     }
 
-    let total_height = total_timeline_height(thread_groups);
+    let total_height = total_timeline_height(thread_groups) as f32;
 
-    let events_width = (total_ns as f64 * zoom_level as f64).ceil() as f32;
+    let events_width = (total_ns as f64 * zoom_level).ceil() as f32;
 
     let mini_timeline_canvas = Canvas::new(MiniTimelineProgram {
         min_ns: timeline_data.min_ns,
         max_ns: timeline_data.max_ns,
         zoom_level,
-        scroll_offset,
+        scroll_offset_x,
         viewport_width,
     })
     .width(Length::Fill)
-    .height(Length::Fixed(MINI_TIMELINE_HEIGHT));
+    .height(Length::Fixed(MINI_TIMELINE_HEIGHT as f32));
 
     let header_canvas = Canvas::new(HeaderProgram {
         min_ns: timeline_data.min_ns,
         max_ns: timeline_data.max_ns,
         zoom_level,
-        scroll_offset,
+        scroll_offset_x,
     })
     .width(Length::Fill)
-    .height(Length::Fixed(HEADER_HEIGHT));
+    .height(Length::Fixed(HEADER_HEIGHT as f32));
 
     let threads_canvas = Canvas::new(ThreadsProgram {
         thread_groups,
-        scroll_offset,
+        scroll_offset_y,
     })
-    .width(Length::Fixed(LABEL_WIDTH))
+    .width(Length::Fixed(LABEL_WIDTH as f32))
     .height(Length::Fill);
 
     let events_canvas = Canvas::new(EventsProgram {
@@ -450,7 +447,8 @@ pub fn view<'a>(
         max_ns: timeline_data.max_ns,
         zoom_level,
         selected_event,
-        scroll_offset,
+        scroll_offset_x,
+        scroll_offset_y,
         viewport_width,
         viewport_height,
         color_mode,
@@ -467,7 +465,8 @@ pub fn view<'a>(
             horizontal: scrollable::Scrollbar::default(),
         })
         .on_scroll(|viewport| Message::TimelineScroll {
-            offset: Vector::new(viewport.absolute_offset().x, viewport.absolute_offset().y),
+            offset_x: viewport.absolute_offset().x as f64,
+            offset_y: viewport.absolute_offset().y as f64,
             viewport_width: viewport.bounds().width,
             viewport_height: viewport.bounds().height,
         });
@@ -475,7 +474,7 @@ pub fn view<'a>(
     // Mini timeline should span the full window width (including the label area).
     let main_view = column![
         // Full-width mini timeline on its own row.
-        mini_timeline_canvas.height(Length::Fixed(MINI_TIMELINE_HEIGHT)),
+        mini_timeline_canvas.height(Length::Fixed(MINI_TIMELINE_HEIGHT as f32)),
         PanCatcher::new(
             column![
                 // Header remains aligned with the events area (leaving space for labels).
@@ -505,10 +504,10 @@ pub fn view<'a>(
                         .spacing(5)
                         .align_y(iced::Alignment::Center),
                     )
-                    .width(Length::Fixed(LABEL_WIDTH)),
+                    .width(Length::Fixed(LABEL_WIDTH as f32)),
                     header_canvas
                 ]
-                .height(Length::Fixed(HEADER_HEIGHT)),
+                .height(Length::Fixed(HEADER_HEIGHT as f32)),
                 row![threads_canvas, events_view].height(Length::Fill)
             ]
             .height(Length::Fill),
@@ -869,7 +868,7 @@ where
                 if let Some(press_position) = state.press_position {
                     let delta_from_press = *position - press_position;
                     if !state.dragging
-                        && delta_from_press.x.hypot(delta_from_press.y) > DRAG_THRESHOLD
+                        && delta_from_press.x.hypot(delta_from_press.y) > DRAG_THRESHOLD as f32
                     {
                         state.dragging = true;
                         state.last_position = Some(*position);

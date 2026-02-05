@@ -1,14 +1,15 @@
+// Header uses explicit f64 scroll offsets passed from the application state.
 use crate::timeline::ticks::{format_time_label, nice_interval};
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
-use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector};
+use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
 
 pub(crate) struct HeaderProgram {
     pub(crate) min_ns: u64,
     pub(crate) max_ns: u64,
-    pub(crate) zoom_level: f32,
-    pub(crate) scroll_offset: Vector,
+    pub(crate) zoom_level: f64,
+    pub(crate) scroll_offset_x: f64,
 }
 
 impl Program<Message> for HeaderProgram {
@@ -42,7 +43,7 @@ impl Program<Message> for HeaderProgram {
 
         let mut relative_ns = 0.0;
         while relative_ns <= total_ns {
-            let x = (relative_ns * self.zoom_level as f64) as f32 - self.scroll_offset.x;
+            let x = (relative_ns * self.zoom_level) as f32 - self.scroll_offset_x as f32;
 
             if x >= 0.0 && x <= bounds.width {
                 frame.stroke(

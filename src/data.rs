@@ -19,10 +19,12 @@ pub struct FileData {
     pub merge_threads: bool,
     pub initial_fit_done: bool,
     pub view_type: crate::ViewType,
-    pub zoom_level: f32,
-    pub scroll_offset: iced::Vector,
-    pub viewport_width: f32,
-    pub viewport_height: f32,
+    // Use f64 for zoom/scroll state to avoid precision loss at high zoom.
+    pub zoom_level: f64,
+    pub scroll_offset_x: f64,
+    pub scroll_offset_y: f64,
+    pub viewport_width: f64,
+    pub viewport_height: f64,
     pub load_duration_ns: Option<u64>,
 }
 
@@ -184,10 +186,11 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
         merge_threads: true,
         initial_fit_done: false,
         view_type: crate::ViewType::default(),
-        zoom_level: 1.0,
-        scroll_offset: iced::Vector::default(),
-        viewport_width: 0.0,
-        viewport_height: 0.0,
+        zoom_level: 1.0_f64,
+        scroll_offset_x: 0.0_f64,
+        scroll_offset_y: 0.0_f64,
+        viewport_width: 0.0_f64,
+        viewport_height: 0.0_f64,
         load_duration_ns: None,
     })
 }

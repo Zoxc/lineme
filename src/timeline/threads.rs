@@ -1,14 +1,15 @@
+// Threads panel receives explicit scroll offsets from the app state (f64)
 use crate::timeline::{
     group_total_height, thread_group_key, ThreadGroup, LANE_HEIGHT, LANE_SPACING,
 };
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Geometry, Program};
-use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme, Vector};
+use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme};
 
 pub(crate) struct ThreadsProgram<'a> {
     pub(crate) thread_groups: &'a [ThreadGroup],
-    pub(crate) scroll_offset: Vector,
+    pub(crate) scroll_offset_y: f64,
 }
 
 #[derive(Default)]
@@ -18,17 +19,17 @@ pub(crate) struct ThreadsState {
 
 impl<'a> ThreadsProgram<'a> {
     fn group_at(&self, position: Point) -> Option<usize> {
-        let mut y_offset = 0.0;
-        let content_y = position.y + self.scroll_offset.y;
+        let mut y_offset: f64 = 0.0;
+        let content_y = position.y as f64 + self.scroll_offset_y;
 
         for group in self.thread_groups {
             let lane_total_height = group_total_height(group);
 
-            if content_y >= y_offset && content_y < y_offset + LANE_HEIGHT + 2.0 {
+            if content_y >= y_offset && content_y < y_offset + LANE_HEIGHT as f64 + 2.0 {
                 return Some(thread_group_key(group));
             }
 
-            y_offset += lane_total_height + LANE_SPACING;
+            y_offset += lane_total_height as f64 + LANE_SPACING as f64;
         }
 
         None
@@ -54,17 +55,17 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
             Color::from_rgb(0.98, 0.98, 0.98),
         );
 
-        let mut y_offset = 0.0;
+        let mut y_offset: f64 = 0.0;
         for group in self.thread_groups {
             let lane_total_height = group_total_height(group);
 
-            let y = y_offset - self.scroll_offset.y;
+            let y = (y_offset - self.scroll_offset_y) as f32;
             let row_top = y;
             let is_hovered = state.hovered_group == Some(thread_group_key(group));
             if is_hovered {
                 frame.fill_rectangle(
                     Point::new(0.0, row_top),
-                    Size::new(bounds.width, LANE_HEIGHT + 2.0),
+                    Size::new(bounds.width, (LANE_HEIGHT + 2.0) as f32),
                     Color::from_rgb(0.94, 0.94, 0.94),
                 );
             }
@@ -119,7 +120,7 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
                 ..Default::default()
             });
 
-            y_offset += lane_total_height + LANE_SPACING;
+            y_offset += lane_total_height as f64 + LANE_SPACING as f64;
         }
 
         vec![frame.into_geometry()]

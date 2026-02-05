@@ -1,15 +1,16 @@
+// Mini timeline receives explicit f64 scroll offsets from app state.
 use crate::timeline::ticks::{format_time_label, nice_interval};
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Geometry, Program};
-use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme, Vector};
+use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme};
 
 pub(crate) struct MiniTimelineProgram {
     pub(crate) min_ns: u64,
     pub(crate) max_ns: u64,
-    pub(crate) zoom_level: f32,
-    pub(crate) scroll_offset: Vector,
-    pub(crate) viewport_width: f32,
+    pub(crate) zoom_level: f64,
+    pub(crate) scroll_offset_x: f64,
+    pub(crate) viewport_width: f64,
 }
 
 #[derive(Default)]
@@ -22,12 +23,12 @@ pub(crate) struct MiniTimelineState {
 
 impl MiniTimelineProgram {
     fn fallback_viewport_width(&self, bounds: Rectangle) -> f32 {
-        (bounds.width - super::LABEL_WIDTH).max(0.0)
+        (bounds.width - super::LABEL_WIDTH as f32).max(0.0)
     }
 
     fn viewport_width_for_bounds(&self, bounds: Rectangle) -> f32 {
         if self.viewport_width > 0.0 {
-            self.viewport_width
+            self.viewport_width as f32
         } else {
             self.fallback_viewport_width(bounds)
         }
@@ -113,15 +114,15 @@ impl Program<Message> for MiniTimelineProgram {
             relative_ns += nice_interval;
         }
 
-        let total_width = (total_ns as f64 * self.zoom_level as f64).ceil() as f32;
+        let total_width = (total_ns * self.zoom_level).ceil() as f32;
         if total_width > 0.0 {
             // Map the main timeline viewport into the full width of the mini timeline
             let events_width = bounds.width;
 
-            let viewport_width = self.viewport_width_for_bounds(bounds);
+            let viewport_width = self.viewport_width_for_bounds(bounds) as f64;
 
-            let view_start = (self.scroll_offset.x / total_width).clamp(0.0, 1.0);
-            let view_width = (viewport_width / total_width).clamp(0.0, 1.0);
+            let view_start = (self.scroll_offset_x / total_width as f64).clamp(0.0, 1.0) as f32;
+            let view_width = (viewport_width / total_width as f64).clamp(0.0, 1.0) as f32;
 
             let x = view_start * events_width;
             let width = (view_width * events_width).max(4.0);
