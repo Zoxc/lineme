@@ -1198,9 +1198,15 @@ impl Lineme {
             text("Welcome to Lineme Settings").size(12),
             // Register file extension button + result message
             row![
-                button(text("Register .mm_profdata").size(12))
-                    .style(crate::ui::neutral_button_style)
-                    .on_press(Message::RegisterFileExtension),
+                button(
+                    row![
+                        text(FILE_ICON).font(ICON_FONT).size(16),
+                        text("Register .mm_profdata").size(12)
+                    ]
+                    .spacing(6)
+                    .align_y(Alignment::Center),
+                )
+                .on_press(Message::RegisterFileExtension),
                 // show last action result if present
                 if let Some(msg) = &self.last_action_message {
                     Element::from(text(msg).size(12))
