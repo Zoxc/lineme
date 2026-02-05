@@ -181,7 +181,7 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
         color_mode: timeline::ColorMode::default(),
         selected_event: None,
         hovered_event: None,
-        merge_threads: false,
+        merge_threads: true,
         initial_fit_done: false,
         view_type: crate::ViewType::default(),
         zoom_level: 1.0,

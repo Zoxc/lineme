@@ -903,74 +903,79 @@ impl Lineme {
             };
 
             if matches!(file.load_state, FileLoadState::Ready(_)) {
-                let view_selector_bar = container(
-                    row![
-                        text("View:").size(12),
-                        pick_list(
-                            &ViewType::ALL[..],
-                            Some(current_view),
-                            Message::ViewChanged
-                        )
-                        .text_size(12)
-                        .padding(3)
-                        .style(neutral_pick_list_style),
-                        if current_view == ViewType::Timeline {
-                            Element::from(
+                // Keep "View:" and its pick_list on the left, and push the rest
+                // of the timeline-specific controls to the right.
+                let left_controls = row![
+                    text("View:").size(12),
+                    pick_list(
+                        &ViewType::ALL[..],
+                        Some(current_view),
+                        Message::ViewChanged,
+                    )
+                    .text_size(12)
+                    .padding(3)
+                    .style(neutral_pick_list_style),
+                ]
+                .spacing(5)
+                .align_y(Alignment::Center);
+
+                let right_controls: Element<'_, Message> = if current_view == ViewType::Timeline {
+                    Element::from(
+                        row![
+                            text("Color by:").size(12),
+                            // When file is loaded the pick_list reads color mode from Stats.
+                            pick_list(
+                                &ColorMode::ALL[..],
+                                file.stats().map(|s| s.color_mode),
+                                Message::ColorModeChanged,
+                            )
+                            .text_size(12)
+                            .padding(3)
+                            .style(neutral_pick_list_style),
+                            checkbox(file.stats().map(|s| s.merge_threads).unwrap_or(false))
+                                .label("Merge threads")
+                                .size(14)
+                                .text_size(12)
+                                .on_toggle(Message::MergeThreadsToggled),
+                            button(
                                 row![
-                                    text("Color by:").size(12),
-                                    // When file is loaded the pick_list reads color mode from Stats.
-                                    pick_list(
-                                        &ColorMode::ALL[..],
-                                        file.stats().map(|s| s.color_mode),
-                                        Message::ColorModeChanged
-                                    )
-                                    .text_size(12)
-                                    .padding(3)
-                                    .style(neutral_pick_list_style),
-                                    checkbox(file.stats().map(|s| s.merge_threads).unwrap_or(false))
-                                        .label("Merge threads")
-                                        .size(14)
-                                        .text_size(12)
-                                        .on_toggle(Message::MergeThreadsToggled),
-                                    button(
-                                        row![
-                                            text(RESET_ICON).font(ICON_FONT),
-                                            text("Reset View").size(12.0)
-                                        ]
-                                        .spacing(5)
-                                        .align_y(Alignment::Center),
-                                    )
-                                    .style(|theme: &iced::Theme, status: button::Status| {
-                                        let palette = theme.extended_palette();
-                                        let base = button::Style {
-                                            text_color: palette.background.base.text,
-                                            ..Default::default()
-                                        };
-                                        match status {
-                                            button::Status::Hovered | button::Status::Pressed => {
-                                                button::Style {
-                                                    background: Some(
-                                                        palette.background.weak.color.into(),
-                                                    ),
-                                                    ..base
-                                                }
-                                            }
-                                            _ => base,
-                                        }
-                                    })
-                                    .padding(3)
-                                    .on_press(Message::ResetView),
+                                    text(RESET_ICON).font(ICON_FONT),
+                                    text("Reset View").size(12.0)
                                 ]
-                                .spacing(10)
+                                .spacing(5)
                                 .align_y(Alignment::Center),
                             )
-                        } else {
-                            Element::from(Space::new().width(0))
-                        },
-                    ]
-                    .spacing(10)
-                    .padding(5)
-                    .align_y(Alignment::Center),
+                            .style(|theme: &iced::Theme, status: button::Status| {
+                                let palette = theme.extended_palette();
+                                let base = button::Style {
+                                    text_color: palette.background.base.text,
+                                    ..Default::default()
+                                };
+                                match status {
+                                    button::Status::Hovered | button::Status::Pressed => {
+                                        button::Style {
+                                            background: Some(palette.background.weak.color.into()),
+                                            ..base
+                                        }
+                                    }
+                                    _ => base,
+                                }
+                            })
+                            .padding(3)
+                            .on_press(Message::ResetView),
+                        ]
+                        .spacing(10)
+                        .align_y(Alignment::Center),
+                    )
+                } else {
+                    Element::from(Space::new().width(0))
+                };
+
+                let view_selector_bar = container(
+                    row![left_controls, Space::new().width(Length::Fill), right_controls]
+                        .spacing(10)
+                        .padding(5)
+                        .align_y(Alignment::Center),
                 )
                 .width(Length::Fill)
                 .style(|_theme: &iced::Theme| {
@@ -1185,11 +1190,6 @@ impl Lineme {
 
         let settings_col = column![
             text("Settings").size(20),
-            row![
-                text("Open files:").width(Length::Fixed(120.0)).size(12),
-                text(format!("{}", self.files.len())).size(12)
-            ],
-            text("Welcome to Lineme Settings").size(12),
             // Register file extension button + result message
             row![
                 button(

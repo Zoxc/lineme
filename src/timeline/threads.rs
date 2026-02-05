@@ -168,10 +168,13 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
 }
 
 fn group_label(group: &ThreadGroup) -> String {
+    // For a single-thread group use the concise form "Thread <id>".
     if group.threads.len() == 1 {
         if let Some(thread) = group.threads.first() {
             return format!("Thread {}", thread.thread_id);
         }
     }
-    format!("Thread Group ({})", group.threads.len())
+
+    // For multi-thread groups display a concise "Merged" label.
+    "Merged".to_string()
 }
