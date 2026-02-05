@@ -21,6 +21,7 @@ pub struct FileData {
     pub view_type: crate::ViewType,
     // Use f64 for zoom/scroll state to avoid precision loss at high zoom.
     pub zoom_level: f64,
+    /// Horizontal scroll offset in nanoseconds, relative to timeline.min_ns.
     pub scroll_offset_x: f64,
     pub scroll_offset_y: f64,
     pub viewport_width: f64,

@@ -121,7 +121,8 @@ impl Program<Message> for MiniTimelineProgram {
 
             let viewport_width = self.viewport_width_for_bounds(bounds) as f64;
 
-            let view_start = (self.scroll_offset_x / total_width as f64).clamp(0.0, 1.0) as f32;
+            let scroll_offset_px = self.scroll_offset_x * self.zoom_level;
+            let view_start = (scroll_offset_px / total_width as f64).clamp(0.0, 1.0) as f32;
             let view_width = (viewport_width / total_width as f64).clamp(0.0, 1.0) as f32;
 
             let x = view_start * events_width;

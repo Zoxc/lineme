@@ -163,12 +163,17 @@ pub fn total_ns(min_ns: u64, max_ns: u64) -> u64 {
     max_ns.saturating_sub(min_ns)
 }
 
-pub fn total_width_from_ns(total_ns: u64, zoom_level: f64) -> f64 {
-    (total_ns as f64 * zoom_level).ceil()
-}
-
-pub fn clamp_scroll_x(scroll_x: f64, total_width: f64, viewport_width: f64) -> f64 {
-    scroll_x.clamp(0.0, (total_width - viewport_width).max(0.0))
+pub fn clamp_scroll_offset_ns(
+    scroll_offset_ns: f64,
+    total_ns: u64,
+    viewport_width: f64,
+    zoom_level: f64,
+) -> f64 {
+    let total_ns = total_ns as f64;
+    let zoom_level = zoom_level.max(1e-9);
+    let visible_ns = (viewport_width / zoom_level).max(0.0);
+    let max_start_ns = (total_ns - visible_ns).max(0.0);
+    scroll_offset_ns.clamp(0.0, max_start_ns)
 }
 
 pub fn ns_to_x(start_ns: u64, min_ns: u64, zoom_level: f64) -> f64 {
@@ -180,15 +185,14 @@ pub fn duration_to_width(duration_ns: u64, zoom_level: f64) -> f64 {
 }
 
 pub fn viewport_ns_range(
-    scroll_x: f64,
+    scroll_offset_ns: f64,
     viewport_width: f64,
     zoom_level: f64,
     min_ns: u64,
 ) -> (u64, u64) {
-    let x_min = scroll_x;
-    let x_max = scroll_x + viewport_width;
-    let ns_min = (x_min / zoom_level).max(0.0) as u64 + min_ns;
-    let ns_max = (x_max / zoom_level).max(0.0) as u64 + min_ns;
+    let zoom_level = zoom_level.max(1e-9);
+    let ns_min = scroll_offset_ns.max(0.0) as u64 + min_ns;
+    let ns_max = (scroll_offset_ns + viewport_width / zoom_level).max(0.0) as u64 + min_ns;
     (ns_min, ns_max)
 }
 
@@ -418,6 +422,7 @@ pub fn view<'a>(
 
     let events_width = (total_ns as f64 * zoom_level).ceil() as f32;
 
+    let scroll_offset_x_px = scroll_offset_x * zoom_level;
     let mini_timeline_canvas = Canvas::new(MiniTimelineProgram {
         min_ns: timeline_data.min_ns,
         max_ns: timeline_data.max_ns,
@@ -432,7 +437,7 @@ pub fn view<'a>(
         min_ns: timeline_data.min_ns,
         max_ns: timeline_data.max_ns,
         zoom_level,
-        scroll_offset_x,
+        scroll_offset_x: scroll_offset_x_px,
     })
     .width(Length::Fill)
     .height(Length::Fixed(HEADER_HEIGHT as f32));
@@ -481,10 +486,10 @@ pub fn view<'a>(
         total_ns.max(1.0)
     };
     let max_start_ns_rel = (total_ns - visible_ns).max(0.0);
-    let start_ns_rel = (scroll_offset_x / zoom_level.max(1e-9)).clamp(0.0, total_ns.max(0.0));
-    let min_start_ns = timeline_data.min_ns as f64;
-    let start_ns = min_start_ns + start_ns_rel;
-    let max_start_ns = min_start_ns + max_start_ns_rel;
+    let start_ns_rel = scroll_offset_x.clamp(0.0, total_ns.max(0.0));
+    let min_start_ns = 0.0;
+    let start_ns = start_ns_rel;
+    let max_start_ns = max_start_ns_rel;
     let thumb_fraction = if total_ns > 0.0 {
         (visible_ns / total_ns).clamp(0.02, 1.0)
     } else {
@@ -589,9 +594,10 @@ pub fn view<'a>(
     // Only show the details panel when an event is selected or hovered.
     if let Some(event) = display_event {
         // Also compute float-precision viewport endpoints (not truncated to u64)
-        let view_start_f = (scroll_offset_x / zoom_level).max(0.0) + timeline_data.min_ns as f64;
-        let view_end_f = ((scroll_offset_x + viewport_width) / zoom_level).max(0.0)
-            + timeline_data.min_ns as f64;
+        let zoom_level = zoom_level.max(1e-9);
+        let view_start_f = scroll_offset_x.max(0.0) + timeline_data.min_ns as f64;
+        let view_end_f =
+            (scroll_offset_x + viewport_width / zoom_level).max(0.0) + timeline_data.min_ns as f64;
         // Build details column, including one row per additional_data item.
         let mut details_col = column![
             row![
@@ -619,7 +625,7 @@ pub fn view<'a>(
             ],
             // Debug: show current visible view start/end with float precision
             row![
-                text("View:").width(Length::Fixed(80.0)).size(12),
+                text("View (ns):").width(Length::Fixed(80.0)).size(12),
                 text(format!(
                     "{:.12} — {:.12}",
                     view_start_f - timeline_data.min_ns as f64,

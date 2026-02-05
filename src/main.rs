@@ -396,7 +396,10 @@ impl Lineme {
                                 return scroll_to(
                                     timeline_id(),
                                     AbsoluteOffset {
-                                        x: stats.scroll_offset_x as f32,
+                                        x: Lineme::scroll_offset_x_px(
+                                            stats.scroll_offset_x,
+                                            stats.zoom_level,
+                                        ),
                                         y: stats.scroll_offset_y as f32,
                                     },
                                 );
@@ -436,14 +439,20 @@ impl Lineme {
                     let target_ns = (end_ns.saturating_sub(start_ns)).max(1) as f64;
                     stats.zoom_level = viewport_width as f64 / target_ns;
 
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
-                    let target_x = crate::timeline::ns_to_x(start_ns, 0, stats.zoom_level);
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width as f64);
+                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        start_ns as f64,
+                        total_ns,
+                        viewport_width as f64,
+                        stats.zoom_level,
+                    );
 
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
-                            x: stats.scroll_offset_x as f32,
+                            x: Lineme::scroll_offset_x_px(
+                                stats.scroll_offset_x,
+                                stats.zoom_level,
+                            ),
                             y: stats.scroll_offset_y as f32,
                         },
                     );
@@ -471,17 +480,26 @@ impl Lineme {
                     stats.zoom_level *= zoom_factor;
 
                     // Adjust scroll offset to keep x position stable (work in f64)
-                    let x_on_canvas = x as f64 + stats.scroll_offset_x;
-                    stats.scroll_offset_x = x_on_canvas * zoom_factor - x as f64;
+                    let zoom_level = stats.zoom_level.max(1e-9);
+                    let x_on_canvas = x as f64 + stats.scroll_offset_x * zoom_level;
+                    let new_scroll_px = x_on_canvas * zoom_factor - x as f64;
+                    stats.scroll_offset_x = new_scroll_px / zoom_level;
 
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
                     let viewport_width = stats.viewport_width.max(0.0_f64);
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_x(stats.scroll_offset_x, total_width, viewport_width);
+                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        stats.scroll_offset_x,
+                        total_ns,
+                        viewport_width,
+                        stats.zoom_level,
+                    );
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
-                            x: stats.scroll_offset_x as f32,
+                            x: Lineme::scroll_offset_x_px(
+                                stats.scroll_offset_x,
+                                stats.zoom_level,
+                            ),
                             y: stats.scroll_offset_y as f32,
                         },
                     );
@@ -502,7 +520,7 @@ impl Lineme {
                     let min_ns = stats.timeline.min_ns;
                     let max_ns = stats.timeline.max_ns;
 
-                    stats.scroll_offset_x = offset_x;
+                    stats.scroll_offset_x = offset_x / stats.zoom_level.max(1e-9);
                     stats.scroll_offset_y = offset_y;
                     let first_time = stats.viewport_width == 0.0 && viewport_width > 0.0;
                     if viewport_width > 0.0 {
@@ -551,16 +569,24 @@ impl Lineme {
                         stats.initial_fit_done = true;
                     }
 
-                    let total_ns = max_ns.saturating_sub(min_ns);
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
-                    if total_width > 0.0 {
-                        let target_center = fraction as f64 * total_width;
-                        let target_x = target_center - viewport_width / 2.0;
-                        stats.scroll_offset_x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
+                    if max_ns > min_ns {
+                        let total_ns = max_ns.saturating_sub(min_ns);
+                        let target_center_ns = fraction as f64 * total_ns as f64;
+                        let visible_ns = viewport_width / stats.zoom_level.max(1e-9);
+                        let target_ns = target_center_ns - visible_ns / 2.0;
+                        stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                            target_ns,
+                            total_ns,
+                            viewport_width,
+                            stats.zoom_level,
+                        );
                         return scroll_to(
                             timeline_id(),
                             AbsoluteOffset {
-                                x: stats.scroll_offset_x as f32,
+                                x: Lineme::scroll_offset_x_px(
+                                    stats.scroll_offset_x,
+                                    stats.zoom_level,
+                                ),
                                 y: stats.scroll_offset_y as f32,
                             },
                         );
@@ -573,28 +599,29 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    let min_ns = stats.timeline.min_ns as f64;
-                    let max_ns = stats.timeline.max_ns as f64;
                     let zoom_level = stats.zoom_level.max(1e-9);
                     let viewport_width = stats.viewport_width.max(1.0);
                     let visible_ns = (viewport_width / zoom_level).max(1.0);
-                    let max_start_ns = (max_ns - visible_ns).max(min_ns);
-                    let clamped_start = start_ns.clamp(min_ns, max_start_ns);
-                    stats.scroll_offset_x = (clamped_start - min_ns) * zoom_level;
-
                     let total_ns = stats.timeline.max_ns.saturating_sub(stats.timeline.min_ns);
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
+                    let max_start_ns = (total_ns as f64 - visible_ns).max(0.0);
+                    let clamped_start = start_ns.clamp(0.0, max_start_ns);
+                    stats.scroll_offset_x = clamped_start;
+
                     let viewport_width = stats.viewport_width.max(0.0);
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_x(
+                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
                         stats.scroll_offset_x,
-                        total_width,
+                        total_ns,
                         viewport_width,
+                        stats.zoom_level,
                     );
 
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
-                            x: stats.scroll_offset_x as f32,
+                            x: Lineme::scroll_offset_x_px(
+                                stats.scroll_offset_x,
+                                stats.zoom_level,
+                            ),
                             y: stats.scroll_offset_y as f32,
                         },
                     );
@@ -617,7 +644,10 @@ impl Lineme {
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
-                            x: stats.scroll_offset_x as f32,
+                            x: Lineme::scroll_offset_x_px(
+                                stats.scroll_offset_x,
+                                stats.zoom_level,
+                            ),
                             y: stats.scroll_offset_y as f32,
                         },
                     );
@@ -646,13 +676,20 @@ impl Lineme {
                     let viewport_width = stats.viewport_width.max(1.0);
                     stats.zoom_level = viewport_width / target_ns;
                     stats.initial_fit_done = true;
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
-                    let target_x = start_fraction as f64 * total_width;
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_x(target_x, total_width, viewport_width);
+                    let target_ns = start_fraction as f64 * total_ns as f64;
+                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        target_ns,
+                        total_ns,
+                        viewport_width,
+                        stats.zoom_level,
+                    );
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
-                            x: stats.scroll_offset_x as f32,
+                            x: Lineme::scroll_offset_x_px(
+                                stats.scroll_offset_x,
+                                stats.zoom_level,
+                            ),
                             y: stats.scroll_offset_y as f32,
                         },
                     );
@@ -672,20 +709,29 @@ impl Lineme {
                     let min_ns = stats.timeline.min_ns;
                     let max_ns = stats.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
-                    let total_width = crate::timeline::total_width_from_ns(total_ns, stats.zoom_level);
                     let viewport_width = stats.viewport_width.max(0.0_f64);
-                    let _max_scroll_x = (total_width - viewport_width).max(0.0_f64);
+                    let _max_scroll_x = (total_ns as f64
+                        - viewport_width / stats.zoom_level.max(1e-9))
+                        .max(0.0_f64);
 
                     let viewport_height = stats.viewport_height.max(0.0_f64);
                     let max_scroll_y = (total_height - viewport_height as f64).max(0.0_f64);
 
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_x(stats.scroll_offset_x - delta.x as f64, total_width, viewport_width);
+                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        stats.scroll_offset_x - delta.x as f64 / stats.zoom_level.max(1e-9),
+                        total_ns,
+                        viewport_width,
+                        stats.zoom_level,
+                    );
                     stats.scroll_offset_y = (stats.scroll_offset_y - delta.y as f64).clamp(0.0, max_scroll_y);
 
                     return scroll_to(
                         timeline_id(),
                         AbsoluteOffset {
-                            x: stats.scroll_offset_x as f32,
+                            x: Lineme::scroll_offset_x_px(
+                                stats.scroll_offset_x,
+                                stats.zoom_level,
+                            ),
                             y: stats.scroll_offset_y as f32,
                         },
                     );
@@ -734,7 +780,12 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut stats.scroll_offset_x, &mut stats.scroll_offset_y, total_height) {
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(
+                        &mut stats.scroll_offset_x,
+                        &mut stats.scroll_offset_y,
+                        total_height,
+                        stats.zoom_level,
+                    ) {
                         return task;
                     }
                 }
@@ -755,7 +806,12 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut stats.scroll_offset_x, &mut stats.scroll_offset_y, total_height) {
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(
+                        &mut stats.scroll_offset_x,
+                        &mut stats.scroll_offset_y,
+                        total_height,
+                        stats.zoom_level,
+                    ) {
                         return task;
                     }
                 }
@@ -776,7 +832,12 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut stats.scroll_offset_x, &mut stats.scroll_offset_y, total_height) {
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(
+                        &mut stats.scroll_offset_x,
+                        &mut stats.scroll_offset_y,
+                        total_height,
+                        stats.zoom_level,
+                    ) {
                         return task;
                     }
                 }
@@ -798,7 +859,12 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(&mut stats.scroll_offset_x, &mut stats.scroll_offset_y, total_height) {
+                    if let Some(task) = Lineme::clamp_vertical_scroll_and_scroll_to_if_needed_total(
+                        &mut stats.scroll_offset_x,
+                        &mut stats.scroll_offset_y,
+                        total_height,
+                        stats.zoom_level,
+                    ) {
                         return task;
                     }
                 }
@@ -861,6 +927,7 @@ impl Lineme {
         scroll_offset_x: &mut f64,
         scroll_offset_y: &mut f64,
         thread_groups: &[timeline::ThreadGroup],
+        zoom_level: f64,
     ) -> Option<Task<Message>> {
         let total_height = timeline::total_timeline_height(thread_groups) as f64;
         if *scroll_offset_y > total_height {
@@ -868,7 +935,7 @@ impl Lineme {
             return Some(scroll_to(
                 timeline_id(),
                 AbsoluteOffset {
-                    x: *scroll_offset_x as f32,
+                    x: (*scroll_offset_x * zoom_level.max(1e-9)) as f32,
                     y: *scroll_offset_y as f32,
                 },
             ));
@@ -883,18 +950,23 @@ impl Lineme {
         scroll_offset_x: &mut f64,
         scroll_offset_y: &mut f64,
         total_height: f64,
+        zoom_level: f64,
     ) -> Option<Task<Message>> {
         if *scroll_offset_y > total_height {
             *scroll_offset_y = total_height;
             return Some(scroll_to(
                 timeline_id(),
                 AbsoluteOffset {
-                    x: *scroll_offset_x as f32,
+                    x: (*scroll_offset_x * zoom_level.max(1e-9)) as f32,
                     y: *scroll_offset_y as f32,
                 },
             ));
         }
         None
+    }
+
+    fn scroll_offset_x_px(scroll_offset_x: f64, zoom_level: f64) -> f32 {
+        (scroll_offset_x * zoom_level.max(1e-9)) as f32
     }
 
     fn view(&self) -> Element<'_, Message> {

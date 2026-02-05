@@ -173,28 +173,31 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
         // Draw vertical tick guide lines matching the header ticks.
         let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
-        let x_min = self.scroll_offset_x;
-        let x_max = self.scroll_offset_x + self.viewport_width;
+        let zoom_level = self.zoom_level.max(1e-9);
+        let scroll_offset_x_px = self.scroll_offset_x * zoom_level;
+        let x_min = scroll_offset_x_px;
+        let x_max = scroll_offset_x_px + self.viewport_width;
         let _x_min_f = x_min as f32;
         let _x_max_f = x_max as f32;
-        let ns_min = (x_min / self.zoom_level).max(0.0) as u64 + self.min_ns;
-        let ns_max = (x_max / self.zoom_level).max(0.0) as u64 + self.min_ns;
+        let ns_min = self.scroll_offset_x.max(0.0) as u64 + self.min_ns;
+        let ns_max =
+            (self.scroll_offset_x + self.viewport_width / zoom_level).max(0.0) as u64 + self.min_ns;
 
         if total_ns > 0.0 {
             // ns per pixel given current zoom: 1 / zoom_level
-            let ns_per_pixel = 1.0 / self.zoom_level as f64;
+            let ns_per_pixel = 1.0 / zoom_level;
             let pixel_interval = 100.0;
             let ns_interval = pixel_interval as f64 * ns_per_pixel;
             let nice_interval = crate::timeline::ticks::nice_interval(ns_interval);
 
             let mut relative_ns = if self.viewport_width > 0.0 {
-                (x_min as f64 / self.zoom_level as f64 / nice_interval).floor() * nice_interval
+                (x_min as f64 / zoom_level / nice_interval).floor() * nice_interval
             } else {
                 0.0
             };
 
             while relative_ns <= total_ns {
-                let x = (relative_ns * self.zoom_level) as f32;
+                let x = (relative_ns * zoom_level) as f32;
                 if self.viewport_width > 0.0 && (x as f64) > x_max {
                     break;
                 }
@@ -236,7 +239,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     .with_width(1.0),
             );
 
-            for level in mipmap_levels_for_zoom(group, self.zoom_level) {
+            for level in mipmap_levels_for_zoom(group, zoom_level) {
                 for index in visible_event_indices_in(
                     &level.events,
                     &level.events_by_start,
@@ -250,14 +253,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     }
 
                     let width =
-                        crate::timeline::duration_to_width(event.duration_ns, self.zoom_level)
-                            as f32;
+                        crate::timeline::duration_to_width(event.duration_ns, zoom_level) as f32;
                     if width < 1.0 {
                         continue;
                     }
 
-                    let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, self.zoom_level)
-                        as f32;
+                    let x =
+                        crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level) as f32;
 
                     // Skip drawing if event is completely outside horizontal viewport
                     if self.viewport_width > 0.0
@@ -288,15 +290,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             if let Some(hovered) = &state.hovered_event {
                 if super::group_contains_thread(group, hovered.thread_id) {
                     if !group.is_collapsed || hovered.depth == 0 {
-                        let x = crate::timeline::ns_to_x(
-                            hovered.start_ns,
-                            self.min_ns,
-                            self.zoom_level,
-                        ) as f32;
-                        let width = crate::timeline::duration_to_width(
-                            hovered.duration_ns,
-                            self.zoom_level,
-                        ) as f32;
+                        let x = crate::timeline::ns_to_x(hovered.start_ns, self.min_ns, zoom_level)
+                            as f32;
+                        let width =
+                            crate::timeline::duration_to_width(hovered.duration_ns, zoom_level)
+                                as f32;
                         let y = y_offset as f32 + hovered.depth as f32 * (LANE_HEIGHT as f32);
 
                         frame.stroke(
@@ -315,15 +313,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             if let Some(selected) = self.selected_event {
                 if super::group_contains_thread(group, selected.thread_id) {
                     if !group.is_collapsed || selected.depth == 0 {
-                        let x = crate::timeline::ns_to_x(
-                            selected.start_ns,
-                            self.min_ns,
-                            self.zoom_level,
-                        ) as f32;
-                        let width = crate::timeline::duration_to_width(
-                            selected.duration_ns,
-                            self.zoom_level,
-                        ) as f32;
+                        let x = crate::timeline::ns_to_x(selected.start_ns, self.min_ns, zoom_level)
+                            as f32;
+                        let width =
+                            crate::timeline::duration_to_width(selected.duration_ns, zoom_level)
+                                as f32;
                         let y = y_offset as f32 + selected.depth as f32 * (LANE_HEIGHT as f32);
 
                         frame.stroke(
@@ -430,6 +424,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
             iced::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
                 if let Some(position) = cursor.position_in(bounds) {
+                    let scroll_offset_x_px = self.scroll_offset_x * self.zoom_level.max(1e-9);
                     // Shift + wheel: pan horizontally
                     if state.modifiers.shift() {
                         match delta {
@@ -454,7 +449,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
                                 if y.abs() > 0.0 {
                                     let viewport_width = self.viewport_width.max(0.0);
-                                    let cursor_x = (position.x as f64 - self.scroll_offset_x)
+                                    let cursor_x = (position.x as f64 - scroll_offset_x_px)
                                         .clamp(0.0, viewport_width);
                                     return Some(canvas::Action::publish(
                                         Message::TimelineZoomed {
