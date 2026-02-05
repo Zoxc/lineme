@@ -1,3 +1,4 @@
+use crate::timeline::ticks::{format_time_label, nice_interval};
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
@@ -37,16 +38,7 @@ impl Program<Message> for HeaderProgram {
         let ns_per_pixel = 1.0 / self.zoom_level as f64;
         let pixel_interval = 100.0;
         let ns_interval = pixel_interval as f64 * ns_per_pixel;
-
-        let log10 = ns_interval.log10().floor();
-        let base = 10.0f64.powf(log10);
-        let nice_interval = if ns_interval / base < 2.0 {
-            base * 2.0
-        } else if ns_interval / base < 5.0 {
-            base * 5.0
-        } else {
-            base * 10.0
-        };
+        let nice_interval = nice_interval(ns_interval);
 
         let mut relative_ns = 0.0;
         while relative_ns <= total_ns {
@@ -63,15 +55,7 @@ impl Program<Message> for HeaderProgram {
                         .with_width(1.0),
                 );
 
-                let time_str = if nice_interval >= 1_000_000_000.0 {
-                    format!("{:.2} s", relative_ns / 1_000_000_000.0)
-                } else if nice_interval >= 1_000_000.0 {
-                    format!("{:.2} ms", relative_ns / 1_000_000.0)
-                } else if nice_interval >= 1_000.0 {
-                    format!("{:.2} µs", relative_ns / 1_000.0)
-                } else {
-                    format!("{:.0} ns", relative_ns)
-                };
+                let time_str = format_time_label(relative_ns, nice_interval);
 
                 frame.fill_text(canvas::Text {
                     content: time_str,

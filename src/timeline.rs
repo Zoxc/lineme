@@ -2,6 +2,7 @@ mod events;
 mod header;
 mod mini_timeline;
 mod threads;
+mod ticks;
 
 use crate::Message;
 use events::EventsProgram;

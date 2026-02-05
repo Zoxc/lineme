@@ -169,16 +169,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             let ns_per_pixel = 1.0 / self.zoom_level as f64;
             let pixel_interval = 100.0;
             let ns_interval = pixel_interval as f64 * ns_per_pixel;
-
-            let log10 = ns_interval.log10().floor();
-            let base = 10.0f64.powf(log10);
-            let nice_interval = if ns_interval / base < 2.0 {
-                base * 2.0
-            } else if ns_interval / base < 5.0 {
-                base * 5.0
-            } else {
-                base * 10.0
-            };
+            let nice_interval = crate::timeline::ticks::nice_interval(ns_interval);
 
             let mut relative_ns = if self.viewport_width > 0.0 {
                 (x_min as f64 / self.zoom_level as f64 / nice_interval).floor() * nice_interval
