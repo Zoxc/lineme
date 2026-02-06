@@ -1,6 +1,6 @@
 // Mini timeline receives explicit f64 scroll offsets from app state.
-use crate::Message;
 use crate::timeline::ticks::{format_time_label, nice_interval};
+use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Geometry, Program};
 use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme};

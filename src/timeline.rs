@@ -4,18 +4,18 @@ mod mini_timeline;
 mod threads;
 mod ticks;
 
-use crate::Message;
 use crate::data::{EventId, ThreadData, TimelineEvent};
 use crate::scrollbar;
 use crate::symbols::Symbol;
+use crate::Message;
 use events::EventsProgram;
 use header::HeaderProgram;
 use iced::advanced::widget::{self, Tree, Widget};
-use iced::advanced::{Clipboard, Layout, Shell, layout, renderer};
+use iced::advanced::{layout, renderer, Clipboard, Layout, Shell};
 use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Canvas;
-use iced::widget::{Space, button, column, container, row, text};
+use iced::widget::{button, column, container, row, text, Space};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Theme};
 use mini_timeline::MiniTimelineProgram;
 use std::sync::Arc;
@@ -67,6 +67,14 @@ pub struct ThreadGroup {
 #[derive(Debug, Clone)]
 pub struct ThreadGroupMipMap {
     pub max_duration_ns: u64,
+    pub events: Vec<EventId>,
+    pub shadows: ThreadGroupMipMapShadows,
+    pub events_by_start: Vec<usize>,
+    pub events_by_end: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ThreadGroupMipMapShadows {
     pub events: Vec<EventId>,
     pub events_by_start: Vec<usize>,
     pub events_by_end: Vec<usize>,
@@ -288,6 +296,7 @@ fn build_thread_group_mipmaps(
         mipmaps.push(ThreadGroupMipMap {
             max_duration_ns,
             events: bucket_events,
+            shadows: ThreadGroupMipMapShadows::default(),
             events_by_start,
             events_by_end,
         });
@@ -300,8 +309,8 @@ fn build_thread_group_mipmaps(
     // representation of all real events in levels [0..=i], inflated to at least
     // that level's max_duration and merged per (thread_id, depth, is_root).
     //
-    // We store these shadows in the same `events` vector (flagged `is_shadow`)
-    // and append their ids into `level.events`.
+    // Shadows are stored separately per mip level so the main `events` list
+    // remains purely "real" events.
     if !mipmaps.is_empty() {
         let mut cumulative_real: Vec<EventId> = Vec::new();
         for level in mipmaps.iter_mut() {
@@ -348,6 +357,7 @@ fn build_thread_group_mipmaps(
             let mut shadow_ids: Vec<EventId> = Vec::with_capacity(merged.len());
             for (thread_id, depth, is_thread_root, start, end) in merged {
                 let duration = end.saturating_sub(start).max(1);
+
                 let shadow = TimelineEvent {
                     label: Symbol::default(),
                     start_ns: start,
@@ -359,7 +369,6 @@ fn build_thread_group_mipmaps(
                     payload_integer: None,
                     color: Color::from_rgb(0.75, 0.75, 0.75),
                     is_thread_root,
-                    is_shadow: true,
                 };
 
                 let id = EventId(events.len() as u32);
@@ -367,10 +376,11 @@ fn build_thread_group_mipmaps(
                 shadow_ids.push(id);
             }
 
-            level.events.extend(shadow_ids);
-            let (events_by_start, events_by_end) = build_event_indices(events, &level.events);
-            level.events_by_start = events_by_start;
-            level.events_by_end = events_by_end;
+            level.shadows.events = shadow_ids;
+            let (events_by_start, events_by_end) =
+                build_event_indices(events, &level.shadows.events);
+            level.shadows.events_by_start = events_by_start;
+            level.shadows.events_by_end = events_by_end;
         }
     }
 

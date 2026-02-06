@@ -23,7 +23,6 @@ pub struct TimelineEvent {
     pub payload_integer: Option<u64>,
     pub color: Color,
     pub is_thread_root: bool,
-    pub is_shadow: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -192,7 +191,6 @@ fn collect_timeline_events(
                     // Filled in after we know all kinds.
                     color: timeline::color_from_hsl(0.0, 0.0, 0.85),
                     is_thread_root: false,
-                    is_shadow: false,
                 });
             }
         }
@@ -432,7 +430,6 @@ fn build_thread_root(
         payload_integer: None,
         color: Color::from_rgb(0.85, 0.87, 0.9),
         is_thread_root: true,
-        is_shadow: false,
     };
     events.push(event);
 

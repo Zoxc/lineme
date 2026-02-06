@@ -1,11 +1,11 @@
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
-use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
+use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 use super::{
-    ColorMode, EventId, ThreadGroup, TimelineEvent, color_from_label, display_depth,
-    group_total_height, mipmap_levels_for_zoom, visible_event_indices_in,
+    color_from_label, display_depth, group_total_height, mipmap_levels_for_zoom,
+    visible_event_indices_in, ColorMode, EventId, ThreadGroup, TimelineEvent,
 };
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 
@@ -44,7 +44,7 @@ fn draw_event_rect(
             .with_width(1.0),
     );
 
-    if !is_shadow && rect.width > 5.0 {
+    if rect.width > 5.0 {
         // Draw the full label but intersect the event clip with the overall
         // canvas/layout bounds so text is not drawn outside the visible area.
         let mut clip = Rectangle {
@@ -141,9 +141,6 @@ impl<'a> EventsProgram<'a> {
                     ) {
                         let event_id = level.events[index];
                         let event = &self.events[event_id.index()];
-                        if event.is_shadow {
-                            continue;
-                        }
                         let depth = display_depth(group.show_thread_roots, event);
                         if group.is_collapsed && depth > 0 {
                             continue;
@@ -311,9 +308,6 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 ) {
                     let event_id = level.events[index];
                     let event = &self.events[event_id.index()];
-                    if event.is_shadow {
-                        continue;
-                    }
                     let depth = display_depth(group.show_thread_roots, event);
                     if group.is_collapsed && depth > 0 {
                         continue;
@@ -373,17 +367,14 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             if let Some(shadow_level) = smallest_visible.and_then(|i| group.mipmaps.get(i)) {
                 for index in visible_event_indices_in(
                     self.events,
-                    &shadow_level.events,
-                    &shadow_level.events_by_start,
-                    &shadow_level.events_by_end,
+                    &shadow_level.shadows.events,
+                    &shadow_level.shadows.events_by_start,
+                    &shadow_level.shadows.events_by_end,
                     ns_min,
                     ns_max,
                 ) {
-                    let event_id = shadow_level.events[index];
+                    let event_id = shadow_level.shadows.events[index];
                     let event = &self.events[event_id.index()];
-                    if !event.is_shadow {
-                        continue;
-                    }
 
                     let depth = display_depth(group.show_thread_roots, event);
                     if group.is_collapsed && depth > 0 {
