@@ -93,17 +93,68 @@ pub struct FileTab {
 }
 
 pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
-    let stem = path.with_extension("");
-
-    let data = ProfilingData::new(&stem)
-        .map_err(|e| format!("Failed to load profiling data from {:?}: {}", stem, e))?;
-
+    let data = load_profiling_source(path)?;
     let metadata = data.metadata();
+    let parsed = collect_parsed_events(&data);
+    let mut symbols = crate::symbols::Symbols::new();
+    let kind_color_map = build_kind_color_map(&parsed.events);
+    let (mut events, mut threads) =
+        build_timeline_events(parsed.events, &mut symbols, &kind_color_map);
+    assign_event_depths(&mut events, &mut threads);
+    let thread_data_vec = build_thread_data(&mut events, threads, &mut symbols);
+    let thread_groups = build_thread_groups(&events, &thread_data_vec);
+    let merged_thread_groups = build_merged_thread_groups(&events, &thread_data_vec);
 
-    // First gather all parsed events into a temporary buffer so we can
-    // determine the distinct event kinds and assign hues evenly across them.
-    let mut parsed_events: Vec<(u64, String, u64, u64, String, Vec<String>, Option<u64>)> =
-        Vec::new();
+    Ok(FileTab {
+        data: FileData {
+            event_count: parsed.event_count,
+            cmd: metadata.cmd.clone(),
+            pid: metadata.process_id,
+            timeline: TimelineData {
+                thread_groups,
+                min_ns: if parsed.min_ns == u64::MAX {
+                    0
+                } else {
+                    parsed.min_ns
+                },
+                max_ns: parsed.max_ns,
+            },
+            events,
+            merged_thread_groups,
+            symbols,
+        },
+        ui: FileUi::default(),
+        load_duration_ns: None,
+    })
+}
+
+#[derive(Debug)]
+struct ParsedEvent {
+    thread_id: u64,
+    label: String,
+    start_ns: u64,
+    duration_ns: u64,
+    event_kind: String,
+    additional_data: Vec<String>,
+    payload_integer: Option<u64>,
+}
+
+#[derive(Debug)]
+struct ParsedEvents {
+    events: Vec<ParsedEvent>,
+    min_ns: u64,
+    max_ns: u64,
+    event_count: usize,
+}
+
+fn load_profiling_source(path: &Path) -> Result<ProfilingData, String> {
+    let stem = path.with_extension("");
+    ProfilingData::new(&stem)
+        .map_err(|e| format!("Failed to load profiling data from {:?}: {}", stem, e))
+}
+
+fn collect_parsed_events(data: &ProfilingData) -> ParsedEvents {
+    let mut parsed_events = Vec::new();
     let mut min_ns = u64::MAX;
     let mut max_ns = 0;
     let mut event_count = 0;
@@ -128,84 +179,94 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
                 min_ns = min_ns.min(start_ns);
                 max_ns = max_ns.max(end_ns);
 
-                let event_kind = event.event_kind.to_string();
-                let additional_data = event
-                    .additional_data
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect::<Vec<_>>();
-                let payload_integer = event.payload.integer();
-
-                parsed_events.push((
+                parsed_events.push(ParsedEvent {
                     thread_id,
-                    event.label.to_string(),
+                    label: event.label.to_string(),
                     start_ns,
-                    end_ns.saturating_sub(start_ns),
-                    event_kind,
-                    additional_data,
-                    payload_integer,
-                ));
+                    duration_ns: end_ns.saturating_sub(start_ns),
+                    event_kind: event.event_kind.to_string(),
+                    additional_data: event
+                        .additional_data
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>(),
+                    payload_integer: event.payload.integer(),
+                });
             }
         }
     }
 
-    // Create a symbol interner and build a deterministic ordered list of kinds
-    // and assign equally spaced hues.
-    let mut symbols = crate::symbols::Symbols::new();
+    ParsedEvents {
+        events: parsed_events,
+        min_ns,
+        max_ns,
+        event_count,
+    }
+}
 
-    // Build a deterministic ordered list of kinds and assign equally spaced hues.
+fn build_kind_color_map(events: &[ParsedEvent]) -> HashMap<String, Color> {
     use std::collections::BTreeSet;
+
     let mut kinds_set: BTreeSet<String> = BTreeSet::new();
-    for (_, _, _, _, kind, _, _) in &parsed_events {
-        kinds_set.insert(kind.clone());
+    for event in events {
+        kinds_set.insert(event.event_kind.clone());
     }
     let kinds: Vec<String> = kinds_set.into_iter().collect();
     let kind_count = kinds.len().max(1);
 
     let mut kind_color_map: HashMap<String, Color> = HashMap::new();
-    // Start the hue at green (~120°) so the first kind maps to green, then
-    // evenly step around the wheel.
     let base_hue = 120.0_f32;
     for (i, kind) in kinds.iter().enumerate() {
         let step = 360.0 / kind_count as f32;
         let hue = (base_hue + (i as f32) * step) % 360.0;
-        // Adjust saturation/lightness to better match the previous
-        // hash-derived palette (muted, bright colors concentrated in the
-        // upper RGB range). These values aim to reproduce that look.
         let color = timeline::color_from_hsl(hue, 0.35, 0.8);
         kind_color_map.insert(kind.clone(), color);
     }
 
-    // Now assign TimelineEvent entries into threads using the computed colors.
+    kind_color_map
+}
+
+fn build_timeline_events(
+    parsed_events: Vec<ParsedEvent>,
+    symbols: &mut crate::symbols::Symbols,
+    kind_color_map: &HashMap<String, Color>,
+) -> (Vec<TimelineEvent>, HashMap<u64, Vec<EventId>>) {
     let mut events: Vec<TimelineEvent> = Vec::new();
     let mut threads: HashMap<u64, Vec<EventId>> = HashMap::new();
-    for (thread_id, label, start_ns, duration_ns, event_kind, additional_data, payload_integer) in
-        parsed_events
-    {
+
+    for parsed_event in parsed_events {
         let color = kind_color_map
-            .get(&event_kind)
+            .get(&parsed_event.event_kind)
             .cloned()
             .unwrap_or_else(|| timeline::color_from_hsl(0.0, 0.0, 0.85));
 
         let event_id = EventId(events.len() as u32);
         events.push(TimelineEvent {
-            label: symbols.intern(&label),
-            start_ns,
-            duration_ns,
+            label: symbols.intern(&parsed_event.label),
+            start_ns: parsed_event.start_ns,
+            duration_ns: parsed_event.duration_ns,
             depth: 0,
-            thread_id,
-            event_kind: symbols.intern(&event_kind),
-            additional_data: additional_data
+            thread_id: parsed_event.thread_id,
+            event_kind: symbols.intern(&parsed_event.event_kind),
+            additional_data: parsed_event
+                .additional_data
                 .into_iter()
                 .map(|s| symbols.intern(&s))
                 .collect(),
-            payload_integer,
+            payload_integer: parsed_event.payload_integer,
             color,
             is_thread_root: false,
         });
-        threads.entry(thread_id).or_default().push(event_id);
+        threads
+            .entry(parsed_event.thread_id)
+            .or_default()
+            .push(event_id);
     }
 
+    (events, threads)
+}
+
+fn assign_event_depths(events: &mut [TimelineEvent], threads: &mut HashMap<u64, Vec<EventId>>) {
     for thread_events in threads.values_mut() {
         thread_events.sort_by_key(|event_id| events[event_id.index()].start_ns);
         let mut stack: Vec<u64> = Vec::new();
@@ -223,10 +284,16 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
             stack.push(end_ns);
         }
     }
+}
 
+fn build_thread_data(
+    events: &mut Vec<TimelineEvent>,
+    threads: HashMap<u64, Vec<EventId>>,
+    symbols: &mut crate::symbols::Symbols,
+) -> Vec<Arc<ThreadData>> {
     let mut thread_data_vec = Vec::new();
     for (thread_id, event_ids) in threads {
-        let thread_root = build_thread_root(&mut events, thread_id, &event_ids, &mut symbols);
+        let thread_root = build_thread_root(events, thread_id, &event_ids, symbols);
         thread_data_vec.push(Arc::new(ThreadData {
             thread_id,
             events: event_ids,
@@ -235,12 +302,18 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
     }
 
     thread_data_vec.sort_by_key(|t| t.thread_id);
+    thread_data_vec
+}
 
+fn build_thread_groups(
+    events: &[TimelineEvent],
+    thread_data: &[Arc<ThreadData>],
+) -> Vec<ThreadGroup> {
     let mut thread_groups = Vec::new();
-    for thread in &thread_data_vec {
+    for thread in thread_data {
         let threads = Arc::new(vec![thread.clone()]);
         let (_events, max_depth, mipmaps) =
-            timeline::build_thread_group_events(&events, &threads, false);
+            timeline::build_thread_group_events(events, &threads, false);
         thread_groups.push(ThreadGroup {
             threads,
             mipmaps,
@@ -250,25 +323,7 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
         });
     }
 
-    let merged_thread_groups = build_merged_thread_groups(&events, &thread_data_vec);
-
-    Ok(FileTab {
-        data: FileData {
-            event_count,
-            cmd: metadata.cmd.clone(),
-            pid: metadata.process_id,
-            timeline: TimelineData {
-                thread_groups,
-                min_ns: if min_ns == u64::MAX { 0 } else { min_ns },
-                max_ns,
-            },
-            events,
-            merged_thread_groups,
-            symbols,
-        },
-        ui: FileUi::default(),
-        load_duration_ns: None,
-    })
+    thread_groups
 }
 
 fn build_merged_thread_groups(
