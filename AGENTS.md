@@ -34,6 +34,12 @@ This document provides context and guidelines for AI agents working on the `line
 - **Iced API:** We use the `application(...)` builder pattern introduced in later `iced` versions. Avoid the older `Application` trait implementation if possible.
 - **Lifetimes:** When defining `view` or sub-view functions, explicitly use `Element<'_, Message>` to handle elided lifetimes correctly in `iced`.
 - **Error Handling:** Use `Message::ErrorOccurred(String)` to propagate errors to the UI.
+- A type is not a type alias.
+- Don't leave comments after removing or moving something.
+- Don't fix warnings by ignoring them or adding `_` to names.
+- Don't use `git`.
+- Run `cargo check` after making changes and fix any warnings and errors.
+- Preserve comments when making edits
 
 ## Timeline Features
 - **Visualization:** Multi-threaded timeline view using a custom `iced` Canvas program.
@@ -51,13 +57,3 @@ This document provides context and guidelines for AI agents working on the `line
     - Click thread labels to toggle collapse/expand.
     - **Collapsed Mode:** Only shows topmost (depth 0) events for a compact overview while hiding nested details.
 - **Sticky Elements:** Thread labels and time markers remain visible while scrolling.
-
-A type is not a type alias.
-
-Don't leave comments after removing or moving something.
-
-Don't fix warnings by ignoring them or adding `_` to names.
-
-Don't use `git`.
-
-Run `cargo check` after making changes and fix any warnings and errors.
