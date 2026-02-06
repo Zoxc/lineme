@@ -108,7 +108,7 @@ pub struct TimelineEvent {
     pub depth: u32,
     pub thread_id: u32,
     pub event_kind: crate::symbols::Symbol,
-    pub additional_data: Vec<crate::symbols::Symbol>,
+    pub additional_data: Option<Box<[crate::symbols::Symbol]>>,
     pub payload_integer: Option<u64>,
     pub color: Color,
     pub is_thread_root: bool,
@@ -146,16 +146,16 @@ pub struct ThreadGroupMipMap {
 #[derive(Debug, Clone)]
 pub struct ThreadGroupMipMapShadows {
     pub events: Vec<Shadow>,
-    pub events_tree: IntervalTree<u64, usize>,
+    // Store shadow indices as `u32` in the interval tree to reduce pointer
+    // width on 64-bit platforms and to make the stored value compact.
+    pub events_tree: IntervalTree<u64, u32>,
 }
 
 impl Default for ThreadGroupMipMapShadows {
     fn default() -> Self {
         ThreadGroupMipMapShadows {
             events: Vec::new(),
-            events_tree: IntervalTree::from_iter(
-                std::iter::empty::<(std::ops::Range<u64>, usize)>(),
-            ),
+            events_tree: IntervalTree::from_iter(std::iter::empty::<(std::ops::Range<u64>, u32)>()),
         }
     }
 }
@@ -318,11 +318,18 @@ fn collect_timeline_events(
 
             max_ns = max_ns.max(end_ns);
 
-            // Pre-allocate additional_data to avoid per-event reallocations.
-            let mut additional_data = Vec::with_capacity(event.additional_data.len());
+            // Collect additional_data into an optional boxed slice to avoid
+            // allocating for the common case where there is no additional
+            // data. Convert to `None` when empty to save the boxed allocation.
+            let mut additional_data_vec = Vec::with_capacity(event.additional_data.len());
             for s in &event.additional_data {
-                additional_data.push(symbols.intern(s.as_ref()));
+                additional_data_vec.push(symbols.intern(s.as_ref()));
             }
+            let additional_data = if additional_data_vec.is_empty() {
+                None
+            } else {
+                Some(additional_data_vec.into_boxed_slice())
+            };
 
             events.push(TimelineEvent {
                 thread_id,
@@ -600,7 +607,7 @@ fn build_thread_root(
         depth: 0,
         thread_id,
         event_kind: symbols.intern("Thread"),
-        additional_data: Vec::new(),
+        additional_data: None,
         payload_integer: None,
         color: Color::from_rgb(0.85, 0.87, 0.9),
         is_thread_root: true,
@@ -754,7 +761,8 @@ fn build_thread_group_mipmaps(
             let shadows_iter = level.shadows.events.iter().enumerate().map(|(i, s)| {
                 let start = s.start_ns.get();
                 let duration = s.duration_ns.get().max(1);
-                (start..start.saturating_add(duration), i)
+                // Cast index to u32 for compact storage in the interval tree.
+                (start..start.saturating_add(duration), i as u32)
             });
             level.shadows.events_tree = IntervalTree::from_iter(shadows_iter);
         }

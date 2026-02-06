@@ -139,7 +139,12 @@ fn visible_shadow_indices_in<'a>(
     ns_max: u64,
 ) -> impl Iterator<Item = usize> + 'a {
     let q_end = ns_max.saturating_add(1);
-    shadows.events_tree.query(ns_min..q_end).map(|elem| elem.value)
+    // Shadow indices are stored as u32 in the interval tree; cast back to usize
+    // for use as an index into the shadows Vec.
+    shadows
+        .events_tree
+        .query(ns_min..q_end)
+        .map(|elem| elem.value as usize)
 }
 
 pub fn format_duration(ns: u64) -> String {
@@ -419,11 +424,13 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
         .spacing(5)
         .padding(10);
 
-        for item in &event.additional_data {
-            details_col = details_col.push(row![
-                text("Data:").width(Length::Fixed(80.0)).size(12),
-                text(symbols.resolve(*item)).size(12),
-            ]);
+        if let Some(slice) = &event.additional_data {
+            for item in slice.iter() {
+                details_col = details_col.push(row![
+                    text("Data:").width(Length::Fixed(80.0)).size(12),
+                    text(symbols.resolve(*item)).size(12),
+                ]);
+            }
         }
 
         if let Some(v) = event.payload_integer {
