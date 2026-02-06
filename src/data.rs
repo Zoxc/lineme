@@ -28,6 +28,7 @@ impl From<UnalignedU64> for u64 {
 }
 use analyzeme::ProfilingData;
 use iced::Color;
+use intervaltree::IntervalTree;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -139,15 +140,24 @@ pub struct ThreadGroupMipMap {
     pub max_duration_ns: u64,
     pub events: Vec<EventId>,
     pub shadows: ThreadGroupMipMapShadows,
-    pub events_by_start: Vec<usize>,
-    pub events_by_end: Vec<usize>,
+    pub events_tree: IntervalTree<u64, EventId>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ThreadGroupMipMapShadows {
     pub events: Vec<Shadow>,
-    pub events_by_start: Vec<usize>,
-    pub events_by_end: Vec<usize>,
+    pub events_tree: IntervalTree<u64, usize>,
+}
+
+impl Default for ThreadGroupMipMapShadows {
+    fn default() -> Self {
+        ThreadGroupMipMapShadows {
+            events: Vec::new(),
+            events_tree: IntervalTree::from_iter(
+                std::iter::empty::<(std::ops::Range<u64>, usize)>(),
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -428,13 +438,13 @@ fn build_thread_data(
                 (1u64 << (bucket as u32 + 1)).saturating_sub(1)
             };
             let bucket_events = vec![root_id];
-            let (events_by_start, events_by_end) = build_event_indices(events, &bucket_events);
+            let (_events_by_start, _events_by_end, events_tree) =
+                build_event_indices(events, &bucket_events);
             ThreadGroupMipMap {
                 max_duration_ns,
                 events: bucket_events,
                 shadows: ThreadGroupMipMapShadows::default(),
-                events_by_start,
-                events_by_end,
+                events_tree,
             }
         });
         let max_depth = event_ids
@@ -617,33 +627,26 @@ pub fn format_panic_payload(payload: Box<dyn std::any::Any + Send>) -> String {
 // It is intentionally inlined where necessary; keep the helper removed to
 // avoid an unused function warning.
 
-pub(crate) fn event_end_ns(events: &[TimelineEvent], event_id: EventId) -> u64 {
-    let event = &events[event_id.index()];
-    event.start_ns.saturating_add(event.duration_ns)
-}
+// helper `event_end_ns` was removed in favor of using event fields directly.
 
 fn build_event_indices(
     events: &[TimelineEvent],
     event_ids: &[EventId],
-) -> (Vec<usize>, Vec<usize>) {
-    let mut events_by_start: Vec<usize> = (0..event_ids.len()).collect();
-    events_by_start.sort_by_key(|&index| {
-        let event = &events[event_ids[index].index()];
-        (event.start_ns, event.thread_id, event.depth)
-    });
+) -> (Vec<usize>, Vec<usize>, IntervalTree<u64, EventId>) {
+    // We no longer maintain start/end index arrays; the interval tree
+    // provides fast queries for overlapping intervals.
 
-    let mut events_by_end: Vec<usize> = (0..event_ids.len()).collect();
-    events_by_end.sort_by_key(|&index| {
-        let event_id = event_ids[index];
+    // Build an interval tree mapping each event interval to its index in
+    // `event_ids` so callers can quickly query overlapping intervals.
+    let iter = event_ids.iter().map(|&event_id| {
         let event = &events[event_id.index()];
-        (
-            event_end_ns(events, event_id),
-            event.start_ns,
-            event.thread_id,
-        )
+        let start = event.start_ns;
+        let duration = event.duration_ns.max(1);
+        (start..start.saturating_add(duration), event_id)
     });
+    let events_tree = IntervalTree::from_iter(iter);
 
-    (events_by_start, events_by_end)
+    (Vec::new(), Vec::new(), events_tree)
 }
 
 fn duration_bucket(duration_ns: u64) -> u32 {
@@ -674,7 +677,8 @@ fn build_thread_group_mipmaps(
         if bucket_events.is_empty() {
             continue;
         }
-        let (events_by_start, events_by_end) = build_event_indices(events, &bucket_events);
+        let (_events_by_start, _events_by_end, events_tree) =
+            build_event_indices(events, &bucket_events);
         let max_duration_ns = if bucket >= 63 {
             u64::MAX
         } else {
@@ -684,8 +688,7 @@ fn build_thread_group_mipmaps(
             max_duration_ns,
             events: bucket_events,
             shadows: ThreadGroupMipMapShadows::default(),
-            events_by_start,
-            events_by_end,
+            events_tree,
         });
     }
 
@@ -747,23 +750,13 @@ fn build_thread_group_mipmaps(
 
             level.shadows.events = shadows;
             // Build index arrays for shadows by sorting indices by start/end
-            let mut indices: Vec<usize> = (0..level.shadows.events.len()).collect();
-            indices.sort_by_key(|&i| {
-                let s = &level.shadows.events[i];
-                (s.start_ns.get(), s.depth)
+            // Build interval tree for shadows
+            let shadows_iter = level.shadows.events.iter().enumerate().map(|(i, s)| {
+                let start = s.start_ns.get();
+                let duration = s.duration_ns.get().max(1);
+                (start..start.saturating_add(duration), i)
             });
-            level.shadows.events_by_start = indices;
-
-            let mut indices_end: Vec<usize> = (0..level.shadows.events.len()).collect();
-            indices_end.sort_by_key(|&i| {
-                let s = &level.shadows.events[i];
-                (
-                    s.start_ns.get().saturating_add(s.duration_ns.get()),
-                    s.start_ns.get(),
-                    s.depth,
-                )
-            });
-            level.shadows.events_by_end = indices_end;
+            level.shadows.events_tree = IntervalTree::from_iter(shadows_iter);
         }
     }
 

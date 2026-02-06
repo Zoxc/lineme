@@ -5,10 +5,10 @@ mod threads;
 mod ticks;
 
 use crate::Message;
-use crate::data::event_end_ns;
 use crate::data::{
     EventId, ThreadGroup, ThreadGroupMipMapShadows, TimelineData, TimelineEvent,
 };
+use intervaltree::IntervalTree;
 pub use crate::data::{ThreadGroupKey, thread_group_key};
 // Re-export ColorMode from the data module so other modules can import it via
 // `crate::timeline::ColorMode` (keeps existing import sites working).
@@ -120,77 +120,27 @@ pub fn group_total_height(group: &ThreadGroup) -> f64 {
     }
 }
 
-fn visible_event_indices_in(
-    events: &[TimelineEvent],
-    event_ids: &[EventId],
-    events_by_start: &[usize],
-    events_by_end: &[usize],
+fn visible_event_indices_in<'a>(
+    _events: &'a [TimelineEvent],
+    _event_ids: &'a [EventId],
+    events_tree: &'a IntervalTree<u64, EventId>,
     ns_min: u64,
     ns_max: u64,
-) -> Vec<usize> {
-    let start_upper = events_by_start
-        .partition_point(|&index| events[event_ids[index].index()].start_ns <= ns_max);
-    let end_lower =
-        events_by_end.partition_point(|&index| event_end_ns(events, event_ids[index]) < ns_min);
-
-    let start_candidates = start_upper;
-    let end_candidates = events_by_end.len().saturating_sub(end_lower);
-    let mut indices = Vec::with_capacity(start_candidates.min(end_candidates));
-
-    if start_candidates <= end_candidates {
-        for &index in events_by_start[..start_upper].iter() {
-            if event_end_ns(events, event_ids[index]) >= ns_min {
-                indices.push(index);
-            }
-        }
-    } else {
-        for &index in events_by_end[end_lower..].iter() {
-            if events[event_ids[index].index()].start_ns <= ns_max {
-                indices.push(index);
-            }
-        }
-    }
-
-    indices
+) -> impl Iterator<Item = EventId> + 'a {
+    // Query the interval tree for any intervals overlapping [ns_min, ns_max].
+    // IntervalTree::query returns an iterator tied to `events_tree`'s borrow,
+    // so we return an iterator that maps elements to their stored `EventId`.
+    let q_end = ns_max.saturating_add(1);
+    events_tree.query(ns_min..q_end).map(|elem| elem.value)
 }
 
-fn visible_shadow_indices_in(
-    shadows: &ThreadGroupMipMapShadows,
+fn visible_shadow_indices_in<'a>(
+    shadows: &'a ThreadGroupMipMapShadows,
     ns_min: u64,
     ns_max: u64,
-) -> Vec<usize> {
-    // Use the precomputed start/end index arrays on the shadows struct to
-    // quickly find candidates overlapping [ns_min, ns_max]. We perform an
-    // analogous algorithm to `visible_event_indices_in` but working with the
-    // shadows' index vectors.
-    let start_upper = shadows
-        .events_by_start
-        .partition_point(|&index| shadows.events[index].start_ns.get() <= ns_max);
-    let end_lower = shadows.events_by_end.partition_point(|&index| {
-        let s = &shadows.events[index];
-        s.start_ns.get().saturating_add(s.duration_ns.get()) < ns_min
-    });
-
-    let start_candidates = start_upper;
-    let end_candidates = shadows.events_by_end.len().saturating_sub(end_lower);
-    let mut indices = Vec::with_capacity(start_candidates.min(end_candidates));
-
-    if start_candidates <= end_candidates {
-        for &idx in shadows.events_by_start[..start_upper].iter() {
-            let s = &shadows.events[idx];
-            if s.start_ns.get().saturating_add(s.duration_ns.get()) >= ns_min {
-                indices.push(idx);
-            }
-        }
-    } else {
-        for &idx in shadows.events_by_end[end_lower..].iter() {
-            if shadows.events[idx].start_ns.get() <= ns_max {
-                indices.push(idx);
-            }
-        }
-    }
-
-    indices
+) -> impl Iterator<Item = usize> + 'a {
+    let q_end = ns_max.saturating_add(1);
+    shadows.events_tree.query(ns_min..q_end).map(|elem| elem.value)
 }
 
 pub fn format_duration(ns: u64) -> String {

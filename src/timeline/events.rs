@@ -149,15 +149,13 @@ impl<'a> EventsProgram<'a> {
                     if group.show_thread_roots
                         && let Some(root_level) = thread.thread_root_mipmap.as_ref()
                     {
-                        for index in visible_event_indices_in(
+                        for event_id in visible_event_indices_in(
                             self.events,
                             &root_level.events,
-                            &root_level.events_by_start,
-                            &root_level.events_by_end,
+                            &root_level.events_tree,
                             ns_min,
                             ns_max,
                         ) {
-                            let event_id = root_level.events[index];
                             let event = &self.events[event_id.index()];
                             let depth = display_depth(group.show_thread_roots, event);
                             if group.is_collapsed && depth > 0 {
@@ -189,15 +187,13 @@ impl<'a> EventsProgram<'a> {
                         if (level.max_duration_ns as f64) * self.zoom_level < 1.0 {
                             continue;
                         }
-                        for index in visible_event_indices_in(
+                        for event_id in visible_event_indices_in(
                             self.events,
                             &level.events,
-                            &level.events_by_start,
-                            &level.events_by_end,
+                            &level.events_tree,
                             ns_min,
                             ns_max,
                         ) {
-                            let event_id = level.events[index];
                             let event = &self.events[event_id.index()];
                             let depth = display_depth(group.show_thread_roots, event);
                             if group.is_collapsed && depth > 0 {
@@ -349,15 +345,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 if group.show_thread_roots
                     && let Some(root_level) = thread.thread_root_mipmap.as_ref()
                 {
-                    for index in visible_event_indices_in(
+                    for event_id in visible_event_indices_in(
                         self.events,
                         &root_level.events,
-                        &root_level.events_by_start,
-                        &root_level.events_by_end,
+                        &root_level.events_tree,
                         ns_min,
                         ns_max,
                     ) {
-                        let event_id = root_level.events[index];
                         let event = &self.events[event_id.index()];
                         let depth = display_depth(group.show_thread_roots, event);
                         if group.is_collapsed && depth > 0 {
@@ -408,15 +402,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         smallest_visible_level = Some(level);
                     }
 
-                    for index in visible_event_indices_in(
+                    for event_id in visible_event_indices_in(
                         self.events,
                         &level.events,
-                        &level.events_by_start,
-                        &level.events_by_end,
+                        &level.events_tree,
                         ns_min,
                         ns_max,
                     ) {
-                        let event_id = level.events[index];
                         let event = &self.events[event_id.index()];
                         let depth = display_depth(group.show_thread_roots, event);
                         if group.is_collapsed && depth > 0 {
