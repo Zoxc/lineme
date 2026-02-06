@@ -32,6 +32,35 @@ pub const SCROLLBAR_THICKNESS: f32 = 18.0;
 pub const SCROLLBAR_CORNER_GAP: f32 = 6.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct UnalignedU64([u8; 8]);
+
+impl UnalignedU64 {
+    pub fn new(v: u64) -> Self {
+        Self(v.to_le_bytes())
+    }
+
+    pub fn get(&self) -> u64 {
+        u64::from_le_bytes(self.0)
+    }
+
+    pub fn set(&mut self, v: u64) {
+        self.0 = v.to_le_bytes();
+    }
+}
+
+impl From<u64> for UnalignedU64 {
+    fn from(v: u64) -> Self {
+        UnalignedU64::new(v)
+    }
+}
+
+impl From<UnalignedU64> for u64 {
+    fn from(v: UnalignedU64) -> Self {
+        v.get()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ColorMode {
     #[default]
     Kind,
@@ -82,8 +111,8 @@ pub struct ThreadGroupMipMapShadows {
 
 #[derive(Debug, Clone)]
 pub struct Shadow {
-    pub start_ns: u64,
-    pub duration_ns: u64,
+    pub start_ns: UnalignedU64,
+    pub duration_ns: UnalignedU64,
     pub depth: u32,
 }
 
@@ -360,8 +389,8 @@ fn build_thread_group_mipmaps(
                 let duration = end.saturating_sub(start).max(1);
 
                 shadows.push(Shadow {
-                    start_ns: start,
-                    duration_ns: duration,
+                    start_ns: UnalignedU64::new(start),
+                    duration_ns: UnalignedU64::new(duration),
                     depth,
                 });
             }
@@ -371,7 +400,7 @@ fn build_thread_group_mipmaps(
             let mut indices: Vec<usize> = (0..level.shadows.events.len()).collect();
             indices.sort_by_key(|&i| {
                 let s = &level.shadows.events[i];
-                (s.start_ns, s.depth)
+                (s.start_ns.get(), s.depth)
             });
             level.shadows.events_by_start = indices;
 
@@ -379,8 +408,8 @@ fn build_thread_group_mipmaps(
             indices_end.sort_by_key(|&i| {
                 let s = &level.shadows.events[i];
                 (
-                    s.start_ns.saturating_add(s.duration_ns),
-                    s.start_ns,
+                    s.start_ns.get().saturating_add(s.duration_ns.get()),
+                    s.start_ns.get(),
                     s.depth,
                 )
             });
@@ -436,10 +465,10 @@ fn visible_shadow_indices_in(
     // shadows' index vectors.
     let start_upper = shadows
         .events_by_start
-        .partition_point(|&index| shadows.events[index].start_ns <= ns_max);
+        .partition_point(|&index| shadows.events[index].start_ns.get() <= ns_max);
     let end_lower = shadows.events_by_end.partition_point(|&index| {
         let s = &shadows.events[index];
-        s.start_ns.saturating_add(s.duration_ns) < ns_min
+        s.start_ns.get().saturating_add(s.duration_ns.get()) < ns_min
     });
 
     let start_candidates = start_upper;
@@ -449,13 +478,13 @@ fn visible_shadow_indices_in(
     if start_candidates <= end_candidates {
         for &idx in shadows.events_by_start[..start_upper].iter() {
             let s = &shadows.events[idx];
-            if s.start_ns.saturating_add(s.duration_ns) >= ns_min {
+            if s.start_ns.get().saturating_add(s.duration_ns.get()) >= ns_min {
                 indices.push(idx);
             }
         }
     } else {
         for &idx in shadows.events_by_end[end_lower..].iter() {
-            if shadows.events[idx].start_ns <= ns_max {
+            if shadows.events[idx].start_ns.get() <= ns_max {
                 indices.push(idx);
             }
         }

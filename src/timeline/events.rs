@@ -379,13 +379,14 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     }
 
                     let width =
-                        crate::timeline::duration_to_width(shadow.duration_ns, zoom_level) as f32;
+                        crate::timeline::duration_to_width(shadow.duration_ns.get(), zoom_level)
+                            as f32;
                     if width < 1.0 {
                         continue;
                     }
 
-                    let x =
-                        crate::timeline::ns_to_x(shadow.start_ns, self.min_ns, zoom_level) as f32;
+                    let x = crate::timeline::ns_to_x(shadow.start_ns.get(), self.min_ns, zoom_level)
+                        as f32;
 
                     let x_screen = x - scroll_offset_x_px as f32;
                     if viewport_width > 0.0
