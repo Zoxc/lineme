@@ -281,9 +281,11 @@ fn collect_timeline_events(
     symbols: &mut crate::symbols::Symbols,
     metadata_start_ns: u64,
 ) -> CollectedEvents {
-    let mut events = Vec::new();
+    // Use ProfilingData::num_events() as a fast count for pre-allocation and
+    // for reporting event_count. This avoids walking the iterator twice.
+    let event_count: usize = data.num_events();
+    let mut events = Vec::with_capacity(event_count);
     let mut max_ns: u64 = 0;
-    let mut event_count: usize = 0;
 
     for lightweight_event in data.iter() {
         let event = data.to_full_event(&lightweight_event);
@@ -292,8 +294,6 @@ fn collect_timeline_events(
         if let analyzeme::EventPayload::Timestamp(analyzeme::Timestamp::Interval { start, end }) =
             &event.payload
         {
-            event_count += 1;
-
             let start_ns = (start
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -307,6 +307,12 @@ fn collect_timeline_events(
 
             max_ns = max_ns.max(end_ns);
 
+            // Pre-allocate additional_data to avoid per-event reallocations.
+            let mut additional_data = Vec::with_capacity(event.additional_data.len());
+            for s in &event.additional_data {
+                additional_data.push(symbols.intern(s.as_ref()));
+            }
+
             events.push(TimelineEvent {
                 thread_id,
                 label: symbols.intern(event.label.as_ref()),
@@ -314,11 +320,7 @@ fn collect_timeline_events(
                 duration_ns: end_ns.saturating_sub(start_ns),
                 depth: 0,
                 event_kind: symbols.intern(event.event_kind.as_ref()),
-                additional_data: event
-                    .additional_data
-                    .iter()
-                    .map(|s| symbols.intern(s.as_ref()))
-                    .collect::<Vec<_>>(),
+                additional_data,
                 payload_integer: event.payload.integer(),
                 // Filled in after we know all kinds.
                 color: crate::timeline::color_from_label(""),
