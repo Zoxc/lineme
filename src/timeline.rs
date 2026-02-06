@@ -308,7 +308,7 @@ fn build_thread_group_mipmaps(
             cumulative_real.extend(level.events.iter().copied());
 
             let target_min_duration = level.max_duration_ns.max(1);
-            let mut intervals: Vec<(u64, u32, bool, u64, u64)> = Vec::new();
+            let mut intervals: Vec<(u32, u32, bool, u64, u64)> = Vec::new();
             intervals.reserve(cumulative_real.len());
             for &event_id in &cumulative_real {
                 let event = &events[event_id.index()];
@@ -328,7 +328,7 @@ fn build_thread_group_mipmaps(
                 (thread_id, depth, is_root, start, end)
             });
 
-            let mut merged: Vec<(u64, u32, bool, u64, u64)> = Vec::new();
+            let mut merged: Vec<(u32, u32, bool, u64, u64)> = Vec::new();
             for interval in intervals {
                 if let Some(last) = merged.last_mut() {
                     let (ltid, ldepth, lroot, lstart, lend) = *last;
@@ -727,7 +727,7 @@ pub fn view<'a>(
     }
 }
 
-fn group_contains_thread(group: &ThreadGroup, thread_id: u64) -> bool {
+fn group_contains_thread(group: &ThreadGroup, thread_id: u32) -> bool {
     group
         .threads
         .iter()

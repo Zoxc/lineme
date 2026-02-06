@@ -17,7 +17,7 @@ pub struct TimelineEvent {
     pub start_ns: u64,
     pub duration_ns: u64,
     pub depth: u32,
-    pub thread_id: u64,
+    pub thread_id: u32,
     pub event_kind: crate::symbols::Symbol,
     pub additional_data: Vec<crate::symbols::Symbol>,
     pub payload_integer: Option<u64>,
@@ -28,7 +28,7 @@ pub struct TimelineEvent {
 
 #[derive(Debug, Clone)]
 pub struct ThreadData {
-    pub thread_id: u64,
+    pub thread_id: u32,
     pub events: Vec<EventId>,
     pub thread_root: Option<EventId>,
 }
@@ -157,7 +157,7 @@ fn collect_timeline_events(
 
     for lightweight_event in data.iter() {
         let event = data.to_full_event(&lightweight_event);
-        let thread_id = event.thread_id as u64;
+        let thread_id = event.thread_id;
 
         if let analyzeme::EventPayload::Timestamp(timestamp) = &event.payload {
             if let analyzeme::Timestamp::Interval { start, end } = timestamp {
@@ -242,8 +242,8 @@ fn apply_kind_colors(
     }
 }
 
-fn build_threads_index(events: &[TimelineEvent]) -> HashMap<u64, Vec<EventId>> {
-    let mut threads: HashMap<u64, Vec<EventId>> = HashMap::new();
+fn build_threads_index(events: &[TimelineEvent]) -> HashMap<u32, Vec<EventId>> {
+    let mut threads: HashMap<u32, Vec<EventId>> = HashMap::new();
     for (index, event) in events.iter().enumerate() {
         threads
             .entry(event.thread_id)
@@ -253,7 +253,7 @@ fn build_threads_index(events: &[TimelineEvent]) -> HashMap<u64, Vec<EventId>> {
     threads
 }
 
-fn assign_event_depths(events: &mut [TimelineEvent], threads: &mut HashMap<u64, Vec<EventId>>) {
+fn assign_event_depths(events: &mut [TimelineEvent], threads: &mut HashMap<u32, Vec<EventId>>) {
     for thread_events in threads.values_mut() {
         thread_events.sort_by_key(|event_id| events[event_id.index()].start_ns);
         let mut stack: Vec<u64> = Vec::new();
@@ -275,7 +275,7 @@ fn assign_event_depths(events: &mut [TimelineEvent], threads: &mut HashMap<u64, 
 
 fn build_thread_data(
     events: &mut Vec<TimelineEvent>,
-    threads: HashMap<u64, Vec<EventId>>,
+    threads: HashMap<u32, Vec<EventId>>,
     symbols: &mut crate::symbols::Symbols,
 ) -> Vec<Arc<ThreadData>> {
     let mut thread_data_vec = Vec::new();
@@ -403,7 +403,7 @@ fn build_merged_thread_groups(
 
 fn build_thread_root(
     events: &mut Vec<TimelineEvent>,
-    thread_id: u64,
+    thread_id: u32,
     event_ids: &[EventId],
     symbols: &mut crate::symbols::Symbols,
 ) -> Option<EventId> {
