@@ -1,11 +1,11 @@
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
-use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
+use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
 
 use super::{
-    color_from_label, group_total_height, mipmap_levels_for_zoom, visible_event_indices_in,
-    ColorMode, ThreadGroup, TimelineEvent,
+    ColorMode, ThreadGroup, TimelineEvent, color_from_label, group_total_height,
+    mipmap_levels_for_zoom, visible_event_indices_in,
 };
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 
@@ -40,7 +40,7 @@ fn draw_event_rect(
             .with_width(1.0),
     );
 
-    if rect.width > 20.0 {
+    if rect.width > 5.0 {
         // Draw the full label and rely on the canvas clip region so overflowing
         // glyphs are visually cropped at the event rectangle boundary.
         frame.with_clip(
