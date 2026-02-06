@@ -1,5 +1,5 @@
 use crate::data::FileTab as FileTabData;
-use crate::timeline::ThreadGroup;
+use crate::data::ThreadGroup;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]

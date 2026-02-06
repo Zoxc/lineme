@@ -1,8 +1,7 @@
 // Threads panel receives explicit scroll offsets from the app state (f64)
 use crate::Message;
-use crate::timeline::{
-    LANE_HEIGHT, LANE_SPACING, ThreadGroup, group_total_height, thread_group_key,
-};
+use crate::data::{ThreadGroup, thread_group_key};
+use crate::timeline::{LANE_HEIGHT, LANE_SPACING, group_total_height};
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Geometry, Program};
 use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme};

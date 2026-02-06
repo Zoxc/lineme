@@ -3,12 +3,12 @@ use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
 
-use super::{
-    ColorMode, EventId, ThreadGroup, TimelineEvent, color_from_label, display_depth,
-    group_total_height, mipmap_levels_for_zoom, visible_event_indices_in,
-    visible_shadow_indices_in,
-};
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
+use super::{
+    EventId, ThreadGroup, TimelineEvent, color_from_label, group_total_height,
+    mipmap_levels_for_zoom, visible_event_indices_in, visible_shadow_indices_in,
+};
+use crate::data::{ColorMode, display_depth};
 
 // Small helper struct to avoid too_many_arguments lint on the drawing helper.
 struct DrawEventRectArgs<'a> {

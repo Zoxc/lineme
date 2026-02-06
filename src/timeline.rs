@@ -5,9 +5,15 @@ mod threads;
 mod ticks;
 
 use crate::Message;
-use crate::data::{EventId, ThreadData, TimelineEvent};
+use crate::data::event_end_ns;
+use crate::data::{
+    EventId, ThreadGroup, ThreadGroupMipMap, ThreadGroupMipMapShadows, TimelineData, TimelineEvent,
+};
+pub use crate::data::{ThreadGroupKey, thread_group_key};
+// Re-export ColorMode from the data module so other modules can import it via
+// `crate::timeline::ColorMode` (keeps existing import sites working).
+pub use crate::data::ColorMode;
 use crate::scrollbar;
-use crate::symbols::Symbol;
 use events::EventsProgram;
 use header::HeaderProgram;
 use iced::advanced::widget::{self, Tree, Widget};
@@ -18,7 +24,6 @@ use iced::widget::canvas::Canvas;
 use iced::widget::{Space, button, column, container, row, text};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Theme};
 use mini_timeline::MiniTimelineProgram;
-use std::sync::Arc;
 use threads::ThreadsProgram;
 
 pub const LABEL_WIDTH: f64 = 150.0_f64;
@@ -31,101 +36,8 @@ pub const EVENT_LEFT_PADDING: f64 = 2.0_f64;
 pub const SCROLLBAR_THICKNESS: f32 = 18.0;
 pub const SCROLLBAR_CORNER_GAP: f32 = 6.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct UnalignedU64([u8; 8]);
-
-impl UnalignedU64 {
-    pub fn new(v: u64) -> Self {
-        Self(v.to_le_bytes())
-    }
-
-    pub fn get(&self) -> u64 {
-        u64::from_le_bytes(self.0)
-    }
-
-    pub fn set(&mut self, v: u64) {
-        self.0 = v.to_le_bytes();
-    }
-}
-
-impl From<u64> for UnalignedU64 {
-    fn from(v: u64) -> Self {
-        UnalignedU64::new(v)
-    }
-}
-
-impl From<UnalignedU64> for u64 {
-    fn from(v: UnalignedU64) -> Self {
-        v.get()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ColorMode {
-    #[default]
-    Kind,
-    Event,
-}
-
-impl ColorMode {
-    pub const ALL: [ColorMode; 2] = [ColorMode::Kind, ColorMode::Event];
-}
-
-impl std::fmt::Display for ColorMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ColorMode::Kind => write!(f, "Kind"),
-            ColorMode::Event => write!(f, "Event"),
-        }
-    }
-}
-
-// Event-related types moved to `src/data.rs` and are imported above.
-pub type ThreadGroupId = Arc<Vec<Arc<ThreadData>>>;
-pub type ThreadGroupKey = usize;
-
-#[derive(Debug, Clone)]
-pub struct ThreadGroup {
-    pub threads: ThreadGroupId,
-    pub mipmaps: Vec<ThreadGroupMipMap>,
-    pub max_depth: u32,
-    pub is_collapsed: bool,
-    pub show_thread_roots: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct ThreadGroupMipMap {
-    pub max_duration_ns: u64,
-    pub events: Vec<EventId>,
-    pub shadows: ThreadGroupMipMapShadows,
-    pub events_by_start: Vec<usize>,
-    pub events_by_end: Vec<usize>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ThreadGroupMipMapShadows {
-    pub events: Vec<Shadow>,
-    pub events_by_start: Vec<usize>,
-    pub events_by_end: Vec<usize>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Shadow {
-    pub start_ns: UnalignedU64,
-    pub duration_ns: UnalignedU64,
-    pub depth: u32,
-}
-
-pub fn thread_group_key(group: &ThreadGroup) -> ThreadGroupKey {
-    Arc::as_ptr(&group.threads) as ThreadGroupKey
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct TimelineData {
-    pub thread_groups: Vec<ThreadGroup>,
-    pub min_ns: u64,
-    pub max_ns: u64,
-}
+// `UnalignedU64` moved to `src/data.rs` so that the profiling data types
+// can be defined without depending on the timeline module.
 
 // The `Events` wrapper type has moved to `src/data.rs` to keep event data
 // colocated with file-loading logic. It's imported at the top of this file.
@@ -150,32 +62,7 @@ pub fn color_from_label(label: &str) -> Color {
 // in `src/data.rs` and stored on each `TimelineEvent`.
 
 /// Convert HSL to RGB Color. Hue is in degrees [0,360), s and l are [0,1].
-pub fn color_from_hsl(h: f32, s: f32, l: f32) -> Color {
-    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let h_prime = (h / 60.0) % 6.0;
-    let x = c * (1.0 - (h_prime % 2.0 - 1.0).abs());
-
-    let (r1, g1, b1) = if (0.0..1.0).contains(&h_prime) {
-        (c, x, 0.0)
-    } else if (1.0..2.0).contains(&h_prime) {
-        (x, c, 0.0)
-    } else if (2.0..3.0).contains(&h_prime) {
-        (0.0, c, x)
-    } else if (3.0..4.0).contains(&h_prime) {
-        (0.0, x, c)
-    } else if (4.0..5.0).contains(&h_prime) {
-        (x, 0.0, c)
-    } else {
-        (c, 0.0, x)
-    };
-
-    let m = l - c / 2.0;
-    Color::from_rgb(
-        (r1 + m).clamp(0.0, 1.0),
-        (g1 + m).clamp(0.0, 1.0),
-        (b1 + m).clamp(0.0, 1.0),
-    )
-}
+// color_from_hsl is provided by `data.rs` and re-exported above.
 
 pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f64 {
     let mut total_height = 0.0_f64;
@@ -231,190 +118,6 @@ pub fn group_total_height(group: &ThreadGroup) -> f64 {
     } else {
         (group.max_depth + 1) as f64 * LANE_HEIGHT
     }
-}
-
-pub fn build_thread_group_events(
-    events: &mut [TimelineEvent],
-    threads: &[Arc<ThreadData>],
-    show_thread_roots: bool,
-) -> (Vec<EventId>, u32, Vec<ThreadGroupMipMap>) {
-    let mut event_ids = Vec::new();
-    for thread in threads {
-        if show_thread_roots && let Some(root_id) = thread.thread_root {
-            event_ids.push(root_id);
-        }
-        event_ids.extend(thread.events.iter().copied());
-    }
-
-    event_ids.sort_by_key(|event_id| {
-        let event = &events[event_id.index()];
-        (
-            event.start_ns,
-            event.thread_id,
-            display_depth(show_thread_roots, event),
-        )
-    });
-
-    let max_depth = event_ids
-        .iter()
-        .map(|event_id| display_depth(show_thread_roots, &events[event_id.index()]))
-        .max()
-        .unwrap_or(0);
-    let mipmaps = build_thread_group_mipmaps(events, &event_ids);
-    (event_ids, max_depth, mipmaps)
-}
-
-fn event_end_ns(events: &[TimelineEvent], event_id: EventId) -> u64 {
-    let event = &events[event_id.index()];
-    event.start_ns.saturating_add(event.duration_ns)
-}
-
-fn build_event_indices(
-    events: &[TimelineEvent],
-    event_ids: &[EventId],
-) -> (Vec<usize>, Vec<usize>) {
-    let mut events_by_start: Vec<usize> = (0..event_ids.len()).collect();
-    events_by_start.sort_by_key(|&index| {
-        let event = &events[event_ids[index].index()];
-        (event.start_ns, event.thread_id, event.depth)
-    });
-
-    let mut events_by_end: Vec<usize> = (0..event_ids.len()).collect();
-    events_by_end.sort_by_key(|&index| {
-        let event_id = event_ids[index];
-        let event = &events[event_id.index()];
-        (
-            event_end_ns(events, event_id),
-            event.start_ns,
-            event.thread_id,
-        )
-    });
-
-    (events_by_start, events_by_end)
-}
-
-fn duration_bucket(duration_ns: u64) -> u32 {
-    let duration = duration_ns.max(1);
-    63u32 - duration.leading_zeros()
-}
-
-fn build_thread_group_mipmaps(
-    events: &mut [TimelineEvent],
-    event_ids: &[EventId],
-) -> Vec<ThreadGroupMipMap> {
-    if event_ids.is_empty() {
-        return Vec::new();
-    }
-
-    let mut buckets: Vec<Vec<EventId>> = Vec::new();
-    for event_id in event_ids {
-        let event = &events[event_id.index()];
-        let bucket = duration_bucket(event.duration_ns) as usize;
-        if buckets.len() <= bucket {
-            buckets.resize_with(bucket + 1, Vec::new);
-        }
-        buckets[bucket].push(*event_id);
-    }
-
-    let mut mipmaps = Vec::new();
-    for (bucket, bucket_events) in buckets.into_iter().enumerate() {
-        if bucket_events.is_empty() {
-            continue;
-        }
-        let (events_by_start, events_by_end) = build_event_indices(events, &bucket_events);
-        let max_duration_ns = if bucket >= 63 {
-            u64::MAX
-        } else {
-            (1u64 << (bucket as u32 + 1)).saturating_sub(1)
-        };
-        mipmaps.push(ThreadGroupMipMap {
-            max_duration_ns,
-            events: bucket_events,
-            shadows: ThreadGroupMipMapShadows::default(),
-            events_by_start,
-            events_by_end,
-        });
-    }
-
-    // Add per-level shadow events so very small events remain visible as ~1px
-    // markers when zooming out.
-    //
-    // For each level i (in increasing duration order), build a cumulative shadow
-    // representation of all real events in levels [0..=i], inflated to at least
-    // that level's max_duration and merged per (thread_id, depth, is_root).
-    //
-    // Shadows are stored separately per mip level so the main `events` list
-    // remains purely "real" events.
-    if !mipmaps.is_empty() {
-        let mut cumulative_real: Vec<EventId> = Vec::new();
-        for level in mipmaps.iter_mut() {
-            cumulative_real.extend(level.events.iter().copied());
-
-            let target_min_duration = level.max_duration_ns.max(1);
-            let mut intervals: Vec<(u32, u64, u64)> = Vec::with_capacity(cumulative_real.len());
-            for &event_id in &cumulative_real {
-                let event = &events[event_id.index()];
-                let start = event.start_ns;
-                let inflated = event.duration_ns.max(target_min_duration);
-                let end = start.saturating_add(inflated);
-                intervals.push((event.depth, start, end));
-            }
-
-            // Sort by depth then start so we can merge overlapping intervals per
-            // depth level.
-            intervals.sort_by_key(|&(depth, start, _end)| (depth, start));
-
-            let mut merged: Vec<(u32, u64, u64)> = Vec::new();
-            for interval in intervals {
-                if let Some(last) = merged.last_mut() {
-                    let (ldepth, lstart, lend) = *last;
-                    let (depth, start, end) = interval;
-                    if ldepth == depth && start <= lend {
-                        *last = (ldepth, lstart, lend.max(end));
-                        continue;
-                    }
-                }
-                merged.push(interval);
-            }
-
-            if merged.is_empty() {
-                continue;
-            }
-
-            let mut shadows: Vec<Shadow> = Vec::with_capacity(merged.len());
-            for (depth, start, end) in merged {
-                let duration = end.saturating_sub(start).max(1);
-
-                shadows.push(Shadow {
-                    start_ns: UnalignedU64::new(start),
-                    duration_ns: UnalignedU64::new(duration),
-                    depth,
-                });
-            }
-
-            level.shadows.events = shadows;
-            // Build index arrays for shadows by sorting indices by start/end
-            let mut indices: Vec<usize> = (0..level.shadows.events.len()).collect();
-            indices.sort_by_key(|&i| {
-                let s = &level.shadows.events[i];
-                (s.start_ns.get(), s.depth)
-            });
-            level.shadows.events_by_start = indices;
-
-            let mut indices_end: Vec<usize> = (0..level.shadows.events.len()).collect();
-            indices_end.sort_by_key(|&i| {
-                let s = &level.shadows.events[i];
-                (
-                    s.start_ns.get().saturating_add(s.duration_ns.get()),
-                    s.start_ns.get(),
-                    s.depth,
-                )
-            });
-            level.shadows.events_by_end = indices_end;
-        }
-    }
-
-    mipmaps
 }
 
 fn visible_event_indices_in(
@@ -830,13 +533,7 @@ fn group_contains_thread(group: &ThreadGroup, thread_id: u32) -> bool {
         .any(|thread| thread.thread_id == thread_id)
 }
 
-pub fn display_depth(show_thread_roots: bool, event: &TimelineEvent) -> u32 {
-    if show_thread_roots && !event.is_thread_root {
-        event.depth.saturating_add(1)
-    } else {
-        event.depth
-    }
-}
+// display_depth is provided by `data.rs` and re-exported via `crate::data`.
 
 pub struct WheelCatcher<'a, Message, Theme, Renderer> {
     content: Element<'a, Message, Theme, Renderer>,
