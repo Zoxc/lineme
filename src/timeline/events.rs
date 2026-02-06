@@ -111,6 +111,7 @@ pub struct EventsProgram<'a> {
     pub viewport_height: f64,
     pub color_mode: ColorMode,
     pub symbols: &'a crate::symbols::Symbols,
+    pub kinds: &'a [crate::data::KindInfo],
 }
 
 #[derive(Default)]
@@ -124,6 +125,12 @@ pub struct EventsState {
 }
 
 impl<'a> EventsProgram<'a> {
+    // Lookup a kind color from the precomputed kinds table by per-event index.
+    // If the index is out of range fall back to deriving a color from the
+    // event label.
+    fn kind_color_from_table(kinds: &'a [crate::data::KindInfo], idx: u16, fallback_label: &str) -> iced::Color {
+        kinds.get(idx as usize).map(|k| k.color).unwrap_or_else(|| color_from_label(fallback_label))
+    }
     fn find_event_at(&self, position: Point) -> Option<EventId> {
         let zoom_level = self.zoom_level.max(1e-9);
         let scroll_offset_x_px = (self.scroll_offset_x * zoom_level) as f32;
@@ -373,7 +380,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             continue;
                         }
 
-                        let color = event.color;
+                        // Thread-root events use a fixed light color.
+                        let color = Color::from_rgb(0.85, 0.87, 0.9);
                         let label = self.symbols.resolve(event.label);
 
                         let y_screen = y_offset as f32 - self.scroll_offset_y as f32
@@ -431,10 +439,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         }
 
                         let color = if event.is_thread_root {
-                            event.color
+                            // Thread roots use a fixed light color
+                            Color::from_rgb(0.85, 0.87, 0.9)
                         } else {
                             match self.color_mode {
-                                ColorMode::Kind => event.color,
+                                ColorMode::Kind => Self::kind_color_from_table(self.kinds, event.kind_index, self.symbols.resolve(event.label)),
                                 ColorMode::Event => {
                                     let label = self.symbols.resolve(event.label);
                                     color_from_label(label)

@@ -1175,6 +1175,7 @@ impl Lineme {
                 timeline_data: &stats.data.timeline,
                 events: &stats.data.events,
                 thread_groups: file.thread_groups().unwrap_or_default(),
+                kinds: &stats.data.kinds,
                 zoom_level: stats.ui.zoom_level,
                 selected_event: &stats.ui.selected_event,
                 hovered_event: &stats.ui.hovered_event,

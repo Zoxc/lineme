@@ -8,6 +8,8 @@ use crate::Message;
 use crate::data::{
     EventId, ThreadGroup, ThreadGroupMipMapShadows, TimelineData, TimelineEvent,
 };
+// Removed unused imports: kinds lookup uses are performed via passed-in `kinds`
+// and `symbols` variables; avoid importing Symbol/HashMap here.
 use intervaltree::IntervalTree;
 pub use crate::data::{ThreadGroupKey, thread_group_key};
 // Re-export ColorMode from the data module so other modules can import it via
@@ -22,7 +24,7 @@ use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Canvas;
 use iced::widget::{Space, button, column, container, row, text};
-use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Theme};
+use iced::{Element, Event, Length, Point, Rectangle, Size, Theme, Color};
 use mini_timeline::MiniTimelineProgram;
 use threads::ThreadsProgram;
 
@@ -163,6 +165,7 @@ pub struct TimelineViewArgs<'a> {
     pub timeline_data: &'a TimelineData,
     pub events: &'a [TimelineEvent],
     pub thread_groups: &'a [ThreadGroup],
+    pub kinds: &'a [crate::data::KindInfo],
     pub zoom_level: f64,
     pub selected_event: &'a Option<EventId>,
     pub hovered_event: &'a Option<EventId>,
@@ -190,6 +193,7 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
         modifiers: _modifiers,
         color_mode,
         symbols,
+        kinds,
     } = args;
     let total_ns = timeline_data.max_ns - timeline_data.min_ns;
     if total_ns == 0 {
@@ -243,6 +247,7 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
         viewport_height,
         color_mode,
         symbols,
+        kinds,
     })
     .width(Length::Fill)
     .height(Length::Fill);
@@ -393,7 +398,19 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
             ],
             row![
                 text("Kind:").width(Length::Fixed(80.0)).size(12),
-                text(symbols.resolve(event.event_kind)).size(12)
+                // Look up the kind symbol from the precomputed kinds table by
+                // per-event index. Fall back to the event label if the index is
+                // out of range (shouldn't happen).
+                text(
+                    symbols
+                        .resolve(
+                            kinds
+                                .get(event.kind_index as usize)
+                                .map(|k| k.kind)
+                                .unwrap_or(event.label),
+                        )
+                )
+                .size(12)
             ],
             row![
                 text("Thread:").width(Length::Fixed(80.0)).size(12),

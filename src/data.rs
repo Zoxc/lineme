@@ -107,10 +107,11 @@ pub struct TimelineEvent {
     pub duration_ns: u64,
     pub depth: u32,
     pub thread_id: u32,
-    pub event_kind: crate::symbols::Symbol,
+    // Index into FileData.kinds identifying the kind/color for this event.
+    // Stored as u16 to keep per-event memory small.
+    pub kind_index: u16,
     pub additional_data: Option<Box<[crate::symbols::Symbol]>>,
     pub payload_integer: Option<u64>,
-    pub color: Color,
     pub is_thread_root: bool,
 }
 
@@ -186,9 +187,17 @@ pub struct FileData {
     pub timeline: TimelineData,
     pub events: Vec<TimelineEvent>,
     pub merged_thread_groups: Vec<ThreadGroup>,
+    // Compact table of distinct event kinds with their assigned colors.
+    pub kinds: Vec<KindInfo>,
     // Simple symbol interner for event strings so we store compact symbol ids
     // in events rather than repeated Strings.
     pub symbols: crate::symbols::Symbols,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct KindInfo {
+    pub kind: crate::symbols::Symbol,
+    pub color: Color,
 }
 
 #[derive(Debug, Clone)]
@@ -246,9 +255,31 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
     // we avoid allocating duplicate Strings for every parsed event.
     let mut symbols = crate::symbols::Symbols::new();
     let collected = collect_timeline_events(&data, &mut symbols, metadata_start_ns);
-    let kind_color_map = build_kind_color_map(&collected.events, &symbols);
+    // Build compact kinds table for mapping event kinds -> colors. Thread-root
+    // events are created later and use a fixed color instead of the kind table.
+    let (kinds, kind_map) = build_kind_table(&collected.event_kinds, &symbols);
+    // Ensure the kinds table fits in a u16 index stored per-event.
+    if kinds.len() > (u16::MAX as usize) {
+        return Err(format!(
+            "Too many distinct event kinds: {} (max {})",
+            kinds.len(),
+            u16::MAX
+        ));
+    }
     let mut events = collected.events;
-    apply_kind_colors(&mut events, &kind_color_map);
+    // Assign per-event kind indices from the precomputed kind map using the
+    // parallel `collected.event_kinds` array recorded during parsing.
+    for (i, event) in events.iter_mut().enumerate() {
+        let kind_sym = collected.event_kinds.get(i).copied();
+        if let Some(kind_sym) = kind_sym {
+            if let Some(&idx) = kind_map.get(&kind_sym) {
+                event.kind_index = idx as u16;
+                continue;
+            }
+        }
+        // Fallback to first kind (shouldn't happen since map built from events)
+        event.kind_index = 0u16;
+    }
     let mut threads = build_threads_index(&events);
     assign_event_depths(&mut events, &mut threads);
     let thread_data_vec = build_thread_data(&mut events, threads, &mut symbols);
@@ -267,6 +298,8 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
             },
             events,
             merged_thread_groups,
+            // store the precomputed kinds table for render-time lookup
+            kinds,
             symbols,
         },
         ui: FileUi::default(),
@@ -277,6 +310,9 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
 #[derive(Debug)]
 struct CollectedEvents {
     events: Vec<TimelineEvent>,
+    /// Original event kind symbols (one per event) used to build the kinds table
+    /// before we drop per-event kind storage. The order matches `events`.
+    event_kinds: Vec<crate::symbols::Symbol>,
     max_ns: u64,
     event_count: usize,
 }
@@ -297,6 +333,7 @@ fn collect_timeline_events(
     let event_count: usize = data.num_events();
     let mut events = Vec::with_capacity(event_count);
     let mut max_ns: u64 = 0;
+    let mut event_kinds: Vec<crate::symbols::Symbol> = Vec::with_capacity(event_count);
 
     for lightweight_event in data.iter() {
         let event = data.to_full_event(&lightweight_event);
@@ -331,17 +368,20 @@ fn collect_timeline_events(
                 Some(additional_data_vec.into_boxed_slice())
             };
 
+            // Record the original event kind symbol for later table-building
+            event_kinds.push(symbols.intern(event.event_kind.as_ref()));
+
             events.push(TimelineEvent {
                 thread_id,
                 label: symbols.intern(event.label.as_ref()),
                 start_ns,
                 duration_ns: end_ns.saturating_sub(start_ns),
                 depth: 0,
-                event_kind: symbols.intern(event.event_kind.as_ref()),
+                kind_index: 0u16,
                 additional_data,
                 payload_integer: event.payload.integer(),
-                // Filled in after we know all kinds.
-                color: crate::timeline::color_from_label(""),
+                // No per-event color stored any more; colors are looked up from
+                // `FileData::kind_color_map` at render time.
                 is_thread_root: false,
             });
         }
@@ -351,49 +391,47 @@ fn collect_timeline_events(
 
     CollectedEvents {
         events,
+        event_kinds,
         max_ns,
         event_count,
     }
 }
 
-fn build_kind_color_map(
-    events: &[TimelineEvent],
+// Legacy helper retained for compatibility with older code paths. New code
+// uses `build_kind_table` which produces a Vec<KindInfo> and a map.
+
+// Build a compact Vec of distinct kinds with assigned colors and a map from
+// kind Symbol -> index in that Vec. Returned Vec order is deterministic.
+fn build_kind_table(
+    event_kinds: &[crate::symbols::Symbol],
     symbols: &crate::symbols::Symbols,
-) -> HashMap<crate::symbols::Symbol, Color> {
-    // Collect unique kinds into a HashSet to remove duplicates, then sort the
-    // unique kinds by their resolved string so coloring is deterministic.
+) -> (Vec<KindInfo>, HashMap<crate::symbols::Symbol, usize>) {
     let mut kinds_set: std::collections::HashSet<crate::symbols::Symbol> =
-        events.iter().map(|e| e.event_kind).collect();
+        event_kinds.iter().copied().collect();
     let mut kinds: Vec<crate::symbols::Symbol> = kinds_set.drain().collect();
-    // Avoid allocating a String when sorting: resolve returns &str so we can
-    // use it directly as the sort key.
     kinds.sort_by_key(|s| symbols.resolve(*s));
 
     let kind_count = kinds.len().max(1);
-
-    let mut kind_color_map: HashMap<crate::symbols::Symbol, Color> = HashMap::new();
     let base_hue = 120.0_f32;
+
+    let mut vec: Vec<KindInfo> = Vec::with_capacity(kind_count);
+    let mut map: HashMap<crate::symbols::Symbol, usize> = HashMap::new();
     for (i, &kind_sym) in kinds.iter().enumerate() {
         let step = 360.0 / kind_count as f32;
         let hue = (base_hue + (i as f32) * step) % 360.0;
         let color = color_from_hsl(hue, 0.35, 0.8);
-        kind_color_map.insert(kind_sym, color);
+        vec.push(KindInfo {
+            kind: kind_sym,
+            color,
+        });
+        map.insert(kind_sym, i);
     }
 
-    kind_color_map
+    (vec, map)
 }
 
-fn apply_kind_colors(
-    events: &mut [TimelineEvent],
-    kind_color_map: &HashMap<crate::symbols::Symbol, Color>,
-) {
-    for event in events {
-        event.color = kind_color_map
-            .get(&event.event_kind)
-            .cloned()
-            .unwrap_or_else(|| color_from_hsl(0.0, 0.0, 0.85));
-    }
-}
+// `apply_kind_colors` removed: we no longer store per-event colors. Keep no
+// dead-code helpers around.
 
 fn build_threads_index(events: &[TimelineEvent]) -> HashMap<u32, Vec<EventId>> {
     let mut threads: HashMap<u32, Vec<EventId>> = HashMap::new();
@@ -606,10 +644,11 @@ fn build_thread_root(
         duration_ns: end_ns.saturating_sub(start_ns),
         depth: 0,
         thread_id,
-        event_kind: symbols.intern("Thread"),
+        // Thread-root events don't have a meaningful kind index; they use
+        // a fixed color during rendering. Leave kind_index as 0.
+        kind_index: 0u16,
         additional_data: None,
         payload_integer: None,
-        color: Color::from_rgb(0.85, 0.87, 0.9),
         is_thread_root: true,
     };
     events.push(event);
