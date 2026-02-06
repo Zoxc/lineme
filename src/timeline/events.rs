@@ -1,11 +1,11 @@
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
-use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
+use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
 
 use super::{
-    color_from_label, display_depth, group_total_height, mipmap_levels_for_zoom,
-    visible_event_indices_in, ColorMode, EventId, ThreadGroup, TimelineEvent,
+    ColorMode, EventId, ThreadGroup, TimelineEvent, color_from_label, display_depth,
+    group_total_height, mipmap_levels_for_zoom, visible_event_indices_in,
 };
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 
@@ -17,6 +17,7 @@ fn draw_event_rect(
     color: Color,
     label: &str,
     is_root: bool,
+    is_shadow: bool,
     bounds: Rectangle,
 ) {
     let rect = Rectangle {
@@ -28,7 +29,9 @@ fn draw_event_rect(
 
     frame.fill_rectangle(rect.position(), rect.size(), color);
 
-    let border_color = if is_root {
+    let border_color = if is_shadow {
+        Color::from_rgba(0.0, 0.0, 0.0, 0.05)
+    } else if is_root {
         Color::from_rgba(0.0, 0.0, 0.0, 0.35)
     } else {
         Color::from_rgba(0.0, 0.0, 0.0, 0.2)
@@ -41,7 +44,7 @@ fn draw_event_rect(
             .with_width(1.0),
     );
 
-    if rect.width > 5.0 {
+    if !is_shadow && rect.width > 5.0 {
         // Draw the full label but intersect the event clip with the overall
         // canvas/layout bounds so text is not drawn outside the visible area.
         let mut clip = Rectangle {
@@ -127,7 +130,7 @@ impl<'a> EventsProgram<'a> {
                     self.min_ns,
                 );
 
-                for level in mipmap_levels_for_zoom(group, self.zoom_level) {
+                for (_, level) in mipmap_levels_for_zoom(group, self.zoom_level) {
                     for index in visible_event_indices_in(
                         self.events,
                         &level.events,
@@ -138,6 +141,9 @@ impl<'a> EventsProgram<'a> {
                     ) {
                         let event_id = level.events[index];
                         let event = &self.events[event_id.index()];
+                        if event.is_shadow {
+                            continue;
+                        }
                         let depth = display_depth(group.show_thread_roots, event);
                         if group.is_collapsed && depth > 0 {
                             continue;
@@ -283,7 +289,18 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     .with_width(1.0),
             );
 
-            for level in mipmap_levels_for_zoom(group, zoom_level) {
+            // Draw real events at all visible mip levels, then draw shadows only
+            // from the smallest visible level (so each small event contributes
+            // once).
+            let mut smallest_visible: Option<usize> = None;
+            for (level_index, _) in mipmap_levels_for_zoom(group, zoom_level) {
+                smallest_visible = match smallest_visible {
+                    Some(existing) => Some(existing.min(level_index)),
+                    None => Some(level_index),
+                };
+            }
+
+            for (_, level) in mipmap_levels_for_zoom(group, zoom_level) {
                 for index in visible_event_indices_in(
                     self.events,
                     &level.events,
@@ -294,6 +311,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 ) {
                     let event_id = level.events[index];
                     let event = &self.events[event_id.index()];
+                    if event.is_shadow {
+                        continue;
+                    }
                     let depth = display_depth(group.show_thread_roots, event);
                     if group.is_collapsed && depth > 0 {
                         continue;
@@ -344,6 +364,60 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         color,
                         label,
                         is_thread_root,
+                        false,
+                        visible_bounds,
+                    );
+                }
+            }
+
+            if let Some(shadow_level) = smallest_visible.and_then(|i| group.mipmaps.get(i)) {
+                for index in visible_event_indices_in(
+                    self.events,
+                    &shadow_level.events,
+                    &shadow_level.events_by_start,
+                    &shadow_level.events_by_end,
+                    ns_min,
+                    ns_max,
+                ) {
+                    let event_id = shadow_level.events[index];
+                    let event = &self.events[event_id.index()];
+                    if !event.is_shadow {
+                        continue;
+                    }
+
+                    let depth = display_depth(group.show_thread_roots, event);
+                    if group.is_collapsed && depth > 0 {
+                        continue;
+                    }
+
+                    let width =
+                        crate::timeline::duration_to_width(event.duration_ns, zoom_level) as f32;
+                    if width < 1.0 {
+                        continue;
+                    }
+
+                    let x =
+                        crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level) as f32;
+
+                    let x_screen = x - scroll_offset_x_px as f32;
+                    if viewport_width > 0.0
+                        && ((x_screen + width) < 0.0 || (x_screen as f64) > viewport_width)
+                    {
+                        continue;
+                    }
+
+                    let color = Color::from_rgba(0.0, 0.0, 0.0, 0.10);
+                    let y_screen = y_offset as f32 - self.scroll_offset_y as f32
+                        + depth as f32 * (LANE_HEIGHT as f32);
+                    draw_event_rect(
+                        &mut frame,
+                        x_screen,
+                        width,
+                        y_screen,
+                        color,
+                        "",
+                        event.is_thread_root,
+                        true,
                         visible_bounds,
                     );
                 }

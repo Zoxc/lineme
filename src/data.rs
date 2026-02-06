@@ -23,6 +23,7 @@ pub struct TimelineEvent {
     pub payload_integer: Option<u64>,
     pub color: Color,
     pub is_thread_root: bool,
+    pub is_shadow: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -110,8 +111,8 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
     let mut threads = build_threads_index(&events);
     assign_event_depths(&mut events, &mut threads);
     let thread_data_vec = build_thread_data(&mut events, threads, &mut symbols);
-    let thread_groups = build_thread_groups(&events, &thread_data_vec);
-    let merged_thread_groups = build_merged_thread_groups(&events, &thread_data_vec);
+    let thread_groups = build_thread_groups(&mut events, &thread_data_vec);
+    let merged_thread_groups = build_merged_thread_groups(&mut events, &thread_data_vec);
 
     Ok(FileTab {
         data: FileData {
@@ -191,6 +192,7 @@ fn collect_timeline_events(
                     // Filled in after we know all kinds.
                     color: timeline::color_from_hsl(0.0, 0.0, 0.85),
                     is_thread_root: false,
+                    is_shadow: false,
                 });
             }
         }
@@ -291,7 +293,7 @@ fn build_thread_data(
 }
 
 fn build_thread_groups(
-    events: &[TimelineEvent],
+    events: &mut Vec<TimelineEvent>,
     thread_data: &[Arc<ThreadData>],
 ) -> Vec<ThreadGroup> {
     let mut thread_groups = Vec::new();
@@ -312,7 +314,7 @@ fn build_thread_groups(
 }
 
 fn build_merged_thread_groups(
-    events: &[TimelineEvent],
+    events: &mut Vec<TimelineEvent>,
     threads: &[Arc<ThreadData>],
 ) -> Vec<ThreadGroup> {
     if threads.is_empty() {
@@ -430,6 +432,7 @@ fn build_thread_root(
         payload_integer: None,
         color: Color::from_rgb(0.85, 0.87, 0.9),
         is_thread_root: true,
+        is_shadow: false,
     };
     events.push(event);
 

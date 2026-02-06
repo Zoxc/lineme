@@ -2,23 +2,23 @@
 
 mod data;
 mod file;
+mod scrollbar;
 mod settings;
 mod symbols;
-mod scrollbar;
 mod timeline;
 mod ui;
+use crate::data::EventId;
+use crate::file::{FileLoadState, FileTab};
 use data::{FileTab as FileTabData, format_panic_payload, load_profiling_data};
 use iced::futures::channel::oneshot;
 use iced::widget::{Space, button, checkbox, column, container, pick_list, row, text};
 use iced::{Alignment, Element, Length, Task};
 use iced_aw::{TabLabel, tab_bar};
+use settings::{SettingsMessage, SettingsPage};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Instant;
-use crate::file::{FileLoadState, FileTab};
 use timeline::{ColorMode, format_duration};
-use crate::data::EventId;
-use settings::{SettingsMessage, SettingsPage};
 
 pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';
@@ -36,8 +36,8 @@ fn register_file_extension_impl() -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::path::PathBuf;
-        use winreg::enums::*;
         use winreg::RegKey;
+        use winreg::enums::*;
 
         let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {}", e))?;
         let exe_str = exe
@@ -156,7 +156,7 @@ fn neutral_pick_list_style(
 }
 
 #[derive(Debug, Clone)]
-    enum Message {
+enum Message {
     TabSelected(usize),
     OpenFile,
     FileSelected(PathBuf),
@@ -201,7 +201,7 @@ fn neutral_pick_list_style(
     ExpandAllThreads,
     MergeThreadsToggled(bool),
     ModifiersChanged(iced::keyboard::Modifiers),
-    
+
     None,
     Settings(SettingsMessage),
 }
@@ -350,12 +350,14 @@ impl Lineme {
                         });
 
                         match rx.await {
-                            Ok(r) => Message::Settings(
-                                SettingsMessage::RegisterFileExtensionResult(r),
-                            ),
-                            Err(_) => Message::Settings(SettingsMessage::RegisterFileExtensionResult(
-                                Err("Registration task failed".to_string()),
-                            )),
+                            Ok(r) => {
+                                Message::Settings(SettingsMessage::RegisterFileExtensionResult(r))
+                            }
+                            Err(_) => {
+                                Message::Settings(SettingsMessage::RegisterFileExtensionResult(
+                                    Err("Registration task failed".to_string()),
+                                ))
+                            }
                         }
                     },
                     |m| m,
@@ -492,15 +494,16 @@ impl Lineme {
                     let has_user_view = stats.ui.zoom_level != 1.0
                         || stats.ui.scroll_offset_x != 0.0
                         || stats.ui.scroll_offset_y != 0.0;
-                    let should_initial_fit = (first_time || (viewport_width > 0.0 && !stats.ui.initial_fit_done))
+                    let should_initial_fit = (first_time
+                        || (viewport_width > 0.0 && !stats.ui.initial_fit_done))
                         && !has_user_view;
 
                     if should_initial_fit {
                         let min_ns = stats.data.timeline.min_ns;
                         let max_ns = stats.data.timeline.max_ns;
                         let total_ns = max_ns.saturating_sub(min_ns);
-                        stats.ui.zoom_level = (viewport_width - 2.0).max(1.0) as f64
-                            / total_ns.max(1) as f64;
+                        stats.ui.zoom_level =
+                            (viewport_width - 2.0).max(1.0) as f64 / total_ns.max(1) as f64;
                         stats.ui.initial_fit_done = true;
                     } else if !stats.ui.initial_fit_done && viewport_width > 0.0 {
                         stats.ui.initial_fit_done = true;
@@ -571,7 +574,11 @@ impl Lineme {
                     let zoom_level = stats.ui.zoom_level.max(1e-9);
                     let viewport_width = stats.ui.viewport_width.max(1.0);
                     let visible_ns = (viewport_width / zoom_level).max(1.0);
-                    let total_ns = stats.data.timeline.max_ns.saturating_sub(stats.data.timeline.min_ns);
+                    let total_ns = stats
+                        .data
+                        .timeline
+                        .max_ns
+                        .saturating_sub(stats.data.timeline.min_ns);
                     let max_start_ns = (total_ns as f64 - visible_ns).max(0.0);
                     let clamped_start = start_ns.clamp(0.0, max_start_ns);
                     stats.ui.scroll_offset_x = clamped_start;
@@ -654,7 +661,7 @@ impl Lineme {
                     let viewport_width = stats.ui.viewport_width.max(0.0_f64);
                     let _max_scroll_x = (total_ns as f64
                         - viewport_width / stats.ui.zoom_level.max(1e-9))
-                        .max(0.0_f64);
+                    .max(0.0_f64);
 
                     let viewport_height = stats.ui.viewport_height.max(0.0_f64);
                     let max_scroll_y = (total_height - viewport_height as f64).max(0.0_f64);
@@ -665,7 +672,8 @@ impl Lineme {
                         viewport_width,
                         stats.ui.zoom_level,
                     );
-                    stats.ui.scroll_offset_y = (stats.ui.scroll_offset_y - delta.y as f64).clamp(0.0, max_scroll_y);
+                    stats.ui.scroll_offset_y =
+                        (stats.ui.scroll_offset_y - delta.y as f64).clamp(0.0, max_scroll_y);
 
                     return Task::none();
                 }
@@ -681,7 +689,8 @@ impl Lineme {
                     let total_ns = max_ns.saturating_sub(min_ns);
                     let viewport_width = stats.ui.viewport_width.max(0.0_f64);
                     if viewport_width > 0.0 {
-                        stats.ui.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f64;
+                        stats.ui.zoom_level =
+                            (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f64;
                     } else {
                         stats.ui.zoom_level = 1000.0 / total_ns.max(1) as f64;
                     }
@@ -693,7 +702,7 @@ impl Lineme {
             Message::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers;
             }
-            
+
             Message::ToggleThreadCollapse(thread_id) => {
                 if let Some(file) = self.active_file_mut() {
                     let thread_groups_mut = match file.thread_groups_mut() {
@@ -795,7 +804,11 @@ impl Lineme {
         let id = self.next_file_id;
         self.next_file_id = self.next_file_id.wrapping_add(1);
 
-        self.files.push(FileTab { id, path: path.clone(), load_state: FileLoadState::Loading });
+        self.files.push(FileTab {
+            id,
+            path: path.clone(),
+            load_state: FileLoadState::Loading,
+        });
         self.active_tab = self.files.len() - 1;
         self.show_settings = false;
 
@@ -962,14 +975,10 @@ impl Lineme {
                 // of the timeline-specific controls to the right.
                 let left_controls = row![
                     text("View:").size(12),
-                    pick_list(
-                        &ViewType::ALL[..],
-                        Some(current_view),
-                        Message::ViewChanged,
-                    )
-                    .text_size(12)
-                    .padding(3)
-                    .style(neutral_pick_list_style),
+                    pick_list(&ViewType::ALL[..], Some(current_view), Message::ViewChanged,)
+                        .text_size(12)
+                        .padding(3)
+                        .style(neutral_pick_list_style),
                 ]
                 .spacing(5)
                 .align_y(Alignment::Center);
@@ -1027,10 +1036,14 @@ impl Lineme {
                 };
 
                 let view_selector_bar = container(
-                    row![left_controls, Space::new().width(Length::Fill), right_controls]
-                        .spacing(10)
-                        .padding(5)
-                        .align_y(Alignment::Center),
+                    row![
+                        left_controls,
+                        Space::new().width(Length::Fill),
+                        right_controls
+                    ]
+                    .spacing(10)
+                    .padding(5)
+                    .align_y(Alignment::Center),
                 )
                 .width(Length::Fill)
                 .style(|_theme: &iced::Theme| {
@@ -1099,12 +1112,10 @@ impl Lineme {
                     ],
                     row![
                         text("Load time:").width(Length::Fixed(120.0)).size(12),
-                        text(
-                            match stats.load_duration_ns {
-                                Some(ns) => format_duration(ns),
-                                None => "unknown".to_string(),
-                            }
-                        )
+                        text(match stats.load_duration_ns {
+                            Some(ns) => format_duration(ns),
+                            None => "unknown".to_string(),
+                        })
                         .size(12)
                     ],
                     row![
@@ -1162,23 +1173,21 @@ impl Lineme {
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .into(),
-            FileLoadState::Ready(stats) => {
-                timeline::view(
-                    &stats.data.timeline,
-                    &stats.data.events,
-                    file.thread_groups().unwrap_or_default(),
-                    stats.ui.zoom_level,
-                    &stats.ui.selected_event,
-                    &stats.ui.hovered_event,
-                    stats.ui.scroll_offset_x,
-                    stats.ui.scroll_offset_y,
-                    stats.ui.viewport_width,
-                    stats.ui.viewport_height,
-                    self.modifiers,
-                    stats.ui.color_mode,
-                    &stats.data.symbols,
-                )
-            }
+            FileLoadState::Ready(stats) => timeline::view(
+                &stats.data.timeline,
+                &stats.data.events,
+                file.thread_groups().unwrap_or_default(),
+                stats.ui.zoom_level,
+                &stats.ui.selected_event,
+                &stats.ui.hovered_event,
+                stats.ui.scroll_offset_x,
+                stats.ui.scroll_offset_y,
+                stats.ui.viewport_width,
+                stats.ui.viewport_height,
+                self.modifiers,
+                stats.ui.color_mode,
+                &stats.data.symbols,
+            ),
         }
     }
 }
