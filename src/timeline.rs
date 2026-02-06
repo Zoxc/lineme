@@ -365,8 +365,16 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
     // Only use explicit selections (clicks) to populate the details panel.
     let display_event = selected_event.and_then(|event_id| events.get(event_id.index()));
 
-    // Only show the details panel when an event is selected or hovered.
-    if let Some(event) = display_event {
+    // Keep the widget tree shape stable regardless of selection.
+    //
+    // The events canvas stores interaction state (including double-click timing)
+    // inside its widget state. If we switch between returning `main_view` and
+    // returning a different root widget that wraps it (when the details panel is
+    // shown), iced will rebuild the subtree and the canvas state gets reset.
+    //
+    // By always returning the same root `column![main_view, details_panel]`, the
+    // canvas state persists and the first double-click works as expected.
+    let details_panel: Element<'a, Message> = if let Some(event) = display_event {
         // Also compute float-precision viewport endpoints (not truncated to u64)
         let zoom_level = zoom_level.max(1e-9);
         let view_start_f = scroll_offset_x.max(0.0) + timeline_data.min_ns as f64;
@@ -451,13 +459,15 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
                 })
         });
 
-        column![main_view, details_panel]
-            .height(Length::Fill)
-            .into()
+        details_panel.into()
     } else {
-        // No details to show: return the main view only.
-        main_view.height(Length::Fill).into()
-    }
+        Space::new()
+            .width(Length::Fill)
+            .height(Length::Fixed(0.0))
+            .into()
+    };
+
+    column![main_view, details_panel].height(Length::Fill).into()
 }
 
 fn group_contains_thread(group: &ThreadGroup, thread_id: u32) -> bool {
