@@ -4,6 +4,7 @@ mod mini_timeline;
 mod threads;
 mod ticks;
 
+use crate::data::{EventId, ThreadData, TimelineEvent};
 use crate::scrollbar;
 use crate::Message;
 use events::EventsProgram;
@@ -49,36 +50,7 @@ impl std::fmt::Display for ColorMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EventId(pub u32);
-
-impl EventId {
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TimelineEvent {
-    pub label: crate::symbols::Symbol,
-    pub start_ns: u64,
-    pub duration_ns: u64,
-    pub depth: u32,
-    pub thread_id: u64,
-    pub event_kind: crate::symbols::Symbol,
-    pub additional_data: Vec<crate::symbols::Symbol>,
-    pub payload_integer: Option<u64>,
-    pub color: Color,
-    pub is_thread_root: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct ThreadData {
-    pub thread_id: u64,
-    pub events: Vec<EventId>,
-    pub thread_root: Option<EventId>,
-}
-
+// Event-related types moved to `src/data.rs` and are imported above.
 pub type ThreadGroupId = Arc<Vec<Arc<ThreadData>>>;
 pub type ThreadGroupKey = usize;
 
@@ -109,6 +81,9 @@ pub struct TimelineData {
     pub min_ns: u64,
     pub max_ns: u64,
 }
+
+// The `Events` wrapper type has moved to `src/data.rs` to keep event data
+// colocated with file-loading logic. It's imported at the top of this file.
 
 pub fn color_from_label(label: &str) -> Color {
     let mut hash = 0u64;

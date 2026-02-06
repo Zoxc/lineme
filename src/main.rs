@@ -13,7 +13,8 @@ use iced_aw::{TabLabel, tab_bar};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Instant;
-use timeline::{ColorMode, EventId, ThreadGroup, format_duration};
+use timeline::{ColorMode, ThreadGroup, format_duration};
+use crate::data::EventId;
 
 pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';

@@ -1,9 +1,41 @@
-use crate::timeline::{self, EventId, ThreadData, ThreadGroup, TimelineData, TimelineEvent};
-use analyzeme::ProfilingData;
+use crate::timeline::{self, ThreadGroup, TimelineData};
 use iced::Color;
+use std::sync::Arc;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EventId(pub u32);
+
+impl EventId {
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimelineEvent {
+    pub label: crate::symbols::Symbol,
+    pub start_ns: u64,
+    pub duration_ns: u64,
+    pub depth: u32,
+    pub thread_id: u64,
+    pub event_kind: crate::symbols::Symbol,
+    pub additional_data: Vec<crate::symbols::Symbol>,
+    pub payload_integer: Option<u64>,
+    pub color: Color,
+    pub is_thread_root: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ThreadData {
+    pub thread_id: u64,
+    pub events: Vec<EventId>,
+    pub thread_root: Option<EventId>,
+}
+
+
+use analyzeme::ProfilingData;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct FileData {
