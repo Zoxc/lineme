@@ -85,8 +85,6 @@ pub struct Shadow {
     pub start_ns: u64,
     pub duration_ns: u64,
     pub depth: u32,
-    pub thread_id: u32,
-    pub is_thread_root: bool,
 }
 
 pub fn thread_group_key(group: &ThreadGroup) -> ThreadGroupKey {
@@ -326,33 +324,27 @@ fn build_thread_group_mipmaps(
             cumulative_real.extend(level.events.iter().copied());
 
             let target_min_duration = level.max_duration_ns.max(1);
-            let mut intervals: Vec<(u32, u32, bool, u64, u64)> = Vec::new();
+            let mut intervals: Vec<(u32, u64, u64)> = Vec::new();
             intervals.reserve(cumulative_real.len());
             for &event_id in &cumulative_real {
                 let event = &events[event_id.index()];
                 let start = event.start_ns;
                 let inflated = event.duration_ns.max(target_min_duration);
                 let end = start.saturating_add(inflated);
-                intervals.push((
-                    event.thread_id,
-                    event.depth,
-                    event.is_thread_root,
-                    start,
-                    end,
-                ));
+                intervals.push((event.depth, start, end));
             }
 
-            intervals.sort_by_key(|&(thread_id, depth, is_root, start, end)| {
-                (thread_id, depth, is_root, start, end)
-            });
+            // Sort by depth then start so we can merge overlapping intervals per
+            // depth level.
+            intervals.sort_by_key(|&(depth, start, _end)| (depth, start));
 
-            let mut merged: Vec<(u32, u32, bool, u64, u64)> = Vec::new();
+            let mut merged: Vec<(u32, u64, u64)> = Vec::new();
             for interval in intervals {
                 if let Some(last) = merged.last_mut() {
-                    let (ltid, ldepth, lroot, lstart, lend) = *last;
-                    let (tid, depth, root, start, end) = interval;
-                    if ltid == tid && ldepth == depth && lroot == root && start <= lend {
-                        *last = (ltid, ldepth, lroot, lstart, lend.max(end));
+                    let (ldepth, lstart, lend) = *last;
+                    let (depth, start, end) = interval;
+                    if ldepth == depth && start <= lend {
+                        *last = (ldepth, lstart, lend.max(end));
                         continue;
                     }
                 }
@@ -364,15 +356,13 @@ fn build_thread_group_mipmaps(
             }
 
             let mut shadows: Vec<Shadow> = Vec::with_capacity(merged.len());
-            for (thread_id, depth, is_thread_root, start, end) in merged {
+            for (depth, start, end) in merged {
                 let duration = end.saturating_sub(start).max(1);
 
                 shadows.push(Shadow {
                     start_ns: start,
                     duration_ns: duration,
                     depth,
-                    thread_id,
-                    is_thread_root,
                 });
             }
 
@@ -381,7 +371,7 @@ fn build_thread_group_mipmaps(
             let mut indices: Vec<usize> = (0..level.shadows.events.len()).collect();
             indices.sort_by_key(|&i| {
                 let s = &level.shadows.events[i];
-                (s.start_ns, s.thread_id, s.depth)
+                (s.start_ns, s.depth)
             });
             level.shadows.events_by_start = indices;
 
@@ -391,7 +381,7 @@ fn build_thread_group_mipmaps(
                 (
                     s.start_ns.saturating_add(s.duration_ns),
                     s.start_ns,
-                    s.thread_id,
+                    s.depth,
                 )
             });
             level.shadows.events_by_end = indices_end;

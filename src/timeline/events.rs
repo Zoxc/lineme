@@ -369,21 +369,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 for index in visible_shadow_indices_in(&shadow_level.shadows, ns_min, ns_max) {
                     let shadow = &shadow_level.shadows.events[index];
 
-                    let depth = display_depth(
-                        group.show_thread_roots,
-                        &TimelineEvent {
-                            label: crate::symbols::Symbol::default(),
-                            start_ns: shadow.start_ns,
-                            duration_ns: shadow.duration_ns,
-                            depth: shadow.depth,
-                            thread_id: shadow.thread_id,
-                            event_kind: crate::symbols::Symbol::default(),
-                            additional_data: Vec::new(),
-                            payload_integer: None,
-                            color: Color::from_rgb(0.75, 0.75, 0.75),
-                            is_thread_root: shadow.is_thread_root,
-                        },
-                    );
+                    let depth = if group.show_thread_roots {
+                        shadow.depth.saturating_add(1)
+                    } else {
+                        shadow.depth
+                    };
                     if group.is_collapsed && depth > 0 {
                         continue;
                     }
@@ -414,7 +404,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         y_screen,
                         color,
                         "",
-                        shadow.is_thread_root,
+                        false,
                         true,
                         visible_bounds,
                     );
