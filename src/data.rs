@@ -385,6 +385,7 @@ fn build_threads_index(events: &[TimelineEvent]) -> HashMap<u32, Vec<EventId>> {
             .or_default()
             .push(EventId(index as u32));
     }
+    threads.values_mut().map(|vec| vec.shrink_to_fit());
     threads
 }
 
