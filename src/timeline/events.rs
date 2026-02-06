@@ -1,11 +1,11 @@
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
-use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
+use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 use super::{
-    ColorMode, ThreadGroup, TimelineEvent, color_from_label, group_total_height,
-    mipmap_levels_for_zoom, visible_event_indices_in,
+    color_from_label, group_total_height, mipmap_levels_for_zoom, visible_event_indices_in,
+    ColorMode, ThreadGroup, TimelineEvent,
 };
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 
@@ -17,6 +17,7 @@ fn draw_event_rect(
     color: Color,
     label: &str,
     is_root: bool,
+    bounds: Rectangle,
 ) {
     let rect = Rectangle {
         x,
@@ -41,16 +42,28 @@ fn draw_event_rect(
     );
 
     if rect.width > 5.0 {
-        // Draw the full label and rely on the canvas clip region so overflowing
-        // glyphs are visually cropped at the event rectangle boundary.
-        frame.with_clip(
-            Rectangle {
-                x: rect.x + 1.0,
-                y: rect.y + 1.0,
-                width: rect.width - 2.0,
-                height: rect.height - 2.0,
-            },
-            |frame| {
+        // Draw the full label but intersect the event clip with the overall
+        // canvas/layout bounds so text is not drawn outside the visible area.
+        let mut clip = Rectangle {
+            x: rect.x + 1.0,
+            y: rect.y + 1.0,
+            width: rect.width - 2.0,
+            height: rect.height - 2.0,
+        };
+
+        // Intersect clip with provided bounds
+        let x0 = clip.x.max(bounds.x);
+        let y0 = clip.y.max(bounds.y);
+        let x1 = (clip.x + clip.width).min(bounds.x + bounds.width);
+        let y1 = (clip.y + clip.height).min(bounds.y + bounds.height);
+
+        if x1 > x0 && y1 > y0 {
+            clip.x = x0;
+            clip.y = y0;
+            clip.width = x1 - x0;
+            clip.height = y1 - y0;
+
+            frame.with_clip(clip, |frame| {
                 frame.fill_text(canvas::Text {
                     content: label.to_string(),
                     position: Point::new(rect.x + 2.0 + EVENT_LEFT_PADDING as f32, rect.y + 2.0),
@@ -62,8 +75,8 @@ fn draw_event_rect(
                     size: 12.0.into(),
                     ..Default::default()
                 });
-            },
-        );
+            });
+        }
     }
 }
 
@@ -182,6 +195,17 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             self.viewport_height
         } else {
             bounds.height as f64
+        };
+
+        // The visible drawing area for events is the viewport in canvas-local
+        // coordinates (origin at 0,0). Use this when intersecting text clips so
+        // we don't rely on the provided `bounds` which may not match the events
+        // view coordinates when the canvas is embedded in a larger layout.
+        let visible_bounds = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: viewport_width as f32,
+            height: viewport_height as f32,
         };
 
         // Draw vertical tick guide lines matching the header ticks.
@@ -309,6 +333,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         color,
                         label,
                         is_thread_root,
+                        visible_bounds,
                     );
                 }
             }
