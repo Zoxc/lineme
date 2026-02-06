@@ -7,7 +7,7 @@ mod ticks;
 use crate::Message;
 use crate::data::event_end_ns;
 use crate::data::{
-    EventId, ThreadGroup, ThreadGroupMipMap, ThreadGroupMipMapShadows, TimelineData, TimelineEvent,
+    EventId, ThreadGroup, ThreadGroupMipMapShadows, TimelineData, TimelineEvent,
 };
 pub use crate::data::{ThreadGroupKey, thread_group_key};
 // Re-export ColorMode from the data module so other modules can import it via
@@ -191,21 +191,6 @@ fn visible_shadow_indices_in(
     }
 
     indices
-}
-
-fn mipmap_level_fits(level: &ThreadGroupMipMap, zoom_level: f64) -> bool {
-    (level.max_duration_ns as f64) * zoom_level >= 1.0
-}
-
-fn mipmap_levels_for_zoom(
-    group: &ThreadGroup,
-    zoom_level: f64,
-) -> impl Iterator<Item = (usize, &ThreadGroupMipMap)> {
-    group
-        .mipmaps
-        .iter()
-        .enumerate()
-        .filter(move |(_, level)| mipmap_level_fits(level, zoom_level))
 }
 
 pub fn format_duration(ns: u64) -> String {

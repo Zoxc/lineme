@@ -116,8 +116,10 @@ pub struct TimelineEvent {
 #[derive(Debug, Clone)]
 pub struct ThreadData {
     pub thread_id: u32,
-    pub events: Vec<EventId>,
     pub thread_root: Option<EventId>,
+    pub thread_root_mipmap: Option<ThreadGroupMipMap>,
+    pub mipmaps: Vec<ThreadGroupMipMap>,
+    pub max_depth: u32,
 }
 
 // Event-related types are defined below in this file.
@@ -127,7 +129,6 @@ pub type ThreadGroupKey = usize;
 #[derive(Debug, Clone)]
 pub struct ThreadGroup {
     pub threads: ThreadGroupId,
-    pub mipmaps: Vec<ThreadGroupMipMap>,
     pub max_depth: u32,
     pub is_collapsed: bool,
     pub show_thread_roots: bool,
@@ -241,8 +242,8 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
     let mut threads = build_threads_index(&events);
     assign_event_depths(&mut events, &mut threads);
     let thread_data_vec = build_thread_data(&mut events, threads, &mut symbols);
-    let thread_groups = build_thread_groups(&mut events, &thread_data_vec);
-    let merged_thread_groups = build_merged_thread_groups(&mut events, &thread_data_vec);
+    let thread_groups = build_thread_groups(&thread_data_vec);
+    let merged_thread_groups = build_merged_thread_groups(&events, &thread_data_vec);
 
     Ok(FileTab {
         data: FileData {
@@ -385,7 +386,9 @@ fn build_threads_index(events: &[TimelineEvent]) -> HashMap<u32, Vec<EventId>> {
             .or_default()
             .push(EventId(index as u32));
     }
-    threads.values_mut().map(|vec| vec.shrink_to_fit());
+    for vec in threads.values_mut() {
+        vec.shrink_to_fit();
+    }
     threads
 }
 
@@ -417,10 +420,35 @@ fn build_thread_data(
     let mut thread_data_vec = Vec::new();
     for (thread_id, event_ids) in threads {
         let thread_root = build_thread_root(events, thread_id, &event_ids, symbols);
+        let thread_root_mipmap = thread_root.map(|root_id| {
+            let bucket = duration_bucket(events[root_id.index()].duration_ns) as usize;
+            let max_duration_ns = if bucket >= 63 {
+                u64::MAX
+            } else {
+                (1u64 << (bucket as u32 + 1)).saturating_sub(1)
+            };
+            let bucket_events = vec![root_id];
+            let (events_by_start, events_by_end) = build_event_indices(events, &bucket_events);
+            ThreadGroupMipMap {
+                max_duration_ns,
+                events: bucket_events,
+                shadows: ThreadGroupMipMapShadows::default(),
+                events_by_start,
+                events_by_end,
+            }
+        });
+        let max_depth = event_ids
+            .iter()
+            .map(|event_id| events[event_id.index()].depth)
+            .max()
+            .unwrap_or(0);
+        let mipmaps = build_thread_group_mipmaps(events, &event_ids);
         thread_data_vec.push(Arc::new(ThreadData {
             thread_id,
-            events: event_ids,
             thread_root,
+            thread_root_mipmap,
+            mipmaps,
+            max_depth,
         }));
     }
 
@@ -428,18 +456,13 @@ fn build_thread_data(
     thread_data_vec
 }
 
-fn build_thread_groups(
-    events: &mut [TimelineEvent],
-    thread_data: &[Arc<ThreadData>],
-) -> Vec<ThreadGroup> {
+fn build_thread_groups(thread_data: &[Arc<ThreadData>]) -> Vec<ThreadGroup> {
     let mut thread_groups = Vec::new();
     for thread in thread_data {
         let threads = Arc::new(vec![thread.clone()]);
-        let (_events, max_depth, mipmaps) = build_thread_group_events(events, &threads, false);
         thread_groups.push(ThreadGroup {
             threads,
-            mipmaps,
-            max_depth,
+            max_depth: thread.max_depth,
             is_collapsed: false,
             show_thread_roots: false,
         });
@@ -449,7 +472,7 @@ fn build_thread_groups(
 }
 
 fn build_merged_thread_groups(
-    events: &mut [TimelineEvent],
+    events: &[TimelineEvent],
     threads: &[Arc<ThreadData>],
 ) -> Vec<ThreadGroup> {
     if threads.is_empty() {
@@ -463,8 +486,8 @@ fn build_merged_thread_groups(
         .map(|(index, thread)| {
             let mut start = u64::MAX;
             let mut end = 0u64;
-            for event_id in &thread.events {
-                let event = &events[event_id.index()];
+            if let Some(root) = thread.thread_root {
+                let event = &events[root.index()];
                 start = start.min(event.start_ns);
                 end = end.max(event.start_ns.saturating_add(event.duration_ns));
             }
@@ -522,11 +545,15 @@ fn build_merged_thread_groups(
                 .collect::<Vec<_>>(),
         );
         let show_thread_roots = threads.len() > 1;
-        let (_events, max_depth, mipmaps) =
-            build_thread_group_events(events, &threads, show_thread_roots);
+
+        let max_depth = threads
+            .iter()
+            .map(|t| t.max_depth)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(if show_thread_roots { 1 } else { 0 });
         thread_groups.push(ThreadGroup {
             threads,
-            mipmaps,
             max_depth,
             is_collapsed: false,
             show_thread_roots,
@@ -583,37 +610,6 @@ pub fn format_panic_payload(payload: Box<dyn std::any::Any + Send>) -> String {
     }
 }
 
-pub fn build_thread_group_events(
-    events: &mut [TimelineEvent],
-    threads: &[Arc<ThreadData>],
-    show_thread_roots: bool,
-) -> (Vec<EventId>, u32, Vec<ThreadGroupMipMap>) {
-    let mut event_ids = Vec::new();
-    for thread in threads {
-        if show_thread_roots && let Some(root_id) = thread.thread_root {
-            event_ids.push(root_id);
-        }
-        event_ids.extend(thread.events.iter().copied());
-    }
-
-    event_ids.sort_by_key(|event_id| {
-        let event = &events[event_id.index()];
-        (
-            event.start_ns,
-            event.thread_id,
-            display_depth(show_thread_roots, event),
-        )
-    });
-
-    let max_depth = event_ids
-        .iter()
-        .map(|event_id| display_depth(show_thread_roots, &events[event_id.index()]))
-        .max()
-        .unwrap_or(0);
-    let mipmaps = build_thread_group_mipmaps(events, &event_ids);
-    (event_ids, max_depth, mipmaps)
-}
-
 // Small helper used during initial event creation before kind colors are
 // computed. We return a neutral grey as a placeholder — the real colors are
 // applied later in `apply_kind_colors`.
@@ -656,7 +652,7 @@ fn duration_bucket(duration_ns: u64) -> u32 {
 }
 
 fn build_thread_group_mipmaps(
-    events: &mut [TimelineEvent],
+    events: &[TimelineEvent],
     event_ids: &[EventId],
 ) -> Vec<ThreadGroupMipMap> {
     if event_ids.is_empty() {
@@ -698,7 +694,7 @@ fn build_thread_group_mipmaps(
     //
     // For each level i (in increasing duration order), build a cumulative shadow
     // representation of all real events in levels [0..=i], inflated to at least
-    // that level's max_duration and merged per (thread_id, depth, is_root).
+    // that level's max_duration and merged per depth level.
     //
     // Shadows are stored separately per mip level so the main `events` list
     // remains purely "real" events.
