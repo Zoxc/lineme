@@ -103,9 +103,11 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
     // Create the symbol interner first and intern strings as we parse events so
     // we avoid allocating duplicate Strings for every parsed event.
     let mut symbols = crate::symbols::Symbols::new();
-    let parsed = collect_parsed_events(&data, &mut symbols, metadata_start_ns);
-    let kind_color_map = build_kind_color_map(&parsed.events, &symbols);
-    let (mut events, mut threads) = build_timeline_events(parsed.events, &kind_color_map);
+    let collected = collect_timeline_events(&data, &mut symbols, metadata_start_ns);
+    let kind_color_map = build_kind_color_map(&collected.events, &symbols);
+    let mut events = collected.events;
+    apply_kind_colors(&mut events, &kind_color_map);
+    let mut threads = build_threads_index(&events);
     assign_event_depths(&mut events, &mut threads);
     let thread_data_vec = build_thread_data(&mut events, threads, &mut symbols);
     let thread_groups = build_thread_groups(&events, &thread_data_vec);
@@ -113,13 +115,13 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
 
     Ok(FileTab {
         data: FileData {
-            event_count: parsed.event_count,
+            event_count: collected.event_count,
             cmd: metadata.cmd.clone(),
             pid: metadata.process_id,
             timeline: TimelineData {
                 thread_groups,
                 min_ns: 0,
-                max_ns: parsed.max_ns,
+                max_ns: collected.max_ns,
             },
             events,
             merged_thread_groups,
@@ -131,19 +133,8 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
 }
 
 #[derive(Debug)]
-struct ParsedEvent {
-    thread_id: u64,
-    label: crate::symbols::Symbol,
-    start_ns: u64,
-    duration_ns: u64,
-    event_kind: crate::symbols::Symbol,
-    additional_data: Vec<crate::symbols::Symbol>,
-    payload_integer: Option<u64>,
-}
-
-#[derive(Debug)]
-struct ParsedEvents {
-    events: Vec<ParsedEvent>,
+struct CollectedEvents {
+    events: Vec<TimelineEvent>,
     max_ns: u64,
     event_count: usize,
 }
@@ -154,12 +145,12 @@ fn load_profiling_source(path: &Path) -> Result<ProfilingData, String> {
         .map_err(|e| format!("Failed to load profiling data from {:?}: {}", stem, e))
 }
 
-fn collect_parsed_events(
+fn collect_timeline_events(
     data: &ProfilingData,
     symbols: &mut crate::symbols::Symbols,
     metadata_start_ns: u64,
-) -> ParsedEvents {
-    let mut parsed_events = Vec::new();
+) -> CollectedEvents {
+    let mut events = Vec::new();
     let mut max_ns = 0;
     let mut event_count = 0;
 
@@ -184,11 +175,12 @@ fn collect_parsed_events(
 
                 max_ns = max_ns.max(end_ns);
 
-                parsed_events.push(ParsedEvent {
+                events.push(TimelineEvent {
                     thread_id,
                     label: symbols.intern(&event.label.to_string()),
                     start_ns,
                     duration_ns: end_ns.saturating_sub(start_ns),
+                    depth: 0,
                     event_kind: symbols.intern(&event.event_kind.to_string()),
                     additional_data: event
                         .additional_data
@@ -196,20 +188,23 @@ fn collect_parsed_events(
                         .map(|s| symbols.intern(&s.to_string()))
                         .collect::<Vec<_>>(),
                     payload_integer: event.payload.integer(),
+                    // Filled in after we know all kinds.
+                    color: timeline::color_from_hsl(0.0, 0.0, 0.85),
+                    is_thread_root: false,
                 });
             }
         }
     }
 
-    ParsedEvents {
-        events: parsed_events,
+    CollectedEvents {
+        events,
         max_ns,
         event_count,
     }
 }
 
 fn build_kind_color_map(
-    events: &[ParsedEvent],
+    events: &[TimelineEvent],
     symbols: &crate::symbols::Symbols,
 ) -> HashMap<crate::symbols::Symbol, Color> {
     // Collect unique kinds into a HashSet to remove duplicates, then sort the
@@ -233,39 +228,27 @@ fn build_kind_color_map(
     kind_color_map
 }
 
-fn build_timeline_events(
-    parsed_events: Vec<ParsedEvent>,
+fn apply_kind_colors(
+    events: &mut [TimelineEvent],
     kind_color_map: &HashMap<crate::symbols::Symbol, Color>,
-) -> (Vec<TimelineEvent>, HashMap<u64, Vec<EventId>>) {
-    let mut events: Vec<TimelineEvent> = Vec::new();
-    let mut threads: HashMap<u64, Vec<EventId>> = HashMap::new();
-
-    for parsed_event in parsed_events {
-        let color = kind_color_map
-            .get(&parsed_event.event_kind)
+) {
+    for event in events {
+        event.color = kind_color_map
+            .get(&event.event_kind)
             .cloned()
             .unwrap_or_else(|| timeline::color_from_hsl(0.0, 0.0, 0.85));
-
-        let event_id = EventId(events.len() as u32);
-        events.push(TimelineEvent {
-            label: parsed_event.label,
-            start_ns: parsed_event.start_ns,
-            duration_ns: parsed_event.duration_ns,
-            depth: 0,
-            thread_id: parsed_event.thread_id,
-            event_kind: parsed_event.event_kind,
-            additional_data: parsed_event.additional_data,
-            payload_integer: parsed_event.payload_integer,
-            color,
-            is_thread_root: false,
-        });
-        threads
-            .entry(parsed_event.thread_id)
-            .or_default()
-            .push(event_id);
     }
+}
 
-    (events, threads)
+fn build_threads_index(events: &[TimelineEvent]) -> HashMap<u64, Vec<EventId>> {
+    let mut threads: HashMap<u64, Vec<EventId>> = HashMap::new();
+    for (index, event) in events.iter().enumerate() {
+        threads
+            .entry(event.thread_id)
+            .or_default()
+            .push(EventId(index as u32));
+    }
+    threads
 }
 
 fn assign_event_depths(events: &mut [TimelineEvent], threads: &mut HashMap<u64, Vec<EventId>>) {
