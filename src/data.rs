@@ -95,10 +95,15 @@ pub struct FileTab {
 pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
     let data = load_profiling_source(path)?;
     let metadata = data.metadata();
+    let metadata_start_ns = metadata
+        .start_time
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
     // Create the symbol interner first and intern strings as we parse events so
     // we avoid allocating duplicate Strings for every parsed event.
     let mut symbols = crate::symbols::Symbols::new();
-    let parsed = collect_parsed_events(&data, &mut symbols);
+    let parsed = collect_parsed_events(&data, &mut symbols, metadata_start_ns);
     let kind_color_map = build_kind_color_map(&parsed.events, &symbols);
     let (mut events, mut threads) = build_timeline_events(parsed.events, &kind_color_map);
     assign_event_depths(&mut events, &mut threads);
@@ -113,11 +118,7 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
             pid: metadata.process_id,
             timeline: TimelineData {
                 thread_groups,
-                min_ns: if parsed.min_ns == u64::MAX {
-                    0
-                } else {
-                    parsed.min_ns
-                },
+                min_ns: 0,
                 max_ns: parsed.max_ns,
             },
             events,
@@ -143,7 +144,6 @@ struct ParsedEvent {
 #[derive(Debug)]
 struct ParsedEvents {
     events: Vec<ParsedEvent>,
-    min_ns: u64,
     max_ns: u64,
     event_count: usize,
 }
@@ -157,9 +157,9 @@ fn load_profiling_source(path: &Path) -> Result<ProfilingData, String> {
 fn collect_parsed_events(
     data: &ProfilingData,
     symbols: &mut crate::symbols::Symbols,
+    metadata_start_ns: u64,
 ) -> ParsedEvents {
     let mut parsed_events = Vec::new();
-    let mut min_ns = u64::MAX;
     let mut max_ns = 0;
     let mut event_count = 0;
 
@@ -171,16 +171,17 @@ fn collect_parsed_events(
             if let analyzeme::Timestamp::Interval { start, end } = timestamp {
                 event_count += 1;
 
-                let start_ns = start
+                let start_ns = (start
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-                    .as_nanos() as u64;
-                let end_ns = end
+                    .as_nanos() as u64)
+                    .saturating_sub(metadata_start_ns);
+                let end_ns = (end
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-                    .as_nanos() as u64;
+                    .as_nanos() as u64)
+                    .saturating_sub(metadata_start_ns);
 
-                min_ns = min_ns.min(start_ns);
                 max_ns = max_ns.max(end_ns);
 
                 parsed_events.push(ParsedEvent {
@@ -202,7 +203,6 @@ fn collect_parsed_events(
 
     ParsedEvents {
         events: parsed_events,
-        min_ns,
         max_ns,
         event_count,
     }
