@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod data;
+mod settings;
 mod symbols;
 mod scrollbar;
 mod timeline;
@@ -15,6 +16,7 @@ use std::thread;
 use std::time::Instant;
 use timeline::{ColorMode, ThreadGroup, format_duration};
 use crate::data::EventId;
+use settings::SettingsPage;
 
 pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';
@@ -208,8 +210,6 @@ struct Lineme {
     files: Vec<FileTab>,
     show_settings: bool,
     modifiers: iced::keyboard::Modifiers,
-    // last_action_message is shown in settings after operations (windows registry)
-    last_action_message: Option<String>,
     #[allow(dead_code)]
     settings: SettingsPage,
     next_file_id: u64,
@@ -228,11 +228,6 @@ struct FileTab {
     load_state: FileLoadState,
 }
 
-struct SettingsPage {
-    #[allow(dead_code)]
-    show_details: bool,
-}
-
 impl Lineme {
     fn new() -> (Self, Task<Message>) {
         let mut app = Lineme {
@@ -240,8 +235,7 @@ impl Lineme {
             files: Vec::new(),
             show_settings: false,
             modifiers: iced::keyboard::Modifiers::default(),
-            last_action_message: None,
-            settings: SettingsPage { show_details: true },
+            settings: SettingsPage::new(),
             next_file_id: 0,
         };
 
@@ -378,10 +372,11 @@ impl Lineme {
                 );
             }
             Message::RegisterFileExtensionResult(res) => {
-                self.last_action_message = Some(match res {
+                let msg = match res {
                     Ok(()) => "Registered .mm_profdata for current user".to_string(),
                     Err(e) => format!("Registration failed: {}", e),
-                });
+                };
+                self.settings.set_last_action_message(Some(msg));
                 self.show_settings = true;
             }
             Message::EventSelected(event) => {
@@ -963,7 +958,7 @@ impl Lineme {
         });
 
         let content: Element<'_, Message> = if self.show_settings {
-            self.settings_view()
+            self.settings.view()
         } else if let Some(file) = self.files.get(self.active_tab) {
             // Use view_type from FileData when available; fall back to default
             let current_view = file.stats().map(|s| s.ui.view_type).unwrap_or_default();
@@ -1196,116 +1191,8 @@ impl Lineme {
             }
         }
     }
-
-    fn settings_view(&self) -> Element<'_, Message> {
-        // Make the settings panel visually consistent with other panels by using
-        // the same themed container and compact label/value rows.
-        let hints = column![
-            text("Hints").size(16),
-            row![
-                text("Left click:").width(Length::Fixed(160.0)).size(12),
-                text("Select an event and show details").size(12)
-            ],
-            row![
-                text("Double click:").width(Length::Fixed(160.0)).size(12),
-                text("Zoom to the clicked event (with padding)").size(12)
-            ],
-            row![
-                text("Left click + drag (events area):")
-                    .width(Length::Fixed(160.0))
-                    .size(12),
-                text("Pan the timeline").size(12)
-            ],
-            row![
-                text("Mouse wheel:").width(Length::Fixed(160.0)).size(12),
-                text("Zoom horizontally centered on the cursor (hold Ctrl to bypass)").size(12)
-            ],
-            row![
-                text("Shift + mouse wheel:")
-                    .width(Length::Fixed(160.0))
-                    .size(12),
-                text("Pan horizontally").size(12)
-            ],
-            row![
-                text("Mini timeline — left click:")
-                    .width(Length::Fixed(160.0))
-                    .size(12),
-                text("Jump the main view to that position").size(12)
-            ],
-            row![
-                text("Mini timeline — right click + drag:")
-                    .width(Length::Fixed(160.0))
-                    .size(12),
-                text("Select a range to zoom the main view to").size(12)
-            ],
-            row![
-                text("Thread label click:")
-                    .width(Length::Fixed(160.0))
-                    .size(12),
-                text("Toggle collapse/expand for that thread").size(12)
-            ],
-            row![
-                text("Collapse/Expand buttons:")
-                    .width(Length::Fixed(160.0))
-                    .size(12),
-                text("Collapse or expand all threads").size(12)
-            ],
-            row![
-                text("Scrollbars:").width(Length::Fixed(160.0)).size(12),
-                text("Use scrollbars for precise horizontal/vertical navigation").size(12)
-            ],
-        ]
-        .spacing(6)
-        .padding(6);
-
-        let settings_col = column![
-            text("Settings").size(20),
-            // Register file extension button + result message
-            row![
-                button(
-                    row![
-                        text(FILE_ICON).font(ICON_FONT).size(16),
-                        text("Register .mm_profdata").size(12)
-                    ]
-                    .spacing(6)
-                    .align_y(Alignment::Center),
-                )
-                .on_press(Message::RegisterFileExtension),
-                // show last action result if present
-                if let Some(msg) = &self.last_action_message {
-                    Element::from(text(msg).size(12))
-                } else {
-                    Element::from(Space::new().width(Length::Fill))
-                }
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center),
-
-            container(hints).padding(6).style(|_theme: &iced::Theme| {
-                // subtle background to separate hints from other settings
-                container::Style::default().background(iced::Color::from_rgb(0.99, 0.99, 0.99))
-            }),
-        ]
-        .spacing(8)
-        .padding(10);
-
-        container(settings_col)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .style(|theme: &iced::Theme| {
-                let palette = theme.extended_palette();
-                container::Style::default()
-                    .background(palette.background.base.color)
-                    .border(iced::Border {
-                        color: palette.background.strong.color,
-                        width: 1.0,
-                        ..Default::default()
-                    })
-            })
-            .into()
-    }
 }
+
 
 impl FileTab {
     fn stats(&self) -> Option<&FileTabData> {
