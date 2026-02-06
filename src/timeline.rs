@@ -135,18 +135,23 @@ fn visible_event_indices_in<'a>(
     events_tree.query(ns_min..q_end).map(|elem| elem.value)
 }
 
-/// Yields (depth, shadow_index) for all shadows visible in the time range.
-fn visible_shadow_indices_in<'a>(
+/// Yields (depth, start_ns, duration_ns) for all shadows visible in the time range.
+/// Iterates the tree directly to get the shadow ranges.
+pub fn visible_shadows_in<'a>(
     shadows: &'a ThreadGroupMipMapShadows,
     ns_min: u64,
     ns_max: u64,
-) -> impl Iterator<Item = (u32, usize)> + 'a {
+) -> impl Iterator<Item = (u32, u64, u64)> + 'a {
     let q_end = ns_max.saturating_add(1);
     shadows.levels.iter().enumerate().flat_map(move |(depth, level)| {
         level
             .events_tree
             .query(ns_min..q_end)
-            .map(move |elem| (depth as u32, elem.value as usize))
+            .map(move |elem| {
+                let start = elem.range.start;
+                let duration = elem.range.end.saturating_sub(elem.range.start);
+                (depth as u32, start, duration)
+            })
     })
 }
 

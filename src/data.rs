@@ -156,12 +156,11 @@ impl Default for ThreadGroupMipMapShadows {
     }
 }
 
-/// All shadows at a single depth level, stored contiguously with their own
-/// interval tree for fast spatial queries.
+/// All shadows at a single depth level, stored in an interval tree.
+/// The tree stores the time range as the key and () as the value.
 #[derive(Debug, Clone)]
 pub struct ShadowLevel {
-    pub events: Box<[Shadow]>,
-    pub events_tree: IntervalTree<u64, u32>,
+    pub events_tree: IntervalTree<u64, ()>,
 }
 
 #[derive(Debug, Clone)]
@@ -800,18 +799,16 @@ fn build_thread_group_mipmaps(
             level.shadows.levels = per_depth
                 .into_iter()
                 .map(|shadows| {
-                    // Collect interval data before boxing so we can build the tree
+                    // Build the interval tree directly from shadow ranges
                     let intervals: Vec<_> = shadows
-                        .iter()
-                        .enumerate()
-                        .map(|(i, s)| {
+                        .into_iter()
+                        .map(|s| {
                             let start = s.start_ns.get();
                             let duration = s.duration_ns.get().max(1);
-                            (start..start.saturating_add(duration), i as u32)
+                            (start..start.saturating_add(duration), ())
                         })
                         .collect();
                     ShadowLevel {
-                        events: shadows.into_boxed_slice(),
                         events_tree: IntervalTree::from_iter(intervals),
                     }
                 })

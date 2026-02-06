@@ -6,7 +6,7 @@ use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 use super::{
     EventId, ThreadGroup, TimelineEvent, color_from_label, group_total_height,
-    visible_event_indices_in, visible_shadow_indices_in,
+    visible_event_indices_in, visible_shadows_in,
 };
 use crate::data::{ColorMode, display_depth};
 
@@ -470,8 +470,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
 
                 if let Some(shadow_level) = smallest_visible_level {
-                    for (depth, index) in visible_shadow_indices_in(&shadow_level.shadows, ns_min, ns_max) {
-                        // The depth from visible_shadow_indices_in is the raw depth.
+                    for (depth, start_ns, duration_ns) in visible_shadows_in(&shadow_level.shadows, ns_min, ns_max) {
+                        // The depth from visible_shadows_in is the raw depth.
                         // Adjust for thread root display.
                         let adjusted_depth = if group.show_thread_roots {
                             depth.saturating_add(1)
@@ -482,11 +482,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             continue;
                         }
 
-                        let level = &shadow_level.shadows.levels[depth as usize];
-                        let shadow = &level.events[index];
-
                         let width = crate::timeline::duration_to_width(
-                            shadow.duration_ns.get(),
+                            duration_ns,
                             zoom_level,
                         ) as f32;
                         if width < 1.0 {
@@ -494,7 +491,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         }
 
                         let x = crate::timeline::ns_to_x(
-                            shadow.start_ns.get(),
+                            start_ns,
                             self.min_ns,
                             zoom_level,
                         ) as f32;
