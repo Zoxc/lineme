@@ -146,26 +146,28 @@ pub struct ThreadGroupMipMap {
 
 #[derive(Debug, Clone)]
 pub struct ThreadGroupMipMapShadows {
-    pub events: Vec<Shadow>,
-    // Store shadow indices as `u32` in the interval tree to reduce pointer
-    // width on 64-bit platforms and to make the stored value compact.
-    pub events_tree: IntervalTree<u64, u32>,
+    // One level per depth, each containing shadows at that depth and their tree.
+    pub levels: Vec<ShadowLevel>,
 }
 
 impl Default for ThreadGroupMipMapShadows {
     fn default() -> Self {
-        ThreadGroupMipMapShadows {
-            events: Vec::new(),
-            events_tree: IntervalTree::from_iter(std::iter::empty::<(std::ops::Range<u64>, u32)>()),
-        }
+        ThreadGroupMipMapShadows { levels: Vec::new() }
     }
+}
+
+/// All shadows at a single depth level, stored contiguously with their own
+/// interval tree for fast spatial queries.
+#[derive(Debug, Clone)]
+pub struct ShadowLevel {
+    pub events: Box<[Shadow]>,
+    pub events_tree: IntervalTree<u64, u32>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Shadow {
     pub start_ns: UnalignedU64,
     pub duration_ns: UnalignedU64,
-    pub depth: u32,
 }
 
 pub fn thread_group_key(group: &ThreadGroup) -> ThreadGroupKey {
@@ -783,27 +785,37 @@ fn build_thread_group_mipmaps(
                 continue;
             }
 
-            let mut shadows: Vec<Shadow> = Vec::with_capacity(merged.len());
+            // Group merged intervals by depth and build ShadowLevel per depth
+            let max_depth = merged.iter().map(|(d, _, _)| *d).max().unwrap_or(0);
+            let mut per_depth: Vec<Vec<Shadow>> = (0..=max_depth).map(|_| Vec::new()).collect();
+
             for (depth, start, end) in merged {
                 let duration = end.saturating_sub(start).max(1);
-
-                shadows.push(Shadow {
+                per_depth[depth as usize].push(Shadow {
                     start_ns: UnalignedU64::new(start),
                     duration_ns: UnalignedU64::new(duration),
-                    depth,
                 });
             }
 
-            level.shadows.events = shadows;
-            // Build index arrays for shadows by sorting indices by start/end
-            // Build interval tree for shadows
-            let shadows_iter = level.shadows.events.iter().enumerate().map(|(i, s)| {
-                let start = s.start_ns.get();
-                let duration = s.duration_ns.get().max(1);
-                // Cast index to u32 for compact storage in the interval tree.
-                (start..start.saturating_add(duration), i as u32)
-            });
-            level.shadows.events_tree = IntervalTree::from_iter(shadows_iter);
+            level.shadows.levels = per_depth
+                .into_iter()
+                .map(|shadows| {
+                    // Collect interval data before boxing so we can build the tree
+                    let intervals: Vec<_> = shadows
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| {
+                            let start = s.start_ns.get();
+                            let duration = s.duration_ns.get().max(1);
+                            (start..start.saturating_add(duration), i as u32)
+                        })
+                        .collect();
+                    ShadowLevel {
+                        events: shadows.into_boxed_slice(),
+                        events_tree: IntervalTree::from_iter(intervals),
+                    }
+                })
+                .collect();
         }
     }
 

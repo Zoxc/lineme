@@ -470,17 +470,20 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
 
                 if let Some(shadow_level) = smallest_visible_level {
-                    for index in visible_shadow_indices_in(&shadow_level.shadows, ns_min, ns_max) {
-                        let shadow = &shadow_level.shadows.events[index];
-
-                        let depth = if group.show_thread_roots {
-                            shadow.depth.saturating_add(1)
+                    for (depth, index) in visible_shadow_indices_in(&shadow_level.shadows, ns_min, ns_max) {
+                        // The depth from visible_shadow_indices_in is the raw depth.
+                        // Adjust for thread root display.
+                        let adjusted_depth = if group.show_thread_roots {
+                            depth.saturating_add(1)
                         } else {
-                            shadow.depth
+                            depth
                         };
-                        if group.is_collapsed && depth > 0 {
+                        if group.is_collapsed && adjusted_depth > 0 {
                             continue;
                         }
+
+                        let level = &shadow_level.shadows.levels[depth as usize];
+                        let shadow = &level.events[index];
 
                         let width = crate::timeline::duration_to_width(
                             shadow.duration_ns.get(),
@@ -504,7 +507,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
                         let color = Color::from_rgba(0.0, 0.0, 0.0, 0.10);
                         let y_screen = y_offset as f32 - self.scroll_offset_y as f32
-                            + depth as f32 * (LANE_HEIGHT as f32);
+                            + adjusted_depth as f32 * (LANE_HEIGHT as f32);
                         draw_event_rect(DrawEventRectArgs {
                             frame: &mut frame,
                             x: x_screen,
