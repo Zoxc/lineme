@@ -75,9 +75,18 @@ pub struct ThreadGroupMipMap {
 
 #[derive(Debug, Clone, Default)]
 pub struct ThreadGroupMipMapShadows {
-    pub events: Vec<EventId>,
+    pub events: Vec<Shadow>,
     pub events_by_start: Vec<usize>,
     pub events_by_end: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Shadow {
+    pub start_ns: u64,
+    pub duration_ns: u64,
+    pub depth: u32,
+    pub thread_id: u32,
+    pub is_thread_root: bool,
 }
 
 pub fn thread_group_key(group: &ThreadGroup) -> ThreadGroupKey {
@@ -354,33 +363,38 @@ fn build_thread_group_mipmaps(
                 continue;
             }
 
-            let mut shadow_ids: Vec<EventId> = Vec::with_capacity(merged.len());
+            let mut shadows: Vec<Shadow> = Vec::with_capacity(merged.len());
             for (thread_id, depth, is_thread_root, start, end) in merged {
                 let duration = end.saturating_sub(start).max(1);
 
-                let shadow = TimelineEvent {
-                    label: Symbol::default(),
+                shadows.push(Shadow {
                     start_ns: start,
                     duration_ns: duration,
                     depth,
                     thread_id,
-                    event_kind: Symbol::default(),
-                    additional_data: Vec::new(),
-                    payload_integer: None,
-                    color: Color::from_rgb(0.75, 0.75, 0.75),
                     is_thread_root,
-                };
-
-                let id = EventId(events.len() as u32);
-                events.push(shadow);
-                shadow_ids.push(id);
+                });
             }
 
-            level.shadows.events = shadow_ids;
-            let (events_by_start, events_by_end) =
-                build_event_indices(events, &level.shadows.events);
-            level.shadows.events_by_start = events_by_start;
-            level.shadows.events_by_end = events_by_end;
+            level.shadows.events = shadows;
+            // Build index arrays for shadows by sorting indices by start/end
+            let mut indices: Vec<usize> = (0..level.shadows.events.len()).collect();
+            indices.sort_by_key(|&i| {
+                let s = &level.shadows.events[i];
+                (s.start_ns, s.thread_id, s.depth)
+            });
+            level.shadows.events_by_start = indices;
+
+            let mut indices_end: Vec<usize> = (0..level.shadows.events.len()).collect();
+            indices_end.sort_by_key(|&i| {
+                let s = &level.shadows.events[i];
+                (
+                    s.start_ns.saturating_add(s.duration_ns),
+                    s.start_ns,
+                    s.thread_id,
+                )
+            });
+            level.shadows.events_by_end = indices_end;
         }
     }
 
@@ -414,6 +428,45 @@ fn visible_event_indices_in(
         for &index in events_by_end[end_lower..].iter() {
             if events[event_ids[index].index()].start_ns <= ns_max {
                 indices.push(index);
+            }
+        }
+    }
+
+    indices
+}
+
+fn visible_shadow_indices_in(
+    shadows: &ThreadGroupMipMapShadows,
+    ns_min: u64,
+    ns_max: u64,
+) -> Vec<usize> {
+    // Use the precomputed start/end index arrays on the shadows struct to
+    // quickly find candidates overlapping [ns_min, ns_max]. We perform an
+    // analogous algorithm to `visible_event_indices_in` but working with the
+    // shadows' index vectors.
+    let start_upper = shadows
+        .events_by_start
+        .partition_point(|&index| shadows.events[index].start_ns <= ns_max);
+    let end_lower = shadows.events_by_end.partition_point(|&index| {
+        let s = &shadows.events[index];
+        s.start_ns.saturating_add(s.duration_ns) < ns_min
+    });
+
+    let start_candidates = start_upper;
+    let end_candidates = shadows.events_by_end.len().saturating_sub(end_lower);
+    let mut indices = Vec::with_capacity(start_candidates.min(end_candidates));
+
+    if start_candidates <= end_candidates {
+        for &idx in shadows.events_by_start[..start_upper].iter() {
+            let s = &shadows.events[idx];
+            if s.start_ns.saturating_add(s.duration_ns) >= ns_min {
+                indices.push(idx);
+            }
+        }
+    } else {
+        for &idx in shadows.events_by_end[end_lower..].iter() {
+            if shadows.events[idx].start_ns <= ns_max {
+                indices.push(idx);
             }
         }
     }

@@ -5,7 +5,8 @@ use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 use super::{
     color_from_label, display_depth, group_total_height, mipmap_levels_for_zoom,
-    visible_event_indices_in, ColorMode, EventId, ThreadGroup, TimelineEvent,
+    visible_event_indices_in, visible_shadow_indices_in, ColorMode, EventId, ThreadGroup,
+    TimelineEvent,
 };
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 
@@ -365,30 +366,36 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
 
             if let Some(shadow_level) = smallest_visible.and_then(|i| group.mipmaps.get(i)) {
-                for index in visible_event_indices_in(
-                    self.events,
-                    &shadow_level.shadows.events,
-                    &shadow_level.shadows.events_by_start,
-                    &shadow_level.shadows.events_by_end,
-                    ns_min,
-                    ns_max,
-                ) {
-                    let event_id = shadow_level.shadows.events[index];
-                    let event = &self.events[event_id.index()];
+                for index in visible_shadow_indices_in(&shadow_level.shadows, ns_min, ns_max) {
+                    let shadow = &shadow_level.shadows.events[index];
 
-                    let depth = display_depth(group.show_thread_roots, event);
+                    let depth = display_depth(
+                        group.show_thread_roots,
+                        &TimelineEvent {
+                            label: crate::symbols::Symbol::default(),
+                            start_ns: shadow.start_ns,
+                            duration_ns: shadow.duration_ns,
+                            depth: shadow.depth,
+                            thread_id: shadow.thread_id,
+                            event_kind: crate::symbols::Symbol::default(),
+                            additional_data: Vec::new(),
+                            payload_integer: None,
+                            color: Color::from_rgb(0.75, 0.75, 0.75),
+                            is_thread_root: shadow.is_thread_root,
+                        },
+                    );
                     if group.is_collapsed && depth > 0 {
                         continue;
                     }
 
                     let width =
-                        crate::timeline::duration_to_width(event.duration_ns, zoom_level) as f32;
+                        crate::timeline::duration_to_width(shadow.duration_ns, zoom_level) as f32;
                     if width < 1.0 {
                         continue;
                     }
 
                     let x =
-                        crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level) as f32;
+                        crate::timeline::ns_to_x(shadow.start_ns, self.min_ns, zoom_level) as f32;
 
                     let x_screen = x - scroll_offset_x_px as f32;
                     if viewport_width > 0.0
@@ -407,7 +414,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         y_screen,
                         color,
                         "",
-                        event.is_thread_root,
+                        shadow.is_thread_root,
                         true,
                         visible_bounds,
                     );
