@@ -49,6 +49,15 @@ impl std::fmt::Display for ColorMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EventId(pub u32);
+
+impl EventId {
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimelineEvent {
     pub label: String,
@@ -66,7 +75,8 @@ pub struct TimelineEvent {
 #[derive(Debug, Clone)]
 pub struct ThreadData {
     pub thread_id: u64,
-    pub events: Vec<TimelineEvent>,
+    pub events: Vec<EventId>,
+    pub thread_root: Option<EventId>,
 }
 
 pub type ThreadGroupId = Arc<Vec<Arc<ThreadData>>>;
@@ -78,12 +88,13 @@ pub struct ThreadGroup {
     pub mipmaps: Vec<ThreadGroupMipMap>,
     pub max_depth: u32,
     pub is_collapsed: bool,
+    pub show_thread_roots: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct ThreadGroupMipMap {
     pub max_duration_ns: u64,
-    pub events: Vec<TimelineEvent>,
+    pub events: Vec<EventId>,
     pub events_by_start: Vec<usize>,
     pub events_by_end: Vec<usize>,
 }
@@ -203,91 +214,62 @@ pub fn group_total_height(group: &ThreadGroup) -> f64 {
 }
 
 pub fn build_thread_group_events(
+    events: &[TimelineEvent],
     threads: &[Arc<ThreadData>],
-) -> (Vec<TimelineEvent>, u32, Vec<ThreadGroupMipMap>) {
-    if threads.len() > 1 {
-        let mut events = Vec::new();
-
-        for thread in threads {
-            let mut start_ns = u64::MAX;
-            let mut end_ns = 0u64;
-
-            for event in &thread.events {
-                start_ns = start_ns.min(event.start_ns);
-                end_ns = end_ns.max(event.start_ns.saturating_add(event.duration_ns));
-            }
-
-            if start_ns != u64::MAX {
-                events.push(TimelineEvent {
-                    label: format!("Thread {}", thread.thread_id),
-                    start_ns,
-                    duration_ns: end_ns.saturating_sub(start_ns),
-                    depth: 0,
-                    thread_id: thread.thread_id,
-                    event_kind: "Thread".to_string(),
-                    additional_data: Vec::new(),
-                    payload_integer: None,
-                    color: Color::from_rgb(0.85, 0.87, 0.9),
-                    is_thread_root: true,
-                });
-
-                for event in &thread.events {
-                    let mut event = event.clone();
-                    event.depth = event.depth.saturating_add(1);
-                    event.is_thread_root = false;
-                    events.push(event);
-                }
-            }
-        }
-
-        events.sort_by_key(|event| (event.start_ns, event.thread_id, event.depth));
-        let max_depth = events.iter().map(|event| event.depth).max().unwrap_or(0);
-        let mipmaps = build_thread_group_mipmaps(&events);
-        return (events, max_depth, mipmaps);
-    }
-
-    let mut events = Vec::new();
+    show_thread_roots: bool,
+) -> (Vec<EventId>, u32, Vec<ThreadGroupMipMap>) {
+    let mut event_ids = Vec::new();
     for thread in threads {
-        events.extend(thread.events.iter().cloned());
-    }
-
-    events.sort_by_key(|event| (event.start_ns, event.thread_id));
-
-    let mut stack: Vec<u64> = Vec::new();
-    for event in events.iter_mut() {
-        let end_ns = event.start_ns + event.duration_ns;
-        while let Some(&last_end) = stack.last() {
-            if last_end <= event.start_ns {
-                stack.pop();
-            } else {
-                break;
+        if show_thread_roots {
+            if let Some(root_id) = thread.thread_root {
+                event_ids.push(root_id);
             }
         }
-        event.depth = stack.len() as u32;
-        event.is_thread_root = false;
-        stack.push(end_ns);
+        event_ids.extend(thread.events.iter().copied());
     }
 
-    let max_depth = events.iter().map(|event| event.depth).max().unwrap_or(0);
-    let mipmaps = build_thread_group_mipmaps(&events);
-    (events, max_depth, mipmaps)
+    event_ids.sort_by_key(|event_id| {
+        let event = &events[event_id.index()];
+        (
+            event.start_ns,
+            event.thread_id,
+            display_depth(show_thread_roots, event),
+        )
+    });
+
+    let max_depth = event_ids
+        .iter()
+        .map(|event_id| display_depth(show_thread_roots, &events[event_id.index()]))
+        .max()
+        .unwrap_or(0);
+    let mipmaps = build_thread_group_mipmaps(events, &event_ids);
+    (event_ids, max_depth, mipmaps)
 }
 
-fn event_end_ns(event: &TimelineEvent) -> u64 {
+fn event_end_ns(events: &[TimelineEvent], event_id: EventId) -> u64 {
+    let event = &events[event_id.index()];
     event.start_ns.saturating_add(event.duration_ns)
 }
 
-fn build_event_indices(events: &[TimelineEvent]) -> (Vec<usize>, Vec<usize>) {
-    let mut events_by_start: Vec<usize> = (0..events.len()).collect();
+fn build_event_indices(
+    events: &[TimelineEvent],
+    event_ids: &[EventId],
+) -> (Vec<usize>, Vec<usize>) {
+    let mut events_by_start: Vec<usize> = (0..event_ids.len()).collect();
     events_by_start.sort_by_key(|&index| {
-        let event = &events[index];
+        let event = &events[event_ids[index].index()];
         (event.start_ns, event.thread_id, event.depth)
     });
 
-    let mut events_by_end: Vec<usize> = (0..events.len()).collect();
+    let mut events_by_end: Vec<usize> = (0..event_ids.len()).collect();
     events_by_end.sort_by_key(|&index| {
-        let event = &events[index];
-        (event_end_ns(event), event.start_ns, event.thread_id)
+        let event_id = event_ids[index];
+        let event = &events[event_id.index()];
+        (
+            event_end_ns(events, event_id),
+            event.start_ns,
+            event.thread_id,
+        )
     });
 
     (events_by_start, events_by_end)
@@ -298,26 +280,30 @@ fn duration_bucket(duration_ns: u64) -> u32 {
     63 - duration.leading_zeros() as u32
 }
 
-fn build_thread_group_mipmaps(events: &[TimelineEvent]) -> Vec<ThreadGroupMipMap> {
-    if events.is_empty() {
+fn build_thread_group_mipmaps(
+    events: &[TimelineEvent],
+    event_ids: &[EventId],
+) -> Vec<ThreadGroupMipMap> {
+    if event_ids.is_empty() {
         return Vec::new();
     }
 
-    let mut buckets: Vec<Vec<TimelineEvent>> = Vec::new();
-    for event in events {
+    let mut buckets: Vec<Vec<EventId>> = Vec::new();
+    for event_id in event_ids {
+        let event = &events[event_id.index()];
         let bucket = duration_bucket(event.duration_ns) as usize;
         if buckets.len() <= bucket {
             buckets.resize_with(bucket + 1, Vec::new);
         }
-        buckets[bucket].push(event.clone());
+        buckets[bucket].push(*event_id);
     }
 
     let mut mipmaps = Vec::new();
-    for (bucket, events) in buckets.into_iter().enumerate() {
-        if events.is_empty() {
+    for (bucket, bucket_events) in buckets.into_iter().enumerate() {
+        if bucket_events.is_empty() {
             continue;
         }
-        let (events_by_start, events_by_end) = build_event_indices(&events);
+        let (events_by_start, events_by_end) = build_event_indices(events, &bucket_events);
         let max_duration_ns = if bucket >= 63 {
             u64::MAX
         } else {
@@ -325,7 +311,7 @@ fn build_thread_group_mipmaps(events: &[TimelineEvent]) -> Vec<ThreadGroupMipMap
         };
         mipmaps.push(ThreadGroupMipMap {
             max_duration_ns,
-            events,
+            events: bucket_events,
             events_by_start,
             events_by_end,
         });
@@ -336,13 +322,16 @@ fn build_thread_group_mipmaps(events: &[TimelineEvent]) -> Vec<ThreadGroupMipMap
 
 fn visible_event_indices_in(
     events: &[TimelineEvent],
+    event_ids: &[EventId],
     events_by_start: &[usize],
     events_by_end: &[usize],
     ns_min: u64,
     ns_max: u64,
 ) -> Vec<usize> {
-    let start_upper = events_by_start.partition_point(|&index| events[index].start_ns <= ns_max);
-    let end_lower = events_by_end.partition_point(|&index| event_end_ns(&events[index]) < ns_min);
+    let start_upper = events_by_start
+        .partition_point(|&index| events[event_ids[index].index()].start_ns <= ns_max);
+    let end_lower =
+        events_by_end.partition_point(|&index| event_end_ns(events, event_ids[index]) < ns_min);
 
     let start_candidates = start_upper;
     let end_candidates = events_by_end.len().saturating_sub(end_lower);
@@ -350,13 +339,13 @@ fn visible_event_indices_in(
 
     if start_candidates <= end_candidates {
         for &index in events_by_start[..start_upper].iter() {
-            if event_end_ns(&events[index]) >= ns_min {
+            if event_end_ns(events, event_ids[index]) >= ns_min {
                 indices.push(index);
             }
         }
     } else {
         for &index in events_by_end[end_lower..].iter() {
-            if events[index].start_ns <= ns_max {
+            if events[event_ids[index].index()].start_ns <= ns_max {
                 indices.push(index);
             }
         }
@@ -393,10 +382,11 @@ pub fn format_duration(ns: u64) -> String {
 
 pub fn view<'a>(
     timeline_data: &'a TimelineData,
+    events: &'a [TimelineEvent],
     thread_groups: &'a [ThreadGroup],
     zoom_level: f64,
-    selected_event: &'a Option<TimelineEvent>,
-    _hovered_event: &'a Option<TimelineEvent>,
+    selected_event: &'a Option<EventId>,
+    _hovered_event: &'a Option<EventId>,
     scroll_offset_x: f64,
     scroll_offset_y: f64,
     viewport_width: f64,
@@ -444,11 +434,12 @@ pub fn view<'a>(
     .height(Length::Fill);
 
     let events_canvas = Canvas::new(EventsProgram {
+        events,
         thread_groups,
         min_ns: timeline_data.min_ns,
         max_ns: timeline_data.max_ns,
         zoom_level,
-        selected_event,
+        selected_event: *selected_event,
         scroll_offset_x,
         scroll_offset_y,
         viewport_width,
@@ -579,7 +570,7 @@ pub fn view<'a>(
     .height(Length::Fill);
 
     // Only use explicit selections (clicks) to populate the details panel.
-    let display_event = selected_event.as_ref();
+    let display_event = selected_event.and_then(|event_id| events.get(event_id.index()));
 
     // Only show the details panel when an event is selected or hovered.
     if let Some(event) = display_event {
@@ -681,6 +672,14 @@ fn group_contains_thread(group: &ThreadGroup, thread_id: u64) -> bool {
         .threads
         .iter()
         .any(|thread| thread.thread_id == thread_id)
+}
+
+pub fn display_depth(show_thread_roots: bool, event: &TimelineEvent) -> u32 {
+    if show_thread_roots && !event.is_thread_root {
+        event.depth.saturating_add(1)
+    } else {
+        event.depth
+    }
 }
 
 pub struct WheelCatcher<'a, Message, Theme, Renderer> {

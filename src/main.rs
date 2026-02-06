@@ -12,7 +12,7 @@ use iced_aw::{TabLabel, tab_bar};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Instant;
-use timeline::{ColorMode, ThreadGroup, TimelineEvent, format_duration};
+use timeline::{ColorMode, EventId, ThreadGroup, format_duration};
 
 pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';
@@ -160,9 +160,9 @@ fn neutral_pick_list_style(
     ColorModeChanged(ColorMode),
     CloseTab(usize),
     OpenSettings,
-    EventSelected(TimelineEvent),
-    EventDoubleClicked(TimelineEvent),
-    EventHovered(Option<TimelineEvent>),
+    EventSelected(EventId),
+    EventDoubleClicked(EventId),
+    EventHovered(Option<EventId>),
     TimelineZoomed {
         delta: f32,
         x: f32,
@@ -405,6 +405,11 @@ impl Lineme {
                     let stats = match &mut file.load_state {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
+                    };
+
+                    let event = match stats.events.get(event.index()) {
+                        Some(event) => event,
+                        None => return Task::none(),
                     };
 
                     let min_ns = stats.timeline.min_ns;
@@ -1173,6 +1178,7 @@ impl Lineme {
             FileLoadState::Ready(stats) => {
                 timeline::view(
                     &stats.timeline,
+                    &stats.events,
                     file.thread_groups().unwrap_or_default(),
                     stats.zoom_level,
                     &stats.selected_event,

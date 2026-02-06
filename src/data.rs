@@ -1,4 +1,4 @@
-use crate::timeline::{self, ThreadData, ThreadGroup, TimelineData, TimelineEvent};
+use crate::timeline::{self, EventId, ThreadData, ThreadGroup, TimelineData, TimelineEvent};
 use analyzeme::ProfilingData;
 use iced::Color;
 use std::collections::HashMap;
@@ -11,11 +11,12 @@ pub struct FileData {
     pub cmd: String,
     pub pid: u32,
     pub timeline: TimelineData,
+    pub events: Vec<TimelineEvent>,
     pub merged_thread_groups: Vec<ThreadGroup>,
     // UI/state fields that are only meaningful once the file is loaded.
     pub color_mode: timeline::ColorMode,
-    pub selected_event: Option<TimelineEvent>,
-    pub hovered_event: Option<TimelineEvent>,
+    pub selected_event: Option<EventId>,
+    pub hovered_event: Option<EventId>,
     pub merge_threads: bool,
     pub initial_fit_done: bool,
     pub view_type: crate::ViewType,
@@ -110,7 +111,8 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
     }
 
     // Now assign TimelineEvent entries into threads using the computed colors.
-    let mut threads: HashMap<u64, Vec<TimelineEvent>> = HashMap::new();
+    let mut events: Vec<TimelineEvent> = Vec::new();
+    let mut threads: HashMap<u64, Vec<EventId>> = HashMap::new();
     for (thread_id, label, start_ns, duration_ns, event_kind, additional_data, payload_integer) in
         parsed_events
     {
@@ -119,7 +121,8 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
             .cloned()
             .unwrap_or_else(|| timeline::color_from_hsl(0.0, 0.0, 0.85));
 
-        threads.entry(thread_id).or_default().push(TimelineEvent {
+        let event_id = EventId(events.len() as u32);
+        events.push(TimelineEvent {
             label,
             start_ns,
             duration_ns,
@@ -131,12 +134,14 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
             color,
             is_thread_root: false,
         });
+        threads.entry(thread_id).or_default().push(event_id);
     }
 
     for thread_events in threads.values_mut() {
-        thread_events.sort_by_key(|e| e.start_ns);
+        thread_events.sort_by_key(|event_id| events[event_id.index()].start_ns);
         let mut stack: Vec<u64> = Vec::new();
-        for event in thread_events.iter_mut() {
+        for event_id in thread_events.iter() {
+            let event = &mut events[event_id.index()];
             let end_ns = event.start_ns + event.duration_ns;
             while let Some(&last_end) = stack.last() {
                 if last_end <= event.start_ns {
@@ -151,8 +156,13 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
     }
 
     let mut thread_data_vec = Vec::new();
-    for (thread_id, events) in threads {
-        thread_data_vec.push(Arc::new(ThreadData { thread_id, events }));
+    for (thread_id, event_ids) in threads {
+        let thread_root = build_thread_root(&mut events, thread_id, &event_ids);
+        thread_data_vec.push(Arc::new(ThreadData {
+            thread_id,
+            events: event_ids,
+            thread_root,
+        }));
     }
 
     thread_data_vec.sort_by_key(|t| t.thread_id);
@@ -160,16 +170,18 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
     let mut thread_groups = Vec::new();
     for thread in &thread_data_vec {
         let threads = Arc::new(vec![thread.clone()]);
-        let (_events, max_depth, mipmaps) = timeline::build_thread_group_events(&threads);
+        let (_events, max_depth, mipmaps) =
+            timeline::build_thread_group_events(&events, &threads, false);
         thread_groups.push(ThreadGroup {
             threads,
             mipmaps,
             max_depth,
             is_collapsed: false,
+            show_thread_roots: false,
         });
     }
 
-    let merged_thread_groups = build_merged_thread_groups(&thread_data_vec);
+    let merged_thread_groups = build_merged_thread_groups(&events, &thread_data_vec);
 
     Ok(FileData {
         event_count,
@@ -180,6 +192,7 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
             min_ns: if min_ns == u64::MAX { 0 } else { min_ns },
             max_ns,
         },
+        events,
         merged_thread_groups,
         color_mode: timeline::ColorMode::default(),
         selected_event: None,
@@ -196,7 +209,10 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
     })
 }
 
-fn build_merged_thread_groups(threads: &[Arc<ThreadData>]) -> Vec<ThreadGroup> {
+fn build_merged_thread_groups(
+    events: &[TimelineEvent],
+    threads: &[Arc<ThreadData>],
+) -> Vec<ThreadGroup> {
     if threads.is_empty() {
         return Vec::new();
     }
@@ -208,7 +224,8 @@ fn build_merged_thread_groups(threads: &[Arc<ThreadData>]) -> Vec<ThreadGroup> {
         .map(|(index, thread)| {
             let mut start = u64::MAX;
             let mut end = 0u64;
-            for event in &thread.events {
+            for event_id in &thread.events {
+                let event = &events[event_id.index()];
                 start = start.min(event.start_ns);
                 end = end.max(event.start_ns.saturating_add(event.duration_ns));
             }
@@ -265,16 +282,55 @@ fn build_merged_thread_groups(threads: &[Arc<ThreadData>]) -> Vec<ThreadGroup> {
                 .map(|(_, thread)| thread)
                 .collect::<Vec<_>>(),
         );
-        let (_events, max_depth, mipmaps) = timeline::build_thread_group_events(&threads);
+        let show_thread_roots = threads.len() > 1;
+        let (_events, max_depth, mipmaps) =
+            timeline::build_thread_group_events(events, &threads, show_thread_roots);
         thread_groups.push(ThreadGroup {
             threads,
             mipmaps,
             max_depth,
             is_collapsed: false,
+            show_thread_roots,
         });
     }
 
     thread_groups
+}
+
+fn build_thread_root(
+    events: &mut Vec<TimelineEvent>,
+    thread_id: u64,
+    event_ids: &[EventId],
+) -> Option<EventId> {
+    let mut start_ns = u64::MAX;
+    let mut end_ns = 0u64;
+
+    for event_id in event_ids {
+        let event = &events[event_id.index()];
+        start_ns = start_ns.min(event.start_ns);
+        end_ns = end_ns.max(event.start_ns.saturating_add(event.duration_ns));
+    }
+
+    if start_ns == u64::MAX {
+        return None;
+    }
+
+    let event_id = EventId(events.len() as u32);
+    let event = TimelineEvent {
+        label: format!("Thread {}", thread_id),
+        start_ns,
+        duration_ns: end_ns.saturating_sub(start_ns),
+        depth: 0,
+        thread_id,
+        event_kind: "Thread".to_string(),
+        additional_data: Vec::new(),
+        payload_integer: None,
+        color: Color::from_rgb(0.85, 0.87, 0.9),
+        is_thread_root: true,
+    };
+    events.push(event);
+
+    Some(event_id)
 }
 
 pub fn format_panic_payload(payload: Box<dyn std::any::Any + Send>) -> String {

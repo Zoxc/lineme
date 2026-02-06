@@ -4,8 +4,8 @@ use iced::widget::canvas::{self, Geometry, Program};
 use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 use super::{
-    color_from_label, group_total_height, mipmap_levels_for_zoom, visible_event_indices_in,
-    ColorMode, ThreadGroup, TimelineEvent,
+    color_from_label, display_depth, group_total_height, mipmap_levels_for_zoom,
+    visible_event_indices_in, ColorMode, EventId, ThreadGroup, TimelineEvent,
 };
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 
@@ -81,11 +81,12 @@ fn draw_event_rect(
 }
 
 pub struct EventsProgram<'a> {
+    pub events: &'a [TimelineEvent],
     pub thread_groups: &'a [ThreadGroup],
     pub min_ns: u64,
     pub max_ns: u64,
     pub zoom_level: f64,
-    pub selected_event: &'a Option<TimelineEvent>,
+    pub selected_event: Option<EventId>,
     pub scroll_offset_x: f64,
     pub scroll_offset_y: f64,
     pub viewport_width: f64,
@@ -96,15 +97,15 @@ pub struct EventsProgram<'a> {
 #[derive(Default)]
 pub struct EventsState {
     pub modifiers: keyboard::Modifiers,
-    pub hovered_event: Option<TimelineEvent>,
-    pub last_click: Option<(TimelineEvent, std::time::Instant)>,
+    pub hovered_event: Option<EventId>,
+    pub last_click: Option<(EventId, std::time::Instant)>,
     pub press_position: Option<Point>,
-    pub pressed_event: Option<TimelineEvent>,
+    pub pressed_event: Option<EventId>,
     pub dragging: bool,
 }
 
 impl<'a> EventsProgram<'a> {
-    fn find_event_at(&self, position: Point) -> Option<TimelineEvent> {
+    fn find_event_at(&self, position: Point) -> Option<EventId> {
         let zoom_level = self.zoom_level.max(1e-9);
         let scroll_offset_x_px = (self.scroll_offset_x * zoom_level) as f32;
         let content_position = Point::new(
@@ -127,14 +128,17 @@ impl<'a> EventsProgram<'a> {
 
                 for level in mipmap_levels_for_zoom(group, self.zoom_level) {
                     for index in visible_event_indices_in(
+                        self.events,
                         &level.events,
                         &level.events_by_start,
                         &level.events_by_end,
                         ns_min,
                         ns_max,
                     ) {
-                        let event = &level.events[index];
-                        if group.is_collapsed && event.depth > 0 {
+                        let event_id = level.events[index];
+                        let event = &self.events[event_id.index()];
+                        let depth = display_depth(group.show_thread_roots, event);
+                        if group.is_collapsed && depth > 0 {
                             continue;
                         }
 
@@ -147,7 +151,7 @@ impl<'a> EventsProgram<'a> {
 
                         let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level)
                             as f32;
-                        let y = y_offset as f32 + event.depth as f32 * (LANE_HEIGHT as f32);
+                        let y = y_offset as f32 + depth as f32 * (LANE_HEIGHT as f32);
                         let height = (LANE_HEIGHT - 2.0) as f32;
 
                         let rect = Rectangle {
@@ -158,7 +162,7 @@ impl<'a> EventsProgram<'a> {
                         };
 
                         if rect.contains(content_position) {
-                            return Some(event.clone());
+                            return Some(event_id);
                         }
                     }
                 }
@@ -280,14 +284,17 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
             for level in mipmap_levels_for_zoom(group, zoom_level) {
                 for index in visible_event_indices_in(
+                    self.events,
                     &level.events,
                     &level.events_by_start,
                     &level.events_by_end,
                     ns_min,
                     ns_max,
                 ) {
-                    let event = &level.events[index];
-                    if group.is_collapsed && event.depth > 0 {
+                    let event_id = level.events[index];
+                    let event = &self.events[event_id.index()];
+                    let depth = display_depth(group.show_thread_roots, event);
+                    if group.is_collapsed && depth > 0 {
                         continue;
                     }
 
@@ -308,7 +315,6 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         continue;
                     }
 
-                    let depth = event.depth as usize;
                     let color = if event.is_thread_root {
                         event.color
                     } else {
@@ -338,9 +344,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
             }
 
-            if let Some(hovered) = &state.hovered_event {
+            if let Some(hovered_id) = state.hovered_event {
+                let hovered = &self.events[hovered_id.index()];
+                let hovered_depth = display_depth(group.show_thread_roots, hovered);
                 if super::group_contains_thread(group, hovered.thread_id) {
-                    if !group.is_collapsed || hovered.depth == 0 {
+                    if !group.is_collapsed || hovered_depth == 0 {
                         let x = crate::timeline::ns_to_x(hovered.start_ns, self.min_ns, zoom_level)
                             as f32;
                         let width =
@@ -348,7 +356,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                                 as f32;
                         let x_screen = x - scroll_offset_x_px as f32;
                         let y = y_offset as f32 - self.scroll_offset_y as f32
-                            + hovered.depth as f32 * (LANE_HEIGHT as f32);
+                            + hovered_depth as f32 * (LANE_HEIGHT as f32);
 
                         frame.stroke(
                             &canvas::Path::rectangle(
@@ -363,9 +371,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
             }
 
-            if let Some(selected) = self.selected_event {
+            if let Some(selected_id) = self.selected_event {
+                let selected = &self.events[selected_id.index()];
+                let selected_depth = display_depth(group.show_thread_roots, selected);
                 if super::group_contains_thread(group, selected.thread_id) {
-                    if !group.is_collapsed || selected.depth == 0 {
+                    if !group.is_collapsed || selected_depth == 0 {
                         let x = crate::timeline::ns_to_x(selected.start_ns, self.min_ns, zoom_level)
                             as f32;
                         let width =
@@ -373,7 +383,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                                 as f32;
                         let x_screen = x - scroll_offset_x_px as f32;
                         let y = y_offset as f32 - self.scroll_offset_y as f32
-                            + selected.depth as f32 * (LANE_HEIGHT as f32);
+                            + selected_depth as f32 * (LANE_HEIGHT as f32);
 
                         frame.stroke(
                             &canvas::Path::rectangle(
@@ -423,7 +433,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 if new_hovered != state.hovered_event {
                     state.hovered_event = new_hovered;
                     return Some(canvas::Action::publish(Message::EventHovered(
-                        state.hovered_event.clone(),
+                        state.hovered_event,
                     )));
                 }
             }
@@ -440,15 +450,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         (state.pressed_event.clone(), cursor.position_in(bounds))
                     {
                         if let Some(release_event) = self.find_event_at(position) {
-                            let is_same_event = pressed_event.start_ns == release_event.start_ns
-                                && pressed_event.duration_ns == release_event.duration_ns
-                                && pressed_event.thread_id == release_event.thread_id;
+                            let is_same_event = pressed_event == release_event;
                             if is_same_event {
                                 let now = std::time::Instant::now();
                                 if let Some((prev_event, prev_time)) = &state.last_click {
-                                    let is_double = prev_event.start_ns == release_event.start_ns
-                                        && prev_event.duration_ns == release_event.duration_ns
-                                        && prev_event.thread_id == release_event.thread_id
+                                    let is_double = *prev_event == release_event
                                         && now.duration_since(*prev_time)
                                             <= std::time::Duration::from_millis(400);
                                     if is_double {
@@ -462,7 +468,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                                     }
                                 }
 
-                                state.last_click = Some((release_event.clone(), now));
+                                state.last_click = Some((release_event, now));
                                 state.press_position = None;
                                 state.pressed_event = None;
                                 state.dragging = false;
