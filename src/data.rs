@@ -32,7 +32,6 @@ pub struct ThreadData {
     pub thread_root: Option<EventId>,
 }
 
-
 use analyzeme::ProfilingData;
 use std::collections::HashMap;
 use std::path::Path;
@@ -48,7 +47,10 @@ pub struct FileData {
     // Simple symbol interner for event strings so we store compact symbol ids
     // in events rather than repeated Strings.
     pub symbols: crate::symbols::Symbols,
-    // UI/state fields that are only meaningful once the file is loaded.
+}
+
+#[derive(Debug, Clone)]
+pub struct FileUi {
     pub color_mode: timeline::ColorMode,
     pub selected_event: Option<EventId>,
     pub hovered_event: Option<EventId>,
@@ -62,10 +64,35 @@ pub struct FileData {
     pub scroll_offset_y: f64,
     pub viewport_width: f64,
     pub viewport_height: f64,
+}
+
+impl Default for FileUi {
+    fn default() -> Self {
+        FileUi {
+            color_mode: timeline::ColorMode::default(),
+            selected_event: None,
+            hovered_event: None,
+            merge_threads: true,
+            initial_fit_done: false,
+            view_type: crate::ViewType::default(),
+            zoom_level: 1.0_f64,
+            scroll_offset_x: 0.0_f64,
+            scroll_offset_y: 0.0_f64,
+            viewport_width: 0.0_f64,
+            viewport_height: 0.0_f64,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FileTab {
+    pub data: FileData,
+    // UI/state fields that are only meaningful once the file is loaded.
+    pub ui: FileUi,
     pub load_duration_ns: Option<u64>,
 }
 
-pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
+pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
     let stem = path.with_extension("");
 
     let data = ProfilingData::new(&stem)
@@ -225,29 +252,21 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
 
     let merged_thread_groups = build_merged_thread_groups(&events, &thread_data_vec);
 
-    Ok(FileData {
-        event_count,
-        cmd: metadata.cmd.clone(),
-        pid: metadata.process_id,
-        timeline: TimelineData {
-            thread_groups,
-            min_ns: if min_ns == u64::MAX { 0 } else { min_ns },
-            max_ns,
+    Ok(FileTab {
+        data: FileData {
+            event_count,
+            cmd: metadata.cmd.clone(),
+            pid: metadata.process_id,
+            timeline: TimelineData {
+                thread_groups,
+                min_ns: if min_ns == u64::MAX { 0 } else { min_ns },
+                max_ns,
+            },
+            events,
+            merged_thread_groups,
+            symbols,
         },
-        events,
-        merged_thread_groups,
-        color_mode: timeline::ColorMode::default(),
-        selected_event: None,
-        hovered_event: None,
-        merge_threads: true,
-        initial_fit_done: false,
-        view_type: crate::ViewType::default(),
-        zoom_level: 1.0_f64,
-        scroll_offset_x: 0.0_f64,
-        scroll_offset_y: 0.0_f64,
-        viewport_width: 0.0_f64,
-        viewport_height: 0.0_f64,
-        symbols,
+        ui: FileUi::default(),
         load_duration_ns: None,
     })
 }

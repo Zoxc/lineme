@@ -5,7 +5,7 @@ mod symbols;
 mod scrollbar;
 mod timeline;
 mod ui;
-use data::{FileData, format_panic_payload, load_profiling_data};
+use data::{FileTab as FileTabData, format_panic_payload, load_profiling_data};
 use iced::futures::channel::oneshot;
 use iced::widget::{Space, button, checkbox, column, container, pick_list, row, text};
 use iced::{Alignment, Element, Length, Task};
@@ -156,7 +156,7 @@ fn neutral_pick_list_style(
     TabSelected(usize),
     OpenFile,
     FileSelected(PathBuf),
-    FileLoaded(u64, FileData, u64),
+    FileLoaded(u64, FileTabData, u64),
     FileLoadFailed(u64, String, u64),
     ViewChanged(ViewType),
     ColorModeChanged(ColorMode),
@@ -218,7 +218,7 @@ struct Lineme {
 #[derive(Debug, Clone)]
 enum FileLoadState {
     Loading,
-    Ready(FileData),
+    Ready(FileTabData),
     Error(String),
 }
 
@@ -331,14 +331,14 @@ impl Lineme {
             Message::ViewChanged(view) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     if let FileLoadState::Ready(stats) = &mut file.load_state {
-                        stats.view_type = view;
+                        stats.ui.view_type = view;
                     }
                 }
             }
             Message::ColorModeChanged(color_mode) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     match &mut file.load_state {
-                        FileLoadState::Ready(stats) => stats.color_mode = color_mode,
+                        FileLoadState::Ready(stats) => stats.ui.color_mode = color_mode,
                         _ => {
                             // Keep color_mode in the UI until file loads; nothing to do here
                         }
@@ -388,8 +388,8 @@ impl Lineme {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     match &mut file.load_state {
                         FileLoadState::Ready(stats) => {
-                            let was_empty = stats.selected_event.is_none();
-                            stats.selected_event = Some(event);
+                            let was_empty = stats.ui.selected_event.is_none();
+                            stats.ui.selected_event = Some(event);
                             if was_empty {
                                 return Task::none();
                             }
@@ -409,15 +409,15 @@ impl Lineme {
                         _ => return Task::none(),
                     };
 
-                    let event = match stats.events.get(event.index()) {
+                    let event = match stats.data.events.get(event.index()) {
                         Some(event) => event,
                         None => return Task::none(),
                     };
 
-                    let min_ns = stats.timeline.min_ns;
-                    let max_ns = stats.timeline.max_ns;
+                    let min_ns = stats.data.timeline.min_ns;
+                    let max_ns = stats.data.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns).max(1);
-                    let viewport_width = stats.viewport_width.max(1.0_f64);
+                    let viewport_width = stats.ui.viewport_width.max(1.0_f64);
 
                     let event_rel_start = event.start_ns.saturating_sub(min_ns);
                     let event_rel_end = event_rel_start.saturating_add(event.duration_ns);
@@ -431,13 +431,13 @@ impl Lineme {
 
                     // Zoom so the selected range fills the viewport.
                     let target_ns = (end_ns.saturating_sub(start_ns)).max(1) as f64;
-                    stats.zoom_level = viewport_width as f64 / target_ns;
+                    stats.ui.zoom_level = viewport_width as f64 / target_ns;
 
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                    stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
                         start_ns as f64,
                         total_ns,
                         viewport_width as f64,
-                        stats.zoom_level,
+                        stats.ui.zoom_level,
                     );
 
                     return Task::none();
@@ -446,7 +446,7 @@ impl Lineme {
             Message::EventHovered(event) => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     match &mut file.load_state {
-                        FileLoadState::Ready(stats) => stats.hovered_event = event,
+                        FileLoadState::Ready(stats) => stats.ui.hovered_event = event,
                         _ => {
                             // Hover before load ignored
                         }
@@ -459,26 +459,26 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    let min_ns = stats.timeline.min_ns;
-                    let max_ns = stats.timeline.max_ns;
+                    let min_ns = stats.data.timeline.min_ns;
+                    let max_ns = stats.data.timeline.max_ns;
                     let zoom_factor = if delta > 0.0 { 1.1_f64 } else { 0.9_f64 };
 
-                    let old_zoom = stats.zoom_level.max(1e-9);
+                    let old_zoom = stats.ui.zoom_level.max(1e-9);
                     let new_zoom = (old_zoom * zoom_factor).max(1e-9);
 
                     // Adjust scroll offset to keep x position stable (work in f64)
-                    let x_on_canvas = x as f64 + stats.scroll_offset_x * old_zoom;
+                    let x_on_canvas = x as f64 + stats.ui.scroll_offset_x * old_zoom;
                     let new_scroll_px = x_on_canvas * zoom_factor - x as f64;
-                    stats.zoom_level = new_zoom;
-                    stats.scroll_offset_x = new_scroll_px / new_zoom;
+                    stats.ui.zoom_level = new_zoom;
+                    stats.ui.scroll_offset_x = new_scroll_px / new_zoom;
 
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
-                    let viewport_width = stats.viewport_width.max(0.0_f64);
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
-                        stats.scroll_offset_x,
+                    let viewport_width = stats.ui.viewport_width.max(0.0_f64);
+                    stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        stats.ui.scroll_offset_x,
                         total_ns,
                         viewport_width,
-                        stats.zoom_level,
+                        stats.ui.zoom_level,
                     );
                     return Task::none();
                 }
@@ -496,45 +496,45 @@ impl Lineme {
                         _ => return Task::none(),
                     };
 
-                    let first_time = stats.viewport_width == 0.0 && viewport_width > 0.0;
+                    let first_time = stats.ui.viewport_width == 0.0 && viewport_width > 0.0;
                     if viewport_width > 0.0 {
-                        stats.viewport_width = viewport_width as f64;
+                        stats.ui.viewport_width = viewport_width as f64;
                     }
                     if viewport_height > 0.0 {
-                        stats.viewport_height = viewport_height as f64;
+                        stats.ui.viewport_height = viewport_height as f64;
                     }
 
-                    let has_user_view = stats.zoom_level != 1.0
-                        || stats.scroll_offset_x != 0.0
-                        || stats.scroll_offset_y != 0.0;
-                    let should_initial_fit = (first_time || (viewport_width > 0.0 && !stats.initial_fit_done))
+                    let has_user_view = stats.ui.zoom_level != 1.0
+                        || stats.ui.scroll_offset_x != 0.0
+                        || stats.ui.scroll_offset_y != 0.0;
+                    let should_initial_fit = (first_time || (viewport_width > 0.0 && !stats.ui.initial_fit_done))
                         && !has_user_view;
 
                     if should_initial_fit {
-                        let min_ns = stats.timeline.min_ns;
-                        let max_ns = stats.timeline.max_ns;
+                        let min_ns = stats.data.timeline.min_ns;
+                        let max_ns = stats.data.timeline.max_ns;
                         let total_ns = max_ns.saturating_sub(min_ns);
-                        stats.zoom_level = (viewport_width - 2.0).max(1.0) as f64
+                        stats.ui.zoom_level = (viewport_width - 2.0).max(1.0) as f64
                             / total_ns.max(1) as f64;
-                        stats.initial_fit_done = true;
-                    } else if !stats.initial_fit_done && viewport_width > 0.0 {
-                        stats.initial_fit_done = true;
+                        stats.ui.initial_fit_done = true;
+                    } else if !stats.ui.initial_fit_done && viewport_width > 0.0 {
+                        stats.ui.initial_fit_done = true;
                     }
 
-                    let min_ns = stats.timeline.min_ns;
-                    let max_ns = stats.timeline.max_ns;
+                    let min_ns = stats.data.timeline.min_ns;
+                    let max_ns = stats.data.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
-                    let viewport_width = stats.viewport_width.max(0.0_f64);
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
-                        stats.scroll_offset_x,
+                    let viewport_width = stats.ui.viewport_width.max(0.0_f64);
+                    stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        stats.ui.scroll_offset_x,
                         total_ns,
                         viewport_width,
-                        stats.zoom_level,
+                        stats.ui.zoom_level,
                     );
 
-                    let viewport_height = stats.viewport_height.max(1.0);
+                    let viewport_height = stats.ui.viewport_height.max(1.0);
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
-                    stats.scroll_offset_y = stats.scroll_offset_y.clamp(0.0, max_scroll_y);
+                    stats.ui.scroll_offset_y = stats.ui.scroll_offset_y.clamp(0.0, max_scroll_y);
 
                     return Task::none();
                 }
@@ -548,30 +548,30 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    let min_ns = stats.timeline.min_ns;
-                    let max_ns = stats.timeline.max_ns;
+                    let min_ns = stats.data.timeline.min_ns;
+                    let max_ns = stats.data.timeline.max_ns;
                     let provided_viewport_width = viewport_width.max(1.0) as f64;
-                    if stats.viewport_width == 0.0 {
-                        stats.viewport_width = provided_viewport_width;
+                    if stats.ui.viewport_width == 0.0 {
+                        stats.ui.viewport_width = provided_viewport_width;
                     }
 
-                    let viewport_width = stats.viewport_width.max(1.0);
-                    if !stats.initial_fit_done {
+                    let viewport_width = stats.ui.viewport_width.max(1.0);
+                    if !stats.ui.initial_fit_done {
                         let total_ns = max_ns.saturating_sub(min_ns).max(1);
-                        stats.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns as f64;
-                        stats.initial_fit_done = true;
+                        stats.ui.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns as f64;
+                        stats.ui.initial_fit_done = true;
                     }
 
                     if max_ns > min_ns {
                         let total_ns = max_ns.saturating_sub(min_ns);
                         let target_center_ns = fraction as f64 * total_ns as f64;
-                        let visible_ns = viewport_width / stats.zoom_level.max(1e-9);
+                        let visible_ns = viewport_width / stats.ui.zoom_level.max(1e-9);
                         let target_ns = target_center_ns - visible_ns / 2.0;
-                        stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
                             target_ns,
                             total_ns,
                             viewport_width,
-                            stats.zoom_level,
+                            stats.ui.zoom_level,
                         );
                         return Task::none();
                     }
@@ -583,20 +583,20 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    let zoom_level = stats.zoom_level.max(1e-9);
-                    let viewport_width = stats.viewport_width.max(1.0);
+                    let zoom_level = stats.ui.zoom_level.max(1e-9);
+                    let viewport_width = stats.ui.viewport_width.max(1.0);
                     let visible_ns = (viewport_width / zoom_level).max(1.0);
-                    let total_ns = stats.timeline.max_ns.saturating_sub(stats.timeline.min_ns);
+                    let total_ns = stats.data.timeline.max_ns.saturating_sub(stats.data.timeline.min_ns);
                     let max_start_ns = (total_ns as f64 - visible_ns).max(0.0);
                     let clamped_start = start_ns.clamp(0.0, max_start_ns);
-                    stats.scroll_offset_x = clamped_start;
+                    stats.ui.scroll_offset_x = clamped_start;
 
-                    let viewport_width = stats.viewport_width.max(0.0);
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
-                        stats.scroll_offset_x,
+                    let viewport_width = stats.ui.viewport_width.max(0.0);
+                    stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        stats.ui.scroll_offset_x,
                         total_ns,
                         viewport_width,
-                        stats.zoom_level,
+                        stats.ui.zoom_level,
                     );
 
                     return Task::none();
@@ -612,9 +612,9 @@ impl Lineme {
                         _ => return Task::none(),
                     };
 
-                    let viewport_height = stats.viewport_height.max(1.0);
+                    let viewport_height = stats.ui.viewport_height.max(1.0);
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
-                    stats.scroll_offset_y = scroll_y.clamp(0.0, max_scroll_y);
+                    stats.ui.scroll_offset_y = scroll_y.clamp(0.0, max_scroll_y);
 
                     return Task::none();
                 }
@@ -629,25 +629,25 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    let min_ns = stats.timeline.min_ns;
-                    let max_ns = stats.timeline.max_ns;
+                    let min_ns = stats.data.timeline.min_ns;
+                    let max_ns = stats.data.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
                     let total_ns_f64 = total_ns.max(1) as f64;
                     let range_fraction = (end_fraction - start_fraction).max(0.0) as f64;
                     let target_ns = (range_fraction * total_ns_f64).max(1.0);
                     let provided_viewport_width = viewport_width.max(1.0) as f64;
-                    if stats.viewport_width == 0.0 {
-                        stats.viewport_width = provided_viewport_width;
+                    if stats.ui.viewport_width == 0.0 {
+                        stats.ui.viewport_width = provided_viewport_width;
                     }
-                    let viewport_width = stats.viewport_width.max(1.0);
-                    stats.zoom_level = viewport_width / target_ns;
-                    stats.initial_fit_done = true;
+                    let viewport_width = stats.ui.viewport_width.max(1.0);
+                    stats.ui.zoom_level = viewport_width / target_ns;
+                    stats.ui.initial_fit_done = true;
                     let target_ns = start_fraction as f64 * total_ns as f64;
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                    stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
                         target_ns,
                         total_ns,
                         viewport_width,
-                        stats.zoom_level,
+                        stats.ui.zoom_level,
                     );
                     return Task::none();
                 }
@@ -663,24 +663,24 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    let min_ns = stats.timeline.min_ns;
-                    let max_ns = stats.timeline.max_ns;
+                    let min_ns = stats.data.timeline.min_ns;
+                    let max_ns = stats.data.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
-                    let viewport_width = stats.viewport_width.max(0.0_f64);
+                    let viewport_width = stats.ui.viewport_width.max(0.0_f64);
                     let _max_scroll_x = (total_ns as f64
-                        - viewport_width / stats.zoom_level.max(1e-9))
+                        - viewport_width / stats.ui.zoom_level.max(1e-9))
                         .max(0.0_f64);
 
-                    let viewport_height = stats.viewport_height.max(0.0_f64);
+                    let viewport_height = stats.ui.viewport_height.max(0.0_f64);
                     let max_scroll_y = (total_height - viewport_height as f64).max(0.0_f64);
 
-                    stats.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
-                        stats.scroll_offset_x - delta.x as f64 / stats.zoom_level.max(1e-9),
+                    stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        stats.ui.scroll_offset_x - delta.x as f64 / stats.ui.zoom_level.max(1e-9),
                         total_ns,
                         viewport_width,
-                        stats.zoom_level,
+                        stats.ui.zoom_level,
                     );
-                    stats.scroll_offset_y = (stats.scroll_offset_y - delta.y as f64).clamp(0.0, max_scroll_y);
+                    stats.ui.scroll_offset_y = (stats.ui.scroll_offset_y - delta.y as f64).clamp(0.0, max_scroll_y);
 
                     return Task::none();
                 }
@@ -691,17 +691,17 @@ impl Lineme {
                         FileLoadState::Ready(stats) => stats,
                         _ => return Task::none(),
                     };
-                    let min_ns = stats.timeline.min_ns;
-                    let max_ns = stats.timeline.max_ns;
+                    let min_ns = stats.data.timeline.min_ns;
+                    let max_ns = stats.data.timeline.max_ns;
                     let total_ns = max_ns.saturating_sub(min_ns);
-                    let viewport_width = stats.viewport_width.max(0.0_f64);
+                    let viewport_width = stats.ui.viewport_width.max(0.0_f64);
                     if viewport_width > 0.0 {
-                        stats.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f64;
+                        stats.ui.zoom_level = (viewport_width - 2.0).max(1.0) / total_ns.max(1) as f64;
                     } else {
-                        stats.zoom_level = 1000.0 / total_ns.max(1) as f64;
+                        stats.ui.zoom_level = 1000.0 / total_ns.max(1) as f64;
                     }
-                    stats.scroll_offset_x = 0.0_f64;
-                    stats.scroll_offset_y = 0.0_f64;
+                    stats.ui.scroll_offset_x = 0.0_f64;
+                    stats.ui.scroll_offset_y = 0.0_f64;
                     return Task::none();
                 }
             }
@@ -729,7 +729,7 @@ impl Lineme {
                         _ => return Task::none(),
                     };
                     Lineme::clamp_vertical_scroll_if_needed(
-                        &mut stats.scroll_offset_y,
+                        &mut stats.ui.scroll_offset_y,
                         total_height,
                     );
                 }
@@ -751,7 +751,7 @@ impl Lineme {
                         _ => return Task::none(),
                     };
                     Lineme::clamp_vertical_scroll_if_needed(
-                        &mut stats.scroll_offset_y,
+                        &mut stats.ui.scroll_offset_y,
                         total_height,
                     );
                 }
@@ -773,7 +773,7 @@ impl Lineme {
                         _ => return Task::none(),
                     };
                     Lineme::clamp_vertical_scroll_if_needed(
-                        &mut stats.scroll_offset_y,
+                        &mut stats.ui.scroll_offset_y,
                         total_height,
                     );
                 }
@@ -782,7 +782,7 @@ impl Lineme {
                 if let Some(file) = self.active_file_mut() {
                     // Update merge_threads on loaded FileData if present.
                     match &mut file.load_state {
-                        FileLoadState::Ready(stats) => stats.merge_threads = enabled,
+                        FileLoadState::Ready(stats) => stats.ui.merge_threads = enabled,
                         _ => {}
                     }
 
@@ -796,7 +796,7 @@ impl Lineme {
                         _ => return Task::none(),
                     };
                     Lineme::clamp_vertical_scroll_if_needed(
-                        &mut stats.scroll_offset_y,
+                        &mut stats.ui.scroll_offset_y,
                         total_height,
                     );
                 }
@@ -966,7 +966,7 @@ impl Lineme {
             self.settings_view()
         } else if let Some(file) = self.files.get(self.active_tab) {
             // Use view_type from FileData when available; fall back to default
-            let current_view = file.stats().map(|s| s.view_type).unwrap_or_default();
+            let current_view = file.stats().map(|s| s.ui.view_type).unwrap_or_default();
             let inner_view = match current_view {
                 ViewType::Stats => self.file_view(file),
                 ViewType::Timeline => self.timeline_view(file),
@@ -996,13 +996,13 @@ impl Lineme {
                             // When file is loaded the pick_list reads color mode from Stats.
                             pick_list(
                                 &ColorMode::ALL[..],
-                                file.stats().map(|s| s.color_mode),
+                                file.stats().map(|s| s.ui.color_mode),
                                 Message::ColorModeChanged,
                             )
                             .text_size(12)
                             .padding(3)
                             .style(neutral_pick_list_style),
-                            checkbox(file.stats().map(|s| s.merge_threads).unwrap_or(false))
+                            checkbox(file.stats().map(|s| s.ui.merge_threads).unwrap_or(false))
                                 .label("Merge threads")
                                 .size(14)
                                 .text_size(12)
@@ -1102,15 +1102,15 @@ impl Lineme {
                     ],
                     row![
                         text("Command:").width(Length::Fixed(120.0)).size(12),
-                        text(&stats.cmd).size(12)
+                        text(&stats.data.cmd).size(12)
                     ],
                     row![
                         text("PID:").width(Length::Fixed(120.0)).size(12),
-                        text(format!("{}", stats.pid)).size(12)
+                        text(format!("{}", stats.data.pid)).size(12)
                     ],
                     row![
                         text("Event count:").width(Length::Fixed(120.0)).size(12),
-                        text(format!("{}", stats.event_count)).size(12)
+                        text(format!("{}", stats.data.event_count)).size(12)
                     ],
                     row![
                         text("Load time:").width(Length::Fixed(120.0)).size(12),
@@ -1125,7 +1125,7 @@ impl Lineme {
                     row![
                         text("Total duration:").width(Length::Fixed(120.0)).size(12),
                         text(format_duration(
-                            stats.timeline.max_ns - stats.timeline.min_ns
+                            stats.data.timeline.max_ns - stats.data.timeline.min_ns
                         ))
                         .size(12)
                     ],
@@ -1179,19 +1179,19 @@ impl Lineme {
             .into(),
             FileLoadState::Ready(stats) => {
                 timeline::view(
-                    &stats.timeline,
-                    &stats.events,
+                    &stats.data.timeline,
+                    &stats.data.events,
                     file.thread_groups().unwrap_or_default(),
-                    stats.zoom_level,
-                    &stats.selected_event,
-                    &stats.hovered_event,
-                    stats.scroll_offset_x,
-                    stats.scroll_offset_y,
-                    stats.viewport_width,
-                    stats.viewport_height,
+                    stats.ui.zoom_level,
+                    &stats.ui.selected_event,
+                    &stats.ui.hovered_event,
+                    stats.ui.scroll_offset_x,
+                    stats.ui.scroll_offset_y,
+                    stats.ui.viewport_width,
+                    stats.ui.viewport_height,
                     self.modifiers,
-                    stats.color_mode,
-                    &stats.symbols,
+                    stats.ui.color_mode,
+                    &stats.data.symbols,
                 )
             }
         }
@@ -1280,7 +1280,7 @@ impl Lineme {
             ]
             .spacing(10)
             .align_y(Alignment::Center),
-            
+
             container(hints).padding(6).style(|_theme: &iced::Theme| {
                 // subtle background to separate hints from other settings
                 container::Style::default().background(iced::Color::from_rgb(0.99, 0.99, 0.99))
@@ -1308,7 +1308,7 @@ impl Lineme {
 }
 
 impl FileTab {
-    fn stats(&self) -> Option<&FileData> {
+    fn stats(&self) -> Option<&FileTabData> {
         match &self.load_state {
             FileLoadState::Ready(stats) => Some(stats),
             _ => None,
@@ -1317,10 +1317,10 @@ impl FileTab {
 
     fn thread_groups(&self) -> Option<&[ThreadGroup]> {
         let stats = self.stats()?;
-        if stats.merge_threads {
-            Some(&stats.merged_thread_groups)
+        if stats.ui.merge_threads {
+            Some(&stats.data.merged_thread_groups)
         } else {
-            Some(&stats.timeline.thread_groups)
+            Some(&stats.data.timeline.thread_groups)
         }
     }
 
@@ -1329,10 +1329,10 @@ impl FileTab {
             FileLoadState::Ready(stats) => stats,
             _ => return None,
         };
-        if stats.merge_threads {
-            Some(&mut stats.merged_thread_groups)
+        if stats.ui.merge_threads {
+            Some(&mut stats.data.merged_thread_groups)
         } else {
-            Some(&mut stats.timeline.thread_groups)
+            Some(&mut stats.data.timeline.thread_groups)
         }
     }
 }
