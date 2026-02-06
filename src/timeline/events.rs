@@ -325,13 +325,12 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             ColorMode::Kind => event.color,
                             ColorMode::Event => {
                                 // Resolve label symbol to string for hashing
-                                let label =
-                                    self.symbols.resolve(event.label).unwrap_or("<unknown>");
+                                let label = self.symbols.resolve(event.label);
                                 color_from_label(label)
                             }
                         }
                     };
-                    let label = self.symbols.resolve(event.label).unwrap_or("<unknown>");
+                    let label = self.symbols.resolve(event.label);
                     let is_thread_root = event.is_thread_root;
 
                     let x_screen = x - scroll_offset_x_px as f32;

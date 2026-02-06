@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod data;
+mod symbols;
 mod scrollbar;
 mod timeline;
 mod ui;

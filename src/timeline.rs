@@ -585,11 +585,11 @@ pub fn view<'a>(
         let mut details_col = column![
             row![
                 text("Label:").width(Length::Fixed(80.0)).size(12),
-                text(symbols.resolve(event.label).unwrap_or("<unknown>")).size(12)
+                text(symbols.resolve(event.label)).size(12)
             ],
             row![
                 text("Kind:").width(Length::Fixed(80.0)).size(12),
-                text(symbols.resolve(event.event_kind).unwrap_or("<unknown>")).size(12)
+                text(symbols.resolve(event.event_kind)).size(12)
             ],
             row![
                 text("Thread:").width(Length::Fixed(80.0)).size(12),
@@ -623,7 +623,7 @@ pub fn view<'a>(
         for item in &event.additional_data {
             details_col = details_col.push(row![
                 text("Data:").width(Length::Fixed(80.0)).size(12),
-                text(symbols.resolve(*item).unwrap_or("<unknown>")).size(12),
+                text(symbols.resolve(*item)).size(12),
             ]);
         }
 

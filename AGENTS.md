@@ -50,6 +50,10 @@ This document provides context and guidelines for AI agents working on the `line
     - **Collapsed Mode:** Only shows topmost (depth 0) events for a compact overview while hiding nested details.
 - **Sticky Elements:** Thread labels and time markers remain visible while scrolling.
 
-Don't fix warnings by ignoring them.
+Don't leave comments after removing or moving something.
+
+Don't fix warnings by ignoring them or adding `_` to names.
+
+Don't use `git`.
 
 Run `cargo check` after making changes

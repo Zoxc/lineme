@@ -13,13 +13,6 @@ impl Default for Symbol {
     }
 }
 
-impl Symbol {
-    /// Return the underlying index.
-    pub fn index(self) -> u32 {
-        self.0
-    }
-}
-
 impl std::fmt::Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#{}", self.0)
@@ -31,7 +24,7 @@ impl std::fmt::Display for Symbol {
 /// Not thread-safe — the application can keep a single `Symbols` instance and
 /// pass mutable access where needed. Interning returns a `Symbol` which can be
 /// cheaply copied and compared.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Symbols {
     map: HashMap<String, Symbol>,
     vec: Vec<String>,
@@ -65,17 +58,15 @@ impl Symbols {
     }
 
     /// Look up the interned string for `symbol`.
-    pub fn resolve(&self, symbol: Symbol) -> Option<&str> {
-        self.vec.get(symbol.0 as usize).map(|s| s.as_str())
+    ///
+    /// Returns a `&str` referencing the interned string. Panics if the symbol
+    /// is unknown — callers must only request symbols that were previously
+    /// returned by `intern`.
+    pub fn resolve(&self, symbol: Symbol) -> &str {
+        self.vec
+            .get(symbol.0 as usize)
+            .expect("unknown Symbol")
+            .as_str()
     }
 
-    /// Return the number of unique interned strings.
-    pub fn len(&self) -> usize {
-        self.vec.len()
-    }
-
-    /// Return true if the interner contains no strings.
-    pub fn is_empty(&self) -> bool {
-        self.vec.is_empty()
-    }
 }
