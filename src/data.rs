@@ -13,6 +13,9 @@ pub struct FileData {
     pub timeline: TimelineData,
     pub events: Vec<TimelineEvent>,
     pub merged_thread_groups: Vec<ThreadGroup>,
+    // Simple symbol interner for event strings so we store compact symbol ids
+    // in events rather than repeated Strings.
+    pub symbols: crate::symbols::Symbols,
     // UI/state fields that are only meaningful once the file is loaded.
     pub color_mode: timeline::ColorMode,
     pub selected_event: Option<EventId>,
@@ -87,6 +90,10 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
         }
     }
 
+    // Create a symbol interner and build a deterministic ordered list of kinds
+    // and assign equally spaced hues.
+    let mut symbols = crate::symbols::Symbols::new();
+
     // Build a deterministic ordered list of kinds and assign equally spaced hues.
     use std::collections::BTreeSet;
     let mut kinds_set: BTreeSet<String> = BTreeSet::new();
@@ -123,13 +130,16 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
 
         let event_id = EventId(events.len() as u32);
         events.push(TimelineEvent {
-            label,
+            label: symbols.intern(&label),
             start_ns,
             duration_ns,
             depth: 0,
             thread_id,
-            event_kind,
-            additional_data,
+            event_kind: symbols.intern(&event_kind),
+            additional_data: additional_data
+                .into_iter()
+                .map(|s| symbols.intern(&s))
+                .collect(),
             payload_integer,
             color,
             is_thread_root: false,
@@ -157,7 +167,7 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
 
     let mut thread_data_vec = Vec::new();
     for (thread_id, event_ids) in threads {
-        let thread_root = build_thread_root(&mut events, thread_id, &event_ids);
+        let thread_root = build_thread_root(&mut events, thread_id, &event_ids, &mut symbols);
         thread_data_vec.push(Arc::new(ThreadData {
             thread_id,
             events: event_ids,
@@ -205,6 +215,7 @@ pub fn load_profiling_data(path: &Path) -> Result<FileData, String> {
         scroll_offset_y: 0.0_f64,
         viewport_width: 0.0_f64,
         viewport_height: 0.0_f64,
+        symbols,
         load_duration_ns: None,
     })
 }
@@ -301,6 +312,7 @@ fn build_thread_root(
     events: &mut Vec<TimelineEvent>,
     thread_id: u64,
     event_ids: &[EventId],
+    symbols: &mut crate::symbols::Symbols,
 ) -> Option<EventId> {
     let mut start_ns = u64::MAX;
     let mut end_ns = 0u64;
@@ -317,12 +329,12 @@ fn build_thread_root(
 
     let event_id = EventId(events.len() as u32);
     let event = TimelineEvent {
-        label: format!("Thread {}", thread_id),
+        label: symbols.intern(&format!("Thread {}", thread_id)),
         start_ns,
         duration_ns: end_ns.saturating_sub(start_ns),
         depth: 0,
         thread_id,
-        event_kind: "Thread".to_string(),
+        event_kind: symbols.intern("Thread"),
         additional_data: Vec::new(),
         payload_integer: None,
         color: Color::from_rgb(0.85, 0.87, 0.9),

@@ -60,13 +60,13 @@ impl EventId {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimelineEvent {
-    pub label: String,
+    pub label: crate::symbols::Symbol,
     pub start_ns: u64,
     pub duration_ns: u64,
     pub depth: u32,
     pub thread_id: u64,
-    pub event_kind: String,
-    pub additional_data: Vec<String>,
+    pub event_kind: crate::symbols::Symbol,
+    pub additional_data: Vec<crate::symbols::Symbol>,
     pub payload_integer: Option<u64>,
     pub color: Color,
     pub is_thread_root: bool,
@@ -393,6 +393,7 @@ pub fn view<'a>(
     viewport_height: f64,
     _modifiers: keyboard::Modifiers,
     color_mode: ColorMode,
+    symbols: &'a crate::symbols::Symbols,
 ) -> Element<'a, Message> {
     let total_ns = timeline_data.max_ns - timeline_data.min_ns;
     if total_ns == 0 {
@@ -445,6 +446,7 @@ pub fn view<'a>(
         viewport_width,
         viewport_height,
         color_mode,
+        symbols,
     })
     .width(Length::Fill)
     .height(Length::Fill);
@@ -583,11 +585,11 @@ pub fn view<'a>(
         let mut details_col = column![
             row![
                 text("Label:").width(Length::Fixed(80.0)).size(12),
-                text(&event.label).size(12)
+                text(symbols.resolve(event.label).unwrap_or("<unknown>")).size(12)
             ],
             row![
                 text("Kind:").width(Length::Fixed(80.0)).size(12),
-                text(&event.event_kind).size(12)
+                text(symbols.resolve(event.event_kind).unwrap_or("<unknown>")).size(12)
             ],
             row![
                 text("Thread:").width(Length::Fixed(80.0)).size(12),
@@ -621,7 +623,7 @@ pub fn view<'a>(
         for item in &event.additional_data {
             details_col = details_col.push(row![
                 text("Data:").width(Length::Fixed(80.0)).size(12),
-                text(item).size(12),
+                text(symbols.resolve(*item).unwrap_or("<unknown>")).size(12),
             ]);
         }
 

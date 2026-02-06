@@ -1189,6 +1189,7 @@ impl Lineme {
                     stats.viewport_height,
                     self.modifiers,
                     stats.color_mode,
+                    &stats.symbols,
                 )
             }
         }
