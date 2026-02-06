@@ -1,6 +1,6 @@
 // Mini timeline receives explicit f64 scroll offsets from app state.
-use crate::timeline::ticks::{format_time_label, nice_interval};
 use crate::Message;
+use crate::timeline::ticks::{format_time_label, nice_interval};
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Geometry, Program};
 use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme};
@@ -87,7 +87,7 @@ impl Program<Message> for MiniTimelineProgram {
 
         let ns_per_pixel = total_ns / bounds.width as f64;
         let pixel_interval = 120.0;
-        let ns_interval = pixel_interval as f64 * ns_per_pixel;
+        let ns_interval = pixel_interval * ns_per_pixel;
         let nice_interval = nice_interval(ns_interval);
 
         let mut relative_ns = 0.0;
@@ -180,26 +180,26 @@ impl Program<Message> for MiniTimelineProgram {
     ) -> Option<Action<Message>> {
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if let Some(position) = cursor.position_in(bounds) {
-                    if bounds.width > 0.0 {
-                        // Map click position into the full width of the mini timeline
-                        let events_width = bounds.width;
-                        let rel_x = position.x.clamp(0.0, events_width);
-                        let fraction = (rel_x / events_width).clamp(0.0, 1.0) as f64;
-                        let viewport_width = self.viewport_width_for_bounds(bounds).max(1.0);
-                        state.dragging = true;
-                        state.selecting = false;
-                        state.selection_start = None;
-                        state.selection_end = None;
-                        return Some(Action::publish(Message::MiniTimelineJump {
-                            fraction,
-                            // Use the actual viewport width when available; otherwise fall back
-                            // to the mini timeline's width. Using `max(events_width)` here
-                            // previously forced the viewport width up to the mini timeline
-                            // width which prevented panning/zooming to the true end.
-                            viewport_width,
-                        }));
-                    }
+                if let Some(position) = cursor.position_in(bounds)
+                    && bounds.width > 0.0
+                {
+                    // Map click position into the full width of the mini timeline
+                    let events_width = bounds.width;
+                    let rel_x = position.x.clamp(0.0, events_width);
+                    let fraction = (rel_x / events_width).clamp(0.0, 1.0) as f64;
+                    let viewport_width = self.viewport_width_for_bounds(bounds).max(1.0);
+                    state.dragging = true;
+                    state.selecting = false;
+                    state.selection_start = None;
+                    state.selection_end = None;
+                    return Some(Action::publish(Message::MiniTimelineJump {
+                        fraction,
+                        // Use the actual viewport width when available; otherwise fall back
+                        // to the mini timeline's width. Using `max(events_width)` here
+                        // previously forced the viewport width up to the mini timeline
+                        // width which prevented panning/zooming to the true end.
+                        viewport_width,
+                    }));
                 }
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
@@ -212,25 +212,25 @@ impl Program<Message> for MiniTimelineProgram {
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                if state.dragging {
-                    if let Some(position) = cursor.position_in(bounds) {
-                        let events_width = bounds.width;
-                        if events_width > 0.0 {
-                            let rel_x = position.x.clamp(0.0, events_width);
-                            let fraction = (rel_x / events_width).clamp(0.0, 1.0) as f64;
-                            let viewport_width = self.viewport_width_for_bounds(bounds).max(1.0);
-                            return Some(Action::publish(Message::MiniTimelineJump {
-                                fraction,
-                                viewport_width,
-                            }));
-                        }
-                    }
+                if let Some(position) = cursor.position_in(bounds)
+                    && state.dragging
+                    && bounds.width > 0.0
+                {
+                    let events_width = bounds.width;
+                    let rel_x = position.x.clamp(0.0, events_width);
+                    let fraction = (rel_x / events_width).clamp(0.0, 1.0) as f64;
+                    let viewport_width = self.viewport_width_for_bounds(bounds).max(1.0);
+                    return Some(Action::publish(Message::MiniTimelineJump {
+                        fraction,
+                        viewport_width,
+                    }));
                 }
-                if state.selecting {
-                    if let Some(position) = cursor.position_in(bounds) {
-                        state.selection_end = Some(position);
-                        return Some(Action::publish(Message::None));
-                    }
+
+                if let Some(position) = cursor.position_in(bounds)
+                    && state.selecting
+                {
+                    state.selection_end = Some(position);
+                    return Some(Action::publish(Message::None));
                 }
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
@@ -239,21 +239,21 @@ impl Program<Message> for MiniTimelineProgram {
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)) => {
                 if state.selecting {
                     state.selecting = false;
-                    if let Some(selection) = self.selection_bounds(state, bounds) {
-                        if selection.width >= 4.0 {
-                            let events_width = bounds.width;
-                            let start_fraction = (selection.x / events_width).clamp(0.0, 1.0);
-                            let end_fraction =
-                                ((selection.x + selection.width) / events_width).clamp(0.0, 1.0);
-                            let viewport_width = self.viewport_width_for_bounds(bounds).max(1.0);
-                            state.selection_start = None;
-                            state.selection_end = None;
-                            return Some(Action::publish(Message::MiniTimelineZoomTo {
-                                start_fraction,
-                                end_fraction,
-                                viewport_width,
-                            }));
-                        }
+                    if let Some(selection) = self.selection_bounds(state, bounds)
+                        && selection.width >= 4.0
+                    {
+                        let events_width = bounds.width;
+                        let start_fraction = (selection.x / events_width).clamp(0.0, 1.0);
+                        let end_fraction =
+                            ((selection.x + selection.width) / events_width).clamp(0.0, 1.0);
+                        let viewport_width = self.viewport_width_for_bounds(bounds).max(1.0);
+                        state.selection_start = None;
+                        state.selection_end = None;
+                        return Some(Action::publish(Message::MiniTimelineZoomTo {
+                            start_fraction,
+                            end_fraction,
+                            viewport_width,
+                        }));
                     }
                     state.selection_start = None;
                     state.selection_end = None;

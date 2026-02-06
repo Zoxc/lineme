@@ -1,8 +1,8 @@
 // Threads panel receives explicit scroll offsets from the app state (f64)
-use crate::timeline::{
-    group_total_height, thread_group_key, ThreadGroup, LANE_HEIGHT, LANE_SPACING,
-};
 use crate::Message;
+use crate::timeline::{
+    LANE_HEIGHT, LANE_SPACING, ThreadGroup, group_total_height, thread_group_key,
+};
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Geometry, Program};
 use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme};
@@ -25,11 +25,11 @@ impl<'a> ThreadsProgram<'a> {
         for group in self.thread_groups {
             let lane_total_height = group_total_height(group);
 
-            if content_y >= y_offset && content_y < y_offset + LANE_HEIGHT as f64 + 2.0 {
+            if content_y >= y_offset && content_y < y_offset + LANE_HEIGHT + 2.0 {
                 return Some(thread_group_key(group));
             }
 
-            y_offset += lane_total_height as f64 + LANE_SPACING as f64;
+            y_offset += lane_total_height + LANE_SPACING;
         }
 
         None
@@ -120,7 +120,7 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
                 ..Default::default()
             });
 
-            y_offset += lane_total_height as f64 + LANE_SPACING as f64;
+            y_offset += lane_total_height + LANE_SPACING;
         }
 
         vec![frame.into_geometry()]
@@ -143,12 +143,11 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
             }
         }
 
-        if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
-            if let Some(position) = cursor.position_in(bounds) {
-                if let Some(group_id) = self.group_at(position) {
-                    return Some(Action::publish(Message::ToggleThreadCollapse(group_id)));
-                }
-            }
+        if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
+            && let Some(position) = cursor.position_in(bounds)
+            && let Some(group_id) = self.group_at(position)
+        {
+            return Some(Action::publish(Message::ToggleThreadCollapse(group_id)));
         }
 
         None
@@ -170,10 +169,10 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
 
 fn group_label(group: &ThreadGroup) -> String {
     // For a single-thread group use the concise form "Thread <id>".
-    if group.threads.len() == 1 {
-        if let Some(thread) = group.threads.first() {
-            return format!("Thread {}", thread.thread_id);
-        }
+    if group.threads.len() == 1
+        && let Some(thread) = group.threads.first()
+    {
+        return format!("Thread {}", thread.thread_id);
     }
 
     // For multi-thread groups display a concise "Merged" label.

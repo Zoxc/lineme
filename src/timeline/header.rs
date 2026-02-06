@@ -1,6 +1,6 @@
 // Header uses explicit f64 scroll offsets passed from the application state.
-use crate::timeline::ticks::{format_time_label, nice_interval};
 use crate::Message;
+use crate::timeline::ticks::{format_time_label, nice_interval};
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
@@ -36,9 +36,9 @@ impl Program<Message> for HeaderProgram {
             return vec![frame.into_geometry()];
         }
 
-        let ns_per_pixel = 1.0 / self.zoom_level as f64;
+        let ns_per_pixel = 1.0 / self.zoom_level;
         let pixel_interval = 100.0;
-        let ns_interval = pixel_interval as f64 * ns_per_pixel;
+        let ns_interval = pixel_interval * ns_per_pixel;
         let nice_interval = nice_interval(ns_interval);
 
         let mut relative_ns = 0.0;

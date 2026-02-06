@@ -1,26 +1,40 @@
 use crate::Message;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
-use iced::{keyboard, Color, Point, Rectangle, Renderer, Size, Theme, Vector};
+use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
 
 use super::{
-    color_from_label, display_depth, group_total_height, mipmap_levels_for_zoom,
-    visible_event_indices_in, visible_shadow_indices_in, ColorMode, EventId, ThreadGroup,
-    TimelineEvent,
+    ColorMode, EventId, ThreadGroup, TimelineEvent, color_from_label, display_depth,
+    group_total_height, mipmap_levels_for_zoom, visible_event_indices_in,
+    visible_shadow_indices_in,
 };
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 
-fn draw_event_rect(
-    frame: &mut canvas::Frame,
+// Small helper struct to avoid too_many_arguments lint on the drawing helper.
+struct DrawEventRectArgs<'a> {
+    frame: &'a mut canvas::Frame,
     x: f32,
     width: f32,
     y: f32,
     color: Color,
-    label: &str,
+    label: &'a str,
     is_root: bool,
     is_shadow: bool,
     bounds: Rectangle,
-) {
+}
+
+fn draw_event_rect(args: DrawEventRectArgs<'_>) {
+    let DrawEventRectArgs {
+        frame,
+        x,
+        width,
+        y,
+        color,
+        label,
+        is_root,
+        is_shadow,
+        bounds,
+    } = args;
     let rect = Rectangle {
         x,
         y: y + 1.0,
@@ -122,7 +136,7 @@ impl<'a> EventsProgram<'a> {
             let lane_total_height = group_total_height(group);
 
             if (content_position.y as f64) >= y_offset
-                && (content_position.y as f64) < (y_offset + lane_total_height as f64)
+                && (content_position.y as f64) < y_offset + lane_total_height
             {
                 let (ns_min, ns_max) = crate::timeline::viewport_ns_range(
                     self.scroll_offset_x,
@@ -172,7 +186,7 @@ impl<'a> EventsProgram<'a> {
                     }
                 }
             }
-            y_offset += lane_total_height as f64 + super::LANE_SPACING as f64;
+            y_offset += lane_total_height + super::LANE_SPACING;
         }
         None
     }
@@ -229,7 +243,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             // ns per pixel given current zoom: 1 / zoom_level
             let ns_per_pixel = 1.0 / zoom_level;
             let pixel_interval = 100.0;
-            let ns_interval = pixel_interval as f64 * ns_per_pixel;
+            let ns_interval = pixel_interval * ns_per_pixel;
             let nice_interval = crate::timeline::ticks::nice_interval(ns_interval);
 
             let mut relative_ns = if viewport_width > 0.0 {
@@ -273,9 +287,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
             // Skip drawing if thread is completely outside vertical viewport
             if self.viewport_height > 0.0
-                && ((y_offset + lane_total_height as f64) < y_min || y_offset > y_max)
+                && ((y_offset + lane_total_height) < y_min || y_offset > y_max)
             {
-                y_offset += lane_total_height as f64 + super::LANE_SPACING as f64;
+                y_offset += lane_total_height + super::LANE_SPACING;
                 continue;
             }
 
@@ -351,17 +365,17 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     let x_screen = x - scroll_offset_x_px as f32;
                     let y_screen = y_offset as f32 - self.scroll_offset_y as f32
                         + depth as f32 * (LANE_HEIGHT as f32);
-                    draw_event_rect(
-                        &mut frame,
-                        x_screen,
+                    draw_event_rect(DrawEventRectArgs {
+                        frame: &mut frame,
+                        x: x_screen,
                         width,
-                        y_screen,
+                        y: y_screen,
                         color,
                         label,
-                        is_thread_root,
-                        false,
-                        visible_bounds,
-                    );
+                        is_root: is_thread_root,
+                        is_shadow: false,
+                        bounds: visible_bounds,
+                    });
                 }
             }
 
@@ -398,75 +412,73 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     let color = Color::from_rgba(0.0, 0.0, 0.0, 0.10);
                     let y_screen = y_offset as f32 - self.scroll_offset_y as f32
                         + depth as f32 * (LANE_HEIGHT as f32);
-                    draw_event_rect(
-                        &mut frame,
-                        x_screen,
+                    draw_event_rect(DrawEventRectArgs {
+                        frame: &mut frame,
+                        x: x_screen,
                         width,
-                        y_screen,
+                        y: y_screen,
                         color,
-                        "",
-                        false,
-                        true,
-                        visible_bounds,
-                    );
+                        label: "",
+                        is_root: false,
+                        is_shadow: true,
+                        bounds: visible_bounds,
+                    });
                 }
             }
 
             if let Some(hovered_id) = state.hovered_event {
                 let hovered = &self.events[hovered_id.index()];
                 let hovered_depth = display_depth(group.show_thread_roots, hovered);
-                if super::group_contains_thread(group, hovered.thread_id) {
-                    if !group.is_collapsed || hovered_depth == 0 {
-                        let x = crate::timeline::ns_to_x(hovered.start_ns, self.min_ns, zoom_level)
-                            as f32;
-                        let width =
-                            crate::timeline::duration_to_width(hovered.duration_ns, zoom_level)
-                                as f32;
-                        let x_screen = x - scroll_offset_x_px as f32;
-                        let y = y_offset as f32 - self.scroll_offset_y as f32
-                            + hovered_depth as f32 * (LANE_HEIGHT as f32);
+                if super::group_contains_thread(group, hovered.thread_id)
+                    && (!group.is_collapsed || hovered_depth == 0)
+                {
+                    let x =
+                        crate::timeline::ns_to_x(hovered.start_ns, self.min_ns, zoom_level) as f32;
+                    let width =
+                        crate::timeline::duration_to_width(hovered.duration_ns, zoom_level) as f32;
+                    let x_screen = x - scroll_offset_x_px as f32;
+                    let y = y_offset as f32 - self.scroll_offset_y as f32
+                        + hovered_depth as f32 * (LANE_HEIGHT as f32);
 
-                        frame.stroke(
-                            &canvas::Path::rectangle(
-                                Point::new(x_screen, y + 1.0),
-                                Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
-                            ),
-                            canvas::Stroke::default()
-                                .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.3))
-                                .with_width(1.0),
-                        );
-                    }
+                    frame.stroke(
+                        &canvas::Path::rectangle(
+                            Point::new(x_screen, y + 1.0),
+                            Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
+                        ),
+                        canvas::Stroke::default()
+                            .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.3))
+                            .with_width(1.0),
+                    );
                 }
             }
 
             if let Some(selected_id) = self.selected_event {
                 let selected = &self.events[selected_id.index()];
                 let selected_depth = display_depth(group.show_thread_roots, selected);
-                if super::group_contains_thread(group, selected.thread_id) {
-                    if !group.is_collapsed || selected_depth == 0 {
-                        let x = crate::timeline::ns_to_x(selected.start_ns, self.min_ns, zoom_level)
-                            as f32;
-                        let width =
-                            crate::timeline::duration_to_width(selected.duration_ns, zoom_level)
-                                as f32;
-                        let x_screen = x - scroll_offset_x_px as f32;
-                        let y = y_offset as f32 - self.scroll_offset_y as f32
-                            + selected_depth as f32 * (LANE_HEIGHT as f32);
+                if super::group_contains_thread(group, selected.thread_id)
+                    && (!group.is_collapsed || selected_depth == 0)
+                {
+                    let x =
+                        crate::timeline::ns_to_x(selected.start_ns, self.min_ns, zoom_level) as f32;
+                    let width =
+                        crate::timeline::duration_to_width(selected.duration_ns, zoom_level) as f32;
+                    let x_screen = x - scroll_offset_x_px as f32;
+                    let y = y_offset as f32 - self.scroll_offset_y as f32
+                        + selected_depth as f32 * (LANE_HEIGHT as f32);
 
-                        frame.stroke(
-                            &canvas::Path::rectangle(
-                                Point::new(x_screen, y + 1.0),
-                                Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
-                            ),
-                            canvas::Stroke::default()
-                                .with_color(Color::from_rgb(0.0, 0.4, 0.8))
-                                .with_width(2.0),
-                        );
-                    }
+                    frame.stroke(
+                        &canvas::Path::rectangle(
+                            Point::new(x_screen, y + 1.0),
+                            Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
+                        ),
+                        canvas::Stroke::default()
+                            .with_color(Color::from_rgb(0.0, 0.4, 0.8))
+                            .with_width(2.0),
+                    );
                 }
             }
 
-            y_offset += lane_total_height as f64 + super::LANE_SPACING as f64;
+            y_offset += lane_total_height + super::LANE_SPACING;
         }
 
         vec![frame.into_geometry()]
@@ -513,38 +525,36 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
             }
             iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
-                if !state.dragging {
-                    if let (Some(pressed_event), Some(position)) =
-                        (state.pressed_event.clone(), cursor.position_in(bounds))
-                    {
-                        if let Some(release_event) = self.find_event_at(position) {
-                            let is_same_event = pressed_event == release_event;
-                            if is_same_event {
-                                let now = std::time::Instant::now();
-                                if let Some((prev_event, prev_time)) = &state.last_click {
-                                    let is_double = *prev_event == release_event
-                                        && now.duration_since(*prev_time)
-                                            <= std::time::Duration::from_millis(400);
-                                    if is_double {
-                                        state.last_click = None;
-                                        state.press_position = None;
-                                        state.pressed_event = None;
-                                        state.dragging = false;
-                                        return Some(canvas::Action::publish(
-                                            Message::EventDoubleClicked(release_event),
-                                        ));
-                                    }
-                                }
-
-                                state.last_click = Some((release_event, now));
+                if !state.dragging
+                    && let (Some(pressed_event), Some(position)) =
+                        (state.pressed_event, cursor.position_in(bounds))
+                    && let Some(release_event) = self.find_event_at(position)
+                {
+                    let is_same_event = pressed_event == release_event;
+                    if is_same_event {
+                        let now = std::time::Instant::now();
+                        if let Some((prev_event, prev_time)) = &state.last_click {
+                            let is_double = *prev_event == release_event
+                                && now.duration_since(*prev_time)
+                                    <= std::time::Duration::from_millis(400);
+                            if is_double {
+                                state.last_click = None;
                                 state.press_position = None;
                                 state.pressed_event = None;
                                 state.dragging = false;
-                                return Some(canvas::Action::publish(Message::EventSelected(
+                                return Some(canvas::Action::publish(Message::EventDoubleClicked(
                                     release_event,
                                 )));
                             }
                         }
+
+                        state.last_click = Some((release_event, now));
+                        state.press_position = None;
+                        state.pressed_event = None;
+                        state.dragging = false;
+                        return Some(canvas::Action::publish(Message::EventSelected(
+                            release_event,
+                        )));
                     }
                 }
                 state.press_position = None;
@@ -560,7 +570,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
                                 if y.abs() > 0.0 {
                                     // Map wheel "lines" to pixels for a comfortable pan speed
-                                    let scroll_amount = (*y as f32) * 30.0;
+                                    let scroll_amount = *y * 30.0;
                                     return Some(
                                         canvas::Action::publish(Message::TimelinePanned {
                                             delta: Vector::new(scroll_amount, 0.0),
@@ -575,7 +585,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             iced::mouse::ScrollDelta::Lines { x: _, y }
                             | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
                                 if y.abs() > 0.0 {
-                                    let scroll_amount = (*y as f32) * 30.0;
+                                    let scroll_amount = *y * 30.0;
                                     return Some(
                                         canvas::Action::publish(Message::TimelinePanned {
                                             delta: Vector::new(0.0, scroll_amount),

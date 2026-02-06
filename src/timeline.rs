@@ -4,18 +4,18 @@ mod mini_timeline;
 mod threads;
 mod ticks;
 
+use crate::Message;
 use crate::data::{EventId, ThreadData, TimelineEvent};
 use crate::scrollbar;
 use crate::symbols::Symbol;
-use crate::Message;
 use events::EventsProgram;
 use header::HeaderProgram;
 use iced::advanced::widget::{self, Tree, Widget};
-use iced::advanced::{layout, renderer, Clipboard, Layout, Shell};
+use iced::advanced::{Clipboard, Layout, Shell, layout, renderer};
 use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Canvas;
-use iced::widget::{button, column, container, row, text, Space};
+use iced::widget::{Space, button, column, container, row, text};
 use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Theme};
 use mini_timeline::MiniTimelineProgram;
 use std::sync::Arc;
@@ -234,16 +234,14 @@ pub fn group_total_height(group: &ThreadGroup) -> f64 {
 }
 
 pub fn build_thread_group_events(
-    events: &mut Vec<TimelineEvent>,
+    events: &mut [TimelineEvent],
     threads: &[Arc<ThreadData>],
     show_thread_roots: bool,
 ) -> (Vec<EventId>, u32, Vec<ThreadGroupMipMap>) {
     let mut event_ids = Vec::new();
     for thread in threads {
-        if show_thread_roots {
-            if let Some(root_id) = thread.thread_root {
-                event_ids.push(root_id);
-            }
+        if show_thread_roots && let Some(root_id) = thread.thread_root {
+            event_ids.push(root_id);
         }
         event_ids.extend(thread.events.iter().copied());
     }
@@ -297,11 +295,11 @@ fn build_event_indices(
 
 fn duration_bucket(duration_ns: u64) -> u32 {
     let duration = duration_ns.max(1);
-    63 - duration.leading_zeros() as u32
+    63u32 - duration.leading_zeros()
 }
 
 fn build_thread_group_mipmaps(
-    events: &mut Vec<TimelineEvent>,
+    events: &mut [TimelineEvent],
     event_ids: &[EventId],
 ) -> Vec<ThreadGroupMipMap> {
     if event_ids.is_empty() {
@@ -353,8 +351,7 @@ fn build_thread_group_mipmaps(
             cumulative_real.extend(level.events.iter().copied());
 
             let target_min_duration = level.max_duration_ns.max(1);
-            let mut intervals: Vec<(u32, u64, u64)> = Vec::new();
-            intervals.reserve(cumulative_real.len());
+            let mut intervals: Vec<(u32, u64, u64)> = Vec::with_capacity(cumulative_real.len());
             for &event_id in &cumulative_real {
                 let event = &events[event_id.index()];
                 let start = event.start_ns;
@@ -497,10 +494,10 @@ fn mipmap_level_fits(level: &ThreadGroupMipMap, zoom_level: f64) -> bool {
     (level.max_duration_ns as f64) * zoom_level >= 1.0
 }
 
-fn mipmap_levels_for_zoom<'a>(
-    group: &'a ThreadGroup,
+fn mipmap_levels_for_zoom(
+    group: &ThreadGroup,
     zoom_level: f64,
-) -> impl Iterator<Item = (usize, &'a ThreadGroupMipMap)> {
+) -> impl Iterator<Item = (usize, &ThreadGroupMipMap)> {
     group
         .mipmaps
         .iter()
@@ -520,21 +517,38 @@ pub fn format_duration(ns: u64) -> String {
     }
 }
 
-pub fn view<'a>(
-    timeline_data: &'a TimelineData,
-    events: &'a [TimelineEvent],
-    thread_groups: &'a [ThreadGroup],
-    zoom_level: f64,
-    selected_event: &'a Option<EventId>,
-    _hovered_event: &'a Option<EventId>,
-    scroll_offset_x: f64,
-    scroll_offset_y: f64,
-    viewport_width: f64,
-    viewport_height: f64,
-    _modifiers: keyboard::Modifiers,
-    color_mode: ColorMode,
-    symbols: &'a crate::symbols::Symbols,
-) -> Element<'a, Message> {
+pub struct TimelineViewArgs<'a> {
+    pub timeline_data: &'a TimelineData,
+    pub events: &'a [TimelineEvent],
+    pub thread_groups: &'a [ThreadGroup],
+    pub zoom_level: f64,
+    pub selected_event: &'a Option<EventId>,
+    pub hovered_event: &'a Option<EventId>,
+    pub scroll_offset_x: f64,
+    pub scroll_offset_y: f64,
+    pub viewport_width: f64,
+    pub viewport_height: f64,
+    pub modifiers: keyboard::Modifiers,
+    pub color_mode: ColorMode,
+    pub symbols: &'a crate::symbols::Symbols,
+}
+
+pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
+    let TimelineViewArgs {
+        timeline_data,
+        events,
+        thread_groups,
+        zoom_level,
+        selected_event,
+        hovered_event: _hovered_event,
+        scroll_offset_x,
+        scroll_offset_y,
+        viewport_width,
+        viewport_height,
+        modifiers: _modifiers,
+        color_mode,
+        symbols,
+    } = args;
     let total_ns = timeline_data.max_ns - timeline_data.min_ns;
     if total_ns == 0 {
         return container(text("No events to display"))
@@ -1215,12 +1229,12 @@ where
 
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if !shell.is_event_captured() {
-                    if let Some(position) = cursor.position_over(bounds) {
-                        state.press_position = Some(position);
-                        state.last_position = Some(position);
-                        state.dragging = false;
-                    }
+                if !shell.is_event_captured()
+                    && let Some(position) = cursor.position_over(bounds)
+                {
+                    state.press_position = Some(position);
+                    state.last_position = Some(position);
+                    state.dragging = false;
                 }
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {

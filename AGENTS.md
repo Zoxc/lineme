@@ -36,7 +36,7 @@ This document provides context and guidelines for AI agents working on the `line
 - **Error Handling:** Use `Message::ErrorOccurred(String)` to propagate errors to the UI.
 - A type is not a type alias.
 - Don't leave comments after removing or moving something.
-- Don't fix warnings by ignoring them or adding `_` to names.
+- Don't fix warnings by ignoring them, adding `allow` attributes or adding `_` to names.
 - Don't use `git`.
 - Run `cargo check` after making changes and fix any warnings and errors.
 - Preserve comments when making edits

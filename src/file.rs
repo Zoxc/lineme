@@ -12,14 +12,14 @@ pub struct FileTab {
 #[derive(Debug, Clone)]
 pub enum FileLoadState {
     Loading,
-    Ready(FileTabData),
+    Ready(Box<FileTabData>),
     Error(String),
 }
 
 impl FileTab {
     pub fn stats(&self) -> Option<&FileTabData> {
         match &self.load_state {
-            FileLoadState::Ready(stats) => Some(stats),
+            FileLoadState::Ready(stats) => Some(stats.as_ref()),
             _ => None,
         }
     }
@@ -35,7 +35,7 @@ impl FileTab {
 
     pub fn thread_groups_mut(&mut self) -> Option<&mut [ThreadGroup]> {
         let stats = match &mut self.load_state {
-            FileLoadState::Ready(stats) => stats,
+            FileLoadState::Ready(stats) => stats.as_mut(),
             _ => return None,
         };
         if stats.ui.merge_threads {

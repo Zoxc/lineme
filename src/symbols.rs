@@ -4,14 +4,8 @@ use std::collections::HashMap;
 ///
 /// This is intentionally a small, copyable type (backed by `u32`) so it can be
 /// cheaply stored in other data structures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Symbol(u32);
-
-impl Default for Symbol {
-    fn default() -> Self {
-        Symbol(0)
-    }
-}
 
 impl std::fmt::Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

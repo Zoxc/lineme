@@ -151,48 +151,48 @@ fn collect_timeline_events(
     metadata_start_ns: u64,
 ) -> CollectedEvents {
     let mut events = Vec::new();
-    let mut max_ns = 0;
-    let mut event_count = 0;
+    let mut max_ns: u64 = 0;
+    let mut event_count: usize = 0;
 
     for lightweight_event in data.iter() {
         let event = data.to_full_event(&lightweight_event);
         let thread_id = event.thread_id;
 
-        if let analyzeme::EventPayload::Timestamp(timestamp) = &event.payload {
-            if let analyzeme::Timestamp::Interval { start, end } = timestamp {
-                event_count += 1;
+        if let analyzeme::EventPayload::Timestamp(analyzeme::Timestamp::Interval { start, end }) =
+            &event.payload
+        {
+            event_count += 1;
 
-                let start_ns = (start
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64)
-                    .saturating_sub(metadata_start_ns);
-                let end_ns = (end
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64)
-                    .saturating_sub(metadata_start_ns);
+            let start_ns = (start
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64)
+                .saturating_sub(metadata_start_ns);
+            let end_ns = (end
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64)
+                .saturating_sub(metadata_start_ns);
 
-                max_ns = max_ns.max(end_ns);
+            max_ns = max_ns.max(end_ns);
 
-                events.push(TimelineEvent {
-                    thread_id,
-                    label: symbols.intern(&event.label.to_string()),
-                    start_ns,
-                    duration_ns: end_ns.saturating_sub(start_ns),
-                    depth: 0,
-                    event_kind: symbols.intern(&event.event_kind.to_string()),
-                    additional_data: event
-                        .additional_data
-                        .iter()
-                        .map(|s| symbols.intern(&s.to_string()))
-                        .collect::<Vec<_>>(),
-                    payload_integer: event.payload.integer(),
-                    // Filled in after we know all kinds.
-                    color: timeline::color_from_hsl(0.0, 0.0, 0.85),
-                    is_thread_root: false,
-                });
-            }
+            events.push(TimelineEvent {
+                thread_id,
+                label: symbols.intern(event.label.as_ref()),
+                start_ns,
+                duration_ns: end_ns.saturating_sub(start_ns),
+                depth: 0,
+                event_kind: symbols.intern(event.event_kind.as_ref()),
+                additional_data: event
+                    .additional_data
+                    .iter()
+                    .map(|s| symbols.intern(s.as_ref()))
+                    .collect::<Vec<_>>(),
+                payload_integer: event.payload.integer(),
+                // Filled in after we know all kinds.
+                color: timeline::color_from_hsl(0.0, 0.0, 0.85),
+                is_thread_root: false,
+            });
         }
     }
 
@@ -212,7 +212,9 @@ fn build_kind_color_map(
     let mut kinds_set: std::collections::HashSet<crate::symbols::Symbol> =
         events.iter().map(|e| e.event_kind).collect();
     let mut kinds: Vec<crate::symbols::Symbol> = kinds_set.drain().collect();
-    kinds.sort_by_key(|s| symbols.resolve(*s).to_string());
+    // Avoid allocating a String when sorting: resolve returns &str so we can
+    // use it directly as the sort key.
+    kinds.sort_by_key(|s| symbols.resolve(*s));
 
     let kind_count = kinds.len().max(1);
 
@@ -291,7 +293,7 @@ fn build_thread_data(
 }
 
 fn build_thread_groups(
-    events: &mut Vec<TimelineEvent>,
+    events: &mut [TimelineEvent],
     thread_data: &[Arc<ThreadData>],
 ) -> Vec<ThreadGroup> {
     let mut thread_groups = Vec::new();
@@ -312,7 +314,7 @@ fn build_thread_groups(
 }
 
 fn build_merged_thread_groups(
-    events: &mut Vec<TimelineEvent>,
+    events: &mut [TimelineEvent],
     threads: &[Arc<ThreadData>],
 ) -> Vec<ThreadGroup> {
     if threads.is_empty() {

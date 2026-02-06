@@ -334,14 +334,14 @@ impl<'a, Message> Program<Message> for ScrollbarProgram<'a, Message> {
             _ => {}
         }
 
-        if state.dragging {
-            if let Some(position) = state.last_position {
-                let clamped = self.clamp_local_position(bounds, position);
-                let local = clamped - Vector::new(bounds.x, bounds.y);
-                let value =
-                    self.value_from_local_axis(bounds, self.local_axis(local) - state.drag_offset);
-                return Some(Action::publish((self.on_change)(value)).and_capture());
-            }
+        if state.dragging
+            && let Some(position) = state.last_position
+        {
+            let clamped = self.clamp_local_position(bounds, position);
+            let local = clamped - Vector::new(bounds.x, bounds.y);
+            let value =
+                self.value_from_local_axis(bounds, self.local_axis(local) - state.drag_offset);
+            return Some(Action::publish((self.on_change)(value)).and_capture());
         }
 
         None

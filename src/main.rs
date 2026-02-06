@@ -160,7 +160,7 @@ enum Message {
     TabSelected(usize),
     OpenFile,
     FileSelected(PathBuf),
-    FileLoaded(u64, FileTabData, u64),
+    FileLoaded(u64, Box<FileTabData>, u64),
     FileLoadFailed(u64, String, u64),
     ViewChanged(ViewType),
     ColorModeChanged(ColorMode),
@@ -297,10 +297,9 @@ impl Lineme {
             Message::FileSelected(path) => {
                 return self.start_loading_file(path);
             }
-            Message::FileLoaded(id, stats, duration_ns) => {
+            Message::FileLoaded(id, mut stats, duration_ns) => {
                 if let Some(file) = self.files.iter_mut().find(|file| file.id == id) {
                     // transfer load-duration into FileData and store ready state.
-                    let mut stats = stats;
                     stats.load_duration_ns = Some(duration_ns);
                     file.load_state = FileLoadState::Ready(stats);
                 }
@@ -311,10 +310,10 @@ impl Lineme {
                 }
             }
             Message::ViewChanged(view) => {
-                if let Some(file) = self.files.get_mut(self.active_tab) {
-                    if let FileLoadState::Ready(stats) = &mut file.load_state {
-                        stats.ui.view_type = view;
-                    }
+                if let Some(file) = self.files.get_mut(self.active_tab)
+                    && let FileLoadState::Ready(stats) = &mut file.load_state
+                {
+                    stats.ui.view_type = view;
                 }
             }
             Message::ColorModeChanged(color_mode) => {
@@ -418,12 +417,12 @@ impl Lineme {
 
                     // Zoom so the selected range fills the viewport.
                     let target_ns = (end_ns.saturating_sub(start_ns)).max(1) as f64;
-                    stats.ui.zoom_level = viewport_width as f64 / target_ns;
+                    stats.ui.zoom_level = viewport_width / target_ns;
 
                     stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
                         start_ns as f64,
                         total_ns,
-                        viewport_width as f64,
+                        viewport_width,
                         stats.ui.zoom_level,
                     );
 
@@ -552,7 +551,7 @@ impl Lineme {
 
                     if max_ns > min_ns {
                         let total_ns = max_ns.saturating_sub(min_ns);
-                        let target_center_ns = fraction as f64 * total_ns as f64;
+                        let target_center_ns = fraction * total_ns as f64;
                         let visible_ns = viewport_width / stats.ui.zoom_level.max(1e-9);
                         let target_ns = target_center_ns - visible_ns / 2.0;
                         stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
@@ -664,7 +663,7 @@ impl Lineme {
                     .max(0.0_f64);
 
                     let viewport_height = stats.ui.viewport_height.max(0.0_f64);
-                    let max_scroll_y = (total_height - viewport_height as f64).max(0.0_f64);
+                    let max_scroll_y = (total_height - viewport_height).max(0.0);
 
                     stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
                         stats.ui.scroll_offset_x - delta.x as f64 / stats.ui.zoom_level.max(1e-9),
@@ -775,9 +774,8 @@ impl Lineme {
             Message::MergeThreadsToggled(enabled) => {
                 if let Some(file) = self.active_file_mut() {
                     // Update merge_threads on loaded FileData if present.
-                    match &mut file.load_state {
-                        FileLoadState::Ready(stats) => stats.ui.merge_threads = enabled,
-                        _ => {}
+                    if let FileLoadState::Ready(stats) = &mut file.load_state {
+                        stats.ui.merge_threads = enabled;
                     }
 
                     let thread_groups = match file.thread_groups() {
@@ -827,7 +825,7 @@ impl Lineme {
                 });
 
                 match rx.await {
-                    Ok((Ok(stats), duration)) => Message::FileLoaded(id, stats, duration),
+                    Ok((Ok(stats), duration)) => Message::FileLoaded(id, Box::new(stats), duration),
                     Ok((Err(error), duration)) => Message::FileLoadFailed(id, error, duration),
                     Err(_) => Message::FileLoadFailed(
                         id,
@@ -1173,21 +1171,21 @@ impl Lineme {
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .into(),
-            FileLoadState::Ready(stats) => timeline::view(
-                &stats.data.timeline,
-                &stats.data.events,
-                file.thread_groups().unwrap_or_default(),
-                stats.ui.zoom_level,
-                &stats.ui.selected_event,
-                &stats.ui.hovered_event,
-                stats.ui.scroll_offset_x,
-                stats.ui.scroll_offset_y,
-                stats.ui.viewport_width,
-                stats.ui.viewport_height,
-                self.modifiers,
-                stats.ui.color_mode,
-                &stats.data.symbols,
-            ),
+            FileLoadState::Ready(stats) => timeline::view(timeline::TimelineViewArgs {
+                timeline_data: &stats.data.timeline,
+                events: &stats.data.events,
+                thread_groups: file.thread_groups().unwrap_or_default(),
+                zoom_level: stats.ui.zoom_level,
+                selected_event: &stats.ui.selected_event,
+                hovered_event: &stats.ui.hovered_event,
+                scroll_offset_x: stats.ui.scroll_offset_x,
+                scroll_offset_y: stats.ui.scroll_offset_y,
+                viewport_width: stats.ui.viewport_width,
+                viewport_height: stats.ui.viewport_height,
+                modifiers: self.modifiers,
+                color_mode: stats.ui.color_mode,
+                symbols: &stats.data.symbols,
+            }),
         }
     }
 }
