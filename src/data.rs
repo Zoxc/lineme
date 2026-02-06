@@ -329,6 +329,8 @@ fn collect_timeline_events(
         }
     }
 
+    events.shrink_to_fit();
+
     CollectedEvents {
         events,
         max_ns,
