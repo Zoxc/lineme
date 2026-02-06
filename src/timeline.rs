@@ -61,9 +61,8 @@ pub fn color_from_label(label: &str) -> Color {
 // kinds. The actual mapping from kind -> color is built during data loading
 // in `src/data.rs` and stored on each `TimelineEvent`.
 
-/// Convert HSL to RGB Color. Hue is in degrees [0,360), s and l are [0,1].
+// Convert HSL to RGB Color. Hue is in degrees [0,360), s and l are [0,1].
 // color_from_hsl is provided by `data.rs` and re-exported above.
-
 pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f64 {
     let mut total_height = 0.0_f64;
     for group in thread_groups {
