@@ -1,6 +1,12 @@
-use crate::{Message, FILE_ICON, ICON_FONT};
+use crate::{FILE_ICON, ICON_FONT};
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Alignment, Element, Length};
+
+#[derive(Debug, Clone)]
+pub enum SettingsMessage {
+    RegisterFileExtension,
+    RegisterFileExtensionResult(Result<(), String>),
+}
 
 #[derive(Debug, Default)]
 pub struct SettingsPage {
@@ -18,7 +24,7 @@ impl SettingsPage {
         self.last_action_message = message;
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self) -> Element<'_, SettingsMessage> {
         let hints = column![
             text("Hints").size(16),
             row![
@@ -88,7 +94,7 @@ impl SettingsPage {
                     .spacing(6)
                     .align_y(Alignment::Center),
                 )
-                .on_press(Message::RegisterFileExtension),
+                .on_press(SettingsMessage::RegisterFileExtension),
                 if let Some(msg) = &self.last_action_message {
                     Element::from(text(msg).size(12))
                 } else {

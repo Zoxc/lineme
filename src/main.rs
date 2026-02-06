@@ -18,7 +18,7 @@ use std::time::Instant;
 use crate::file::{FileLoadState, FileTab};
 use timeline::{ColorMode, format_duration};
 use crate::data::EventId;
-use settings::SettingsPage;
+use settings::{SettingsMessage, SettingsPage};
 
 pub const ICON_FONT: iced::Font = iced::Font::with_name("Material Icons");
 const SETTINGS_ICON: char = '\u{e8b8}';
@@ -203,8 +203,7 @@ fn neutral_pick_list_style(
     ModifiersChanged(iced::keyboard::Modifiers),
     
     None,
-    RegisterFileExtension,
-    RegisterFileExtensionResult(Result<(), String>),
+    Settings(SettingsMessage),
 }
 
 struct Lineme {
@@ -340,7 +339,7 @@ impl Lineme {
                 // Toggle settings panel on/off
                 self.show_settings = !self.show_settings;
             }
-            Message::RegisterFileExtension => {
+            Message::Settings(SettingsMessage::RegisterFileExtension) => {
                 // Run registration off the UI thread and report result back
                 return Task::perform(
                     async move {
@@ -351,16 +350,18 @@ impl Lineme {
                         });
 
                         match rx.await {
-                            Ok(r) => Message::RegisterFileExtensionResult(r),
-                            Err(_) => Message::RegisterFileExtensionResult(Err(
-                                "Registration task failed".to_string(),
+                            Ok(r) => Message::Settings(
+                                SettingsMessage::RegisterFileExtensionResult(r),
+                            ),
+                            Err(_) => Message::Settings(SettingsMessage::RegisterFileExtensionResult(
+                                Err("Registration task failed".to_string()),
                             )),
                         }
                     },
                     |m| m,
                 );
             }
-            Message::RegisterFileExtensionResult(res) => {
+            Message::Settings(SettingsMessage::RegisterFileExtensionResult(res)) => {
                 let msg = match res {
                     Ok(()) => "Registered .mm_profdata for current user".to_string(),
                     Err(e) => format!("Registration failed: {}", e),
@@ -947,7 +948,7 @@ impl Lineme {
         });
 
         let content: Element<'_, Message> = if self.show_settings {
-            self.settings.view()
+            self.settings.view().map(Message::Settings)
         } else if let Some(file) = self.files.get(self.active_tab) {
             // Use view_type from FileData when available; fall back to default
             let current_view = file.stats().map(|s| s.ui.view_type).unwrap_or_default();
