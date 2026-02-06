@@ -26,6 +26,7 @@ This document provides context and guidelines for AI agents working on the `line
 - `src/timeline/threads.rs`: Handles thread label rendering and interaction (collapse/expand).
 - `src/timeline/mini_timeline.rs`: Implements the high-level overview for quick navigation and zooming.
 - `src/settings.rs`: Encapsulates the settings view and logic (register file extension, hint list).
+- `src/file.rs`: Manages tab state helpers and helpers delegating to `data::FileTab`.
 
 ## Development Guidelines for Agents
 - **Update File Overview:** If you create, rename, or significantly change the responsibility of a file, update the "File Overview" section above.

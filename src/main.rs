@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod data;
+mod file;
 mod settings;
 mod symbols;
 mod scrollbar;
@@ -14,7 +15,8 @@ use iced_aw::{TabLabel, tab_bar};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Instant;
-use timeline::{ColorMode, ThreadGroup, format_duration};
+use crate::file::{FileLoadState, FileTab};
+use timeline::{ColorMode, format_duration};
 use crate::data::EventId;
 use settings::SettingsPage;
 
@@ -213,19 +215,6 @@ struct Lineme {
     #[allow(dead_code)]
     settings: SettingsPage,
     next_file_id: u64,
-}
-
-#[derive(Debug, Clone)]
-enum FileLoadState {
-    Loading,
-    Ready(FileTabData),
-    Error(String),
-}
-
-struct FileTab {
-    id: u64,
-    path: PathBuf,
-    load_state: FileLoadState,
 }
 
 impl Lineme {
@@ -1189,37 +1178,6 @@ impl Lineme {
                     &stats.data.symbols,
                 )
             }
-        }
-    }
-}
-
-
-impl FileTab {
-    fn stats(&self) -> Option<&FileTabData> {
-        match &self.load_state {
-            FileLoadState::Ready(stats) => Some(stats),
-            _ => None,
-        }
-    }
-
-    fn thread_groups(&self) -> Option<&[ThreadGroup]> {
-        let stats = self.stats()?;
-        if stats.ui.merge_threads {
-            Some(&stats.data.merged_thread_groups)
-        } else {
-            Some(&stats.data.timeline.thread_groups)
-        }
-    }
-
-    fn thread_groups_mut(&mut self) -> Option<&mut [ThreadGroup]> {
-        let stats = match &mut self.load_state {
-            FileLoadState::Ready(stats) => stats,
-            _ => return None,
-        };
-        if stats.ui.merge_threads {
-            Some(&mut stats.data.merged_thread_groups)
-        } else {
-            Some(&mut stats.data.timeline.thread_groups)
         }
     }
 }
