@@ -163,12 +163,6 @@ pub struct ShadowLevel {
     pub events_tree: IntervalTree<u64, ()>,
 }
 
-#[derive(Debug, Clone)]
-pub struct Shadow {
-    pub start_ns: UnalignedU64,
-    pub duration_ns: UnalignedU64,
-}
-
 pub fn thread_group_key(group: &ThreadGroup) -> ThreadGroupKey {
     Arc::as_ptr(&group.threads) as ThreadGroupKey
 }
@@ -746,67 +740,101 @@ fn build_thread_group_mipmaps(
     // representation of all real events in levels [0..=i], inflated to at least
     // that level's max_duration and merged per depth level.
     //
+    // Build this incrementally: start from the lowest level's real events, then
+    // for each higher level merge in the previous level's shadows (re-inflated
+    // to the new minimum duration) plus only the real events that belong to the
+    // current level.
+    //
     // Shadows are stored separately per mip level so the main `events` list
     // remains purely "real" events.
     if !mipmaps.is_empty() {
-        let mut cumulative_real: Vec<EventId> = Vec::new();
-        for level in mipmaps.iter_mut() {
-            cumulative_real.extend(level.events.iter().copied());
+        fn push_merged(out: &mut Vec<(u64, u64)>, start: u64, end: u64) {
+            if let Some(last) = out.last_mut() {
+                if start <= last.1 {
+                    last.1 = last.1.max(end);
+                    return;
+                }
+            }
+            out.push((start, end));
+        }
 
+        // Cumulative merged shadow ranges per depth, sorted by start and
+        // non-overlapping.
+        let mut merged_by_depth: Vec<Vec<(u64, u64)>> = Vec::new();
+
+        for level in mipmaps.iter_mut() {
             let target_min_duration = level.max_duration_ns.max(1);
-            let mut intervals: Vec<(u32, u64, u64)> = Vec::with_capacity(cumulative_real.len());
-            for &event_id in &cumulative_real {
+
+            // Collect the current level's real events by depth, inflated to the
+            // target min duration.
+            let mut new_by_depth: Vec<Vec<(u64, u64)>> = Vec::new();
+            for &event_id in &level.events {
                 let event = &events[event_id.index()];
                 let start = event.start_ns;
-                let inflated = event.duration_ns.max(target_min_duration);
-                let end = start.saturating_add(inflated);
-                intervals.push((event.depth, start, end));
-            }
+                let inflated = event.duration_ns.max(target_min_duration).max(1);
+                let mut end = start.saturating_add(inflated);
+                end = end.max(start.saturating_add(1));
 
-            // Sort by depth then start so we can merge overlapping intervals per
-            // depth level.
-            intervals.sort_by_key(|&(depth, start, _end)| (depth, start));
-
-            let mut merged: Vec<(u32, u64, u64)> = Vec::new();
-            for interval in intervals {
-                if let Some(last) = merged.last_mut() {
-                    let (ldepth, lstart, lend) = *last;
-                    let (depth, start, end) = interval;
-                    if ldepth == depth && start <= lend {
-                        *last = (ldepth, lstart, lend.max(end));
-                        continue;
-                    }
+                let depth = event.depth as usize;
+                if new_by_depth.len() <= depth {
+                    new_by_depth.resize_with(depth + 1, Vec::new);
                 }
-                merged.push(interval);
+                new_by_depth[depth].push((start, end));
             }
 
-            if merged.is_empty() {
-                continue;
+            let depth_count = merged_by_depth.len().max(new_by_depth.len());
+            if merged_by_depth.len() < depth_count {
+                merged_by_depth.resize_with(depth_count, Vec::new);
+            }
+            if new_by_depth.len() < depth_count {
+                new_by_depth.resize_with(depth_count, Vec::new);
             }
 
-            // Group merged intervals by depth and build ShadowLevel per depth
-            let max_depth = merged.iter().map(|(d, _, _)| *d).max().unwrap_or(0);
-            let mut per_depth: Vec<Vec<Shadow>> = (0..=max_depth).map(|_| Vec::new()).collect();
+            for depth in 0..depth_count {
+                // Re-inflate the previous shadows to the new min duration and
+                // merge any overlaps introduced by the increased duration.
+                let old = std::mem::take(&mut merged_by_depth[depth]);
+                let mut reinflated: Vec<(u64, u64)> = Vec::with_capacity(old.len());
+                for (start, end) in old {
+                    let duration = end.saturating_sub(start).max(1);
+                    let inflated = duration.max(target_min_duration).max(1);
+                    let mut new_end = start.saturating_add(inflated);
+                    new_end = new_end.max(start.saturating_add(1));
+                    push_merged(&mut reinflated, start, new_end);
+                }
 
-            for (depth, start, end) in merged {
-                let duration = end.saturating_sub(start).max(1);
-                per_depth[depth as usize].push(Shadow {
-                    start_ns: UnalignedU64::new(start),
-                    duration_ns: UnalignedU64::new(duration),
-                });
+                let mut new = std::mem::take(&mut new_by_depth[depth]);
+                new.sort_by_key(|&(start, _end)| start);
+
+                // Merge two sorted lists (previous shadows + new real events),
+                // coalescing overlaps.
+                let mut merged: Vec<(u64, u64)> = Vec::with_capacity(reinflated.len() + new.len());
+                let mut i = 0;
+                let mut j = 0;
+                while i < reinflated.len() || j < new.len() {
+                    let (start, end) = if j >= new.len()
+                        || (i < reinflated.len() && reinflated[i].0 <= new[j].0)
+                    {
+                        let v = reinflated[i];
+                        i += 1;
+                        v
+                    } else {
+                        let v = new[j];
+                        j += 1;
+                        v
+                    };
+                    push_merged(&mut merged, start, end);
+                }
+
+                merged_by_depth[depth] = merged;
             }
 
-            level.shadows.levels = per_depth
-                .into_iter()
-                .map(|shadows| {
-                    // Build the interval tree directly from shadow ranges
-                    let intervals: Vec<_> = shadows
-                        .into_iter()
-                        .map(|s| {
-                            let start = s.start_ns.get();
-                            let duration = s.duration_ns.get().max(1);
-                            (start..start.saturating_add(duration), ())
-                        })
+            level.shadows.levels = merged_by_depth
+                .iter()
+                .map(|ranges| {
+                    let intervals: Vec<_> = ranges
+                        .iter()
+                        .map(|&(start, end)| (start..end, ()))
                         .collect();
                     ShadowLevel {
                         events_tree: IntervalTree::from_iter(intervals),
