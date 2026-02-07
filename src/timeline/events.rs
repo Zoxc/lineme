@@ -123,6 +123,10 @@ pub struct EventsState {
     pub press_position: Option<Point>,
     pub pressed_event: Option<EventId>,
     pub dragging: bool,
+    // Right-button selection state for creating a zoom range by holding/right-drag
+    pub selecting_right: bool,
+    pub selection_start: Option<Point>,
+    pub selection_end: Option<Point>,
 }
 
 impl<'a> EventsProgram<'a> {
@@ -682,6 +686,32 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
         let tooltip_geometry = tooltip_frame.into_geometry();
 
+        // Draw right-button selection rectangle (above base, below tooltip)
+        if state.selecting_right {
+            if let (Some(start), Some(end)) = (state.selection_start, state.selection_end) {
+                let raw_x_start = start.x.min(end.x);
+                let raw_x_end = start.x.max(end.x);
+                let x_start = raw_x_start.max(0.0).min(bounds.width);
+                let x_end = raw_x_end.max(0.0).min(bounds.width);
+                let width = (x_end - x_start).max(0.0);
+                if width >= 1.0 {
+                    let rect_pos = Point::new(x_start, 0.0);
+                    let rect_size = Size::new(width, bounds.height);
+                    let mut sel_frame = canvas::Frame::new(renderer, bounds.size());
+                    sel_frame.fill_rectangle(rect_pos, rect_size, Color::from_rgba(0.2, 0.4, 0.6, 0.15));
+                    sel_frame.stroke(
+                        &canvas::Path::rectangle(rect_pos, rect_size),
+                        canvas::Stroke::default()
+                            .with_color(Color::from_rgba(0.2, 0.4, 0.6, 0.6))
+                            .with_width(1.0),
+                    );
+                    let sel_geom = sel_frame.into_geometry();
+                    // Return geometry layers: base, selection, tooltip (tooltip should be above selection)
+                    return vec![base_frame.into_geometry(), sel_geom, tooltip_geometry];
+                }
+            }
+        }
+
         // Avoid returning an extra empty geometry layer when not hovering.
         if state.hovered_event.is_some() && state.hovered_position.is_some() {
             vec![base_frame.into_geometry(), tooltip_geometry]
@@ -701,41 +731,22 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
                 state.modifiers = *modifiers;
             }
-            iced::Event::Mouse(iced::mouse::Event::CursorMoved { .. }) => {
-                if let (
-                    Some(press_position),
-                    iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }),
-                ) = (state.press_position, event)
-                {
-                    let delta = *position - press_position;
-                    if !state.dragging && delta.x.hypot(delta.y) > super::DRAG_THRESHOLD as f32 {
-                        state.dragging = true;
-                    }
-                }
-                // Track cursor position (canvas-local) for the tooltip to follow
-                let prev_pos = state.hovered_position;
-                state.hovered_position = cursor.position_in(bounds);
-
-                let new_hovered = state.hovered_position.and_then(|p| self.find_event_at(p));
-
-                if new_hovered != state.hovered_event {
-                    state.hovered_event = new_hovered;
-                    return Some(canvas::Action::publish(Message::EventHovered(
-                        state.hovered_event,
-                    )));
-                }
-
-                // If still hovering the same event, request a redraw so the tooltip
-                // follows the cursor even when hover target hasn't changed.
-                if state.hovered_event.is_some() && state.hovered_position != prev_pos {
-                    return Some(canvas::Action::request_redraw());
-                }
-            }
+            
             iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
                     state.press_position = cursor.position();
                     state.pressed_event = self.find_event_at(position);
                     state.dragging = false;
+                }
+            }
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Right)) => {
+                if let Some(position) = cursor.position_in(bounds) {
+                    // Start a right-button selection for zoom range
+                    state.selecting_right = true;
+                    state.selection_start = Some(position);
+                    state.selection_end = Some(position);
+                    // Ensure we redraw to show selection
+                    return Some(canvas::Action::publish(Message::None));
                 }
             }
             iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
@@ -774,6 +785,68 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 state.press_position = None;
                 state.pressed_event = None;
                 state.dragging = false;
+            }
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { .. }) => {
+                if let (
+                    Some(press_position),
+                    iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }),
+                ) = (state.press_position, event)
+                {
+                    let delta = *position - press_position;
+                    if !state.dragging && delta.x.hypot(delta.y) > super::DRAG_THRESHOLD as f32 {
+                        state.dragging = true;
+                    }
+                }
+                // Track cursor position (canvas-local) for the tooltip to follow
+                let prev_pos = state.hovered_position;
+                state.hovered_position = cursor.position_in(bounds);
+
+                // Update right-button selection while dragging
+                if let Some(position) = cursor.position_in(bounds) && state.selecting_right {
+                    state.selection_end = Some(position);
+                    return Some(canvas::Action::publish(Message::None));
+                }
+
+                let new_hovered = state.hovered_position.and_then(|p| self.find_event_at(p));
+
+                if new_hovered != state.hovered_event {
+                    state.hovered_event = new_hovered;
+                    return Some(canvas::Action::publish(Message::EventHovered(
+                        state.hovered_event,
+                    )));
+                }
+
+                // If still hovering the same event, request a redraw so the tooltip
+                // follows the cursor even when hover target hasn't changed.
+                if state.hovered_event.is_some() && state.hovered_position != prev_pos {
+                    return Some(canvas::Action::request_redraw());
+                }
+            }
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Right)) => {
+                if state.selecting_right {
+                    state.selecting_right = false;
+                    if let (Some(start), Some(end)) = (state.selection_start, state.selection_end)
+                        && (start.x - end.x).abs() >= 4.0
+                    {
+                        // Compute ns range from screen x positions
+                        let zoom_level = self.zoom_level.max(1e-9);
+                        let px_start = start.x.min(end.x).max(0.0);
+                        let px_end = start.x.max(end.x).max(0.0);
+                        let rel_start_ns = px_start as f64 / zoom_level + self.scroll_offset_x;
+                        let rel_end_ns = px_end as f64 / zoom_level + self.scroll_offset_x;
+                        // Publish zoom-to-range using ns relative to timeline min
+                        return Some(
+                            canvas::Action::publish(Message::TimelineZoomTo {
+                                start_ns: rel_start_ns,
+                                end_ns: rel_end_ns,
+                            })
+                            .and_capture(),
+                        );
+                    }
+                    state.selection_start = None;
+                    state.selection_end = None;
+                    return Some(canvas::Action::publish(Message::None));
+                }
             }
             iced::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
                 if let Some(position) = cursor.position_in(bounds) {

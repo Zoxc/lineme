@@ -173,6 +173,11 @@ enum Message {
         delta: f32,
         x: f32,
     },
+    /// Zoom the timeline to an explicit ns range (start/end are ns relative to file min)
+    TimelineZoomTo {
+        start_ns: f64,
+        end_ns: f64,
+    },
     TimelineViewportChanged {
         viewport_width: f32,
         viewport_height: f32,
@@ -522,6 +527,39 @@ impl Lineme {
                     let viewport_height = stats.ui.viewport_height.max(1.0);
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
                     stats.ui.scroll_offset_y = stats.ui.scroll_offset_y.clamp(0.0, max_scroll_y);
+
+                    return Task::none();
+                }
+            }
+            Message::TimelineZoomTo { start_ns, end_ns } => {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let stats = match &mut file.load_state {
+                        FileLoadState::Ready(stats) => stats,
+                        _ => return Task::none(),
+                    };
+                    let min_ns = stats.data.timeline.min_ns;
+                    let max_ns = stats.data.timeline.max_ns;
+                    let total_ns = crate::timeline::total_ns(min_ns, max_ns);
+                    let provided_viewport_width = stats.ui.viewport_width.max(1.0);
+
+                    // Clamp to timeline range (start_ns/end_ns are relative to min_ns)
+                    let start_ns = start_ns.clamp(0.0, total_ns as f64);
+                    let end_ns = end_ns.clamp(0.0, total_ns as f64);
+                    let range_ns = (end_ns - start_ns).max(1.0);
+
+                    if stats.ui.viewport_width == 0.0 {
+                        stats.ui.viewport_width = provided_viewport_width;
+                    }
+                    let viewport_width = stats.ui.viewport_width.max(1.0);
+                    stats.ui.zoom_level = viewport_width / (range_ns.max(1.0));
+                    stats.ui.initial_fit_done = true;
+
+                    stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        start_ns,
+                        total_ns,
+                        viewport_width,
+                        stats.ui.zoom_level,
+                    );
 
                     return Task::none();
                 }
