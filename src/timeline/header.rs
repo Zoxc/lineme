@@ -1,6 +1,6 @@
 // Header uses explicit f64 scroll offsets passed from the application state.
-use crate::timeline::ticks::nice_interval;
 use crate::Message;
+use crate::timeline::ticks::nice_interval;
 use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
@@ -133,8 +133,8 @@ impl Program<Message> for HeaderProgram {
             });
 
             // Draw full-height tick with styling based on tick significance
-            let is_second_tick = ns_total % 1_000_000_000 == 0;
-            let is_ms_tick = ns_total % 1_000_000 == 0;
+            let is_second_tick = ns_total.is_multiple_of(1_000_000_000);
+            let is_ms_tick = ns_total.is_multiple_of(1_000_000);
             // Darken header tick lines to increase contrast against the light background.
             let (tick_color, tick_width) = if is_second_tick {
                 (Color::from_rgb(0.18, 0.18, 0.18), 1.0)

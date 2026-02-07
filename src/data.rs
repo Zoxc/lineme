@@ -145,16 +145,10 @@ pub struct ThreadGroupMipMap {
     pub events_tree: IntervalTree<u64, EventId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ThreadGroupMipMapShadows {
     // One level per depth, each containing shadows at that depth and their tree.
     pub levels: Vec<ShadowLevel>,
-}
-
-impl Default for ThreadGroupMipMapShadows {
-    fn default() -> Self {
-        ThreadGroupMipMapShadows { levels: Vec::new() }
-    }
 }
 
 /// All shadows at a single depth level, stored in an interval tree.
@@ -266,12 +260,11 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
     // Assign per-event kind indices from the precomputed kind map using the
     // parallel `collected.event_kinds` array recorded during parsing.
     events.par_iter_mut().enumerate().for_each(|(i, event)| {
-        let kind_sym = collected.event_kinds.get(i).copied();
-        if let Some(kind_sym) = kind_sym {
-            if let Some(&idx) = kind_map.get(&kind_sym) {
-                event.kind_index = idx as u16;
-                return;
-            }
+        if let Some(kind_sym) = collected.event_kinds.get(i).copied()
+            && let Some(&idx) = kind_map.get(&kind_sym)
+        {
+            event.kind_index = idx as u16;
+            return;
         }
         // Fallback to first kind (shouldn't happen since map built from events)
         event.kind_index = 0u16;
@@ -521,13 +514,15 @@ fn build_thread_data(
         })
         .collect();
 
-    let thread_data_parts: Vec<(
+    type ThreadDataPart = (
         u32,
         Option<EventId>,
         u32,
         Vec<ThreadGroupMipMap>,
         Option<ThreadGroupMipMap>,
-    )> = threads_for_parallel
+    );
+
+    let thread_data_parts: Vec<ThreadDataPart> = threads_for_parallel
         .par_iter()
         .map(|(thread_id, event_ids, thread_root)| {
             // Build thread root mipmap (immutable access to events)
@@ -839,11 +834,11 @@ fn build_thread_group_mipmaps(
     // remains purely "real" events.
     if !mipmaps.is_empty() {
         fn push_merged(out: &mut Vec<(u64, u64)>, start: u64, end: u64) {
-            if let Some(last) = out.last_mut() {
-                if start <= last.1 {
-                    last.1 = last.1.max(end);
-                    return;
-                }
+            if let Some(last) = out.last_mut()
+                && start <= last.1
+            {
+                last.1 = last.1.max(end);
+                return;
             }
             out.push((start, end));
         }

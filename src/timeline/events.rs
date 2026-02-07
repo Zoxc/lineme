@@ -550,10 +550,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 if super::group_contains_thread(group, hovered.thread_id)
                     && (!group.is_collapsed || hovered_depth == 0)
                 {
-                    let width = crate::timeline::duration_to_width(
-                        hovered.duration_ns.max(1),
-                        zoom_level,
-                    ) as f32;
+                    let width =
+                        crate::timeline::duration_to_width(hovered.duration_ns.max(1), zoom_level)
+                            as f32;
                     let x_screen = screen_x(hovered.start_ns);
                     let y = y_offset as f32 - self.scroll_offset_y as f32
                         + hovered_depth as f32 * (LANE_HEIGHT as f32);
@@ -576,10 +575,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 if super::group_contains_thread(group, selected.thread_id)
                     && (!group.is_collapsed || selected_depth == 0)
                 {
-                    let width = crate::timeline::duration_to_width(
-                        selected.duration_ns.max(1),
-                        zoom_level,
-                    ) as f32;
+                    let width =
+                        crate::timeline::duration_to_width(selected.duration_ns.max(1), zoom_level)
+                            as f32;
                     let x_screen = screen_x(selected.start_ns);
                     let y = y_offset as f32 - self.scroll_offset_y as f32
                         + selected_depth as f32 * (LANE_HEIGHT as f32);
@@ -603,96 +601,83 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         // Drawn in its own geometry layer to guarantee it appears above all event text.
         let mut tooltip_frame = canvas::Frame::new(renderer, bounds.size());
         if let (Some(hovered_id), Some(cursor_pos)) = (state.hovered_event, state.hovered_position)
+            && let Some(event) = self.events.get(hovered_id.index())
         {
-            if let Some(event) = self.events.get(hovered_id.index()) {
-                // Format time relative to the timeline min_ns.
-                let time_str =
-                    crate::timeline::format_duration(event.start_ns.saturating_sub(self.min_ns));
-                let label = self.symbols.resolve(event.label);
+            // Format time relative to the timeline min_ns.
+            let time_str =
+                crate::timeline::format_duration(event.start_ns.saturating_sub(self.min_ns));
+            let label = self.symbols.resolve(event.label);
 
-                // Measure text precisely using the canvas text measurement API
-                // (preferred to the crude character-count heuristic). Build
-                // `canvas::Text` values matching the font size used when drawing
-                // and ask the frame for their measured widths.
-                let _time_text = canvas::Text {
-                    content: time_str.clone(),
-                    position: Point::new(0.0, 0.0),
-                    size: 12.0.into(),
-                    ..Default::default()
-                };
-                let _label_text = canvas::Text {
-                    content: label.to_string(),
-                    position: Point::new(0.0, 0.0),
-                    size: 12.0.into(),
-                    ..Default::default()
-                };
+            // Measure text precisely using the canvas text measurement API
+            // (preferred to the crude character-count heuristic). Build
+            // `canvas::Text` values matching the font size used when drawing
+            // and ask the frame for their widths.
 
-                // Use the frame's text measurement helper to get exact widths.
-                // Fall back to a conservative minimum width if the renderer
-                // doesn't provide measurement (defensive programming).
-                // The public `iced` API doesn't expose a renderer-agnostic
-                // text-measurement helper on `Frame`/`Renderer` in 0.14, so
-                // fall back to a conservative measured width using the
-                // `unicode_width` crate. This is much better than a fixed
-                // per-character heuristic while remaining portable.
-                use unicode_width::UnicodeWidthStr;
-                let time_w = (time_str.width() as f32) * 7.0_f32; // 7px avg per glyph @12pt
-                let label_w = (label.width() as f32) * 7.0_f32;
-                let padding = 6.0_f32;
-                let spacing = 8.0_f32;
-                let tooltip_w = (time_w + label_w + padding * 2.0 + spacing).max(40.0);
-                let tooltip_h = 20.0_f32;
+            // Use the frame's text measurement helper to get exact widths.
+            // Fall back to a conservative minimum width if the renderer
+            // doesn't provide measurement (defensive programming).
+            // The public `iced` API doesn't expose a renderer-agnostic
+            // text-measurement helper on `Frame`/`Renderer` in 0.14, so
+            // fall back to a conservative measured width using the
+            // `unicode_width` crate. This is much better than a fixed
+            // per-character heuristic while remaining portable.
+            use unicode_width::UnicodeWidthStr;
+            let time_w = (time_str.width() as f32) * 7.0_f32; // 7px avg per glyph @12pt
+            let label_w = (label.width() as f32) * 7.0_f32;
+            let padding = 6.0_f32;
+            let spacing = 8.0_f32;
+            let tooltip_w = (time_w + label_w + padding * 2.0 + spacing).max(40.0);
+            let tooltip_h = 20.0_f32;
 
-                // Position tooltip near cursor but keep inside visible bounds.
-                let mut tx = cursor_pos.x + 10.0;
-                let mut ty = cursor_pos.y + 10.0;
-                if tx + tooltip_w > visible_bounds.width {
-                    tx = cursor_pos.x - tooltip_w - 10.0;
-                }
-                if ty + tooltip_h > visible_bounds.height {
-                    ty = cursor_pos.y - tooltip_h - 10.0;
-                }
-
-                // Draw drop shadow for depth.
-                let shadow_offset = 2.0_f32;
-                tooltip_frame.fill_rectangle(
-                    Point::new(tx + shadow_offset, ty + shadow_offset),
-                    Size::new(tooltip_w, tooltip_h),
-                    Color::from_rgba(0.0, 0.0, 0.0, 0.15),
-                );
-
-                // Draw tooltip background (fully opaque to cover underlying content).
-                tooltip_frame.fill_rectangle(
-                    Point::new(tx, ty),
-                    Size::new(tooltip_w, tooltip_h),
-                    Color::from_rgb(1.0, 1.0, 1.0),
-                );
-
-                // Draw border.
-                tooltip_frame.stroke(
-                    &canvas::Path::rectangle(Point::new(tx, ty), Size::new(tooltip_w, tooltip_h)),
-                    canvas::Stroke::default()
-                        .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.4))
-                        .with_width(1.0),
-                );
-
-                // Draw time (purple) then label.
-                tooltip_frame.fill_text(canvas::Text {
-                    content: time_str,
-                    position: Point::new(tx + padding, ty + 3.0),
-                    color: Color::from_rgb(0.408, 0.322, 0.459),
-                    size: 12.0.into(),
-                    ..Default::default()
-                });
-
-                tooltip_frame.fill_text(canvas::Text {
-                    content: label.to_string(),
-                    position: Point::new(tx + padding + time_w + spacing, ty + 3.0),
-                    color: Color::from_rgb(0.15, 0.15, 0.15),
-                    size: 12.0.into(),
-                    ..Default::default()
-                });
+            // Position tooltip near cursor but keep inside visible bounds.
+            let mut tx = cursor_pos.x + 10.0;
+            let mut ty = cursor_pos.y + 10.0;
+            if tx + tooltip_w > visible_bounds.width {
+                tx = cursor_pos.x - tooltip_w - 10.0;
             }
+            if ty + tooltip_h > visible_bounds.height {
+                ty = cursor_pos.y - tooltip_h - 10.0;
+            }
+
+            // Draw drop shadow for depth.
+            let shadow_offset = 2.0_f32;
+            tooltip_frame.fill_rectangle(
+                Point::new(tx + shadow_offset, ty + shadow_offset),
+                Size::new(tooltip_w, tooltip_h),
+                Color::from_rgba(0.0, 0.0, 0.0, 0.15),
+            );
+
+            // Draw tooltip background (fully opaque to cover underlying content).
+            tooltip_frame.fill_rectangle(
+                Point::new(tx, ty),
+                Size::new(tooltip_w, tooltip_h),
+                Color::from_rgb(1.0, 1.0, 1.0),
+            );
+
+            // Draw border.
+            tooltip_frame.stroke(
+                &canvas::Path::rectangle(Point::new(tx, ty), Size::new(tooltip_w, tooltip_h)),
+                canvas::Stroke::default()
+                    .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.4))
+                    .with_width(1.0),
+            );
+
+            // Draw time (purple) then label.
+            tooltip_frame.fill_text(canvas::Text {
+                content: time_str,
+                position: Point::new(tx + padding, ty + 3.0),
+                color: Color::from_rgb(0.408, 0.322, 0.459),
+                size: 12.0.into(),
+                ..Default::default()
+            });
+
+            tooltip_frame.fill_text(canvas::Text {
+                content: label.to_string(),
+                position: Point::new(tx + padding + time_w + spacing, ty + 3.0),
+                color: Color::from_rgb(0.15, 0.15, 0.15),
+                size: 12.0.into(),
+                ..Default::default()
+            });
         }
 
         let tooltip_geometry = tooltip_frame.into_geometry();

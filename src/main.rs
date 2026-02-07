@@ -658,9 +658,6 @@ impl Lineme {
                     let max_ns = stats.data.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
                     let viewport_width = stats.ui.viewport_width.max(0.0_f64);
-                    let _max_scroll_x = (total_ns as f64
-                        - viewport_width / stats.ui.zoom_level.max(1e-9))
-                    .max(0.0_f64);
 
                     let viewport_height = stats.ui.viewport_height.max(0.0_f64);
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
@@ -1135,18 +1132,18 @@ impl Lineme {
                         })
                         .size(12)
                     ],
-                     row![
-                         text("Total duration:").width(Length::Fixed(120.0)).size(12),
-                         text(format_duration(
+                    row![
+                        text("Total duration:").width(Length::Fixed(120.0)).size(12),
+                        text(format_duration(
                             stats
                                 .data
                                 .timeline
                                 .max_ns
                                 .saturating_sub(stats.data.timeline.min_ns)
-                         ))
-                         .size(12)
-                     ],
-                 ]
+                        ))
+                        .size(12)
+                    ],
+                ]
                 .spacing(8)
                 .padding(10)
             }
