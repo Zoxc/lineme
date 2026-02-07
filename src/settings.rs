@@ -1,5 +1,5 @@
 use crate::{FILE_ICON, ICON_FONT};
-use iced::widget::{Space, button, column, container, row, text};
+use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Alignment, Element, Length};
 
 #[derive(Debug, Clone)]
@@ -42,6 +42,12 @@ impl SettingsPage {
                 text("Pan the timeline").size(12)
             ],
             row![
+                text("Right click + drag (events area):")
+                    .width(Length::Fixed(160.0))
+                    .size(12),
+                text("Select a range to zoom the main view").size(12)
+            ],
+            row![
                 text("Mouse wheel:").width(Length::Fixed(160.0)).size(12),
                 text("Zoom horizontally centered on the cursor (hold Ctrl to bypass)").size(12)
             ],
@@ -62,6 +68,10 @@ impl SettingsPage {
                     .width(Length::Fixed(160.0))
                     .size(12),
                 text("Select a range to zoom the main view to").size(12)
+            ],
+            row![
+                text("Esc:").width(Length::Fixed(160.0)).size(12),
+                text("Reset the current view (zoom/scroll)").size(12)
             ],
             row![
                 text("Thread label click:")
@@ -110,7 +120,11 @@ impl SettingsPage {
         .spacing(8)
         .padding(10);
 
-        container(settings_col)
+        let scroll = scrollable::Scrollable::new(settings_col)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        container(scroll)
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x(Length::Fill)

@@ -11,7 +11,7 @@ use crate::data::EventId;
 use crate::file::{FileLoadState, FileTab};
 use data::{FileTab as FileTabData, format_panic_payload, load_profiling_data};
 use iced::futures::channel::oneshot;
-use iced::widget::{Space, button, checkbox, column, container, pick_list, row, text};
+use iced::widget::{Space, button, checkbox, column, container, pick_list, row, scrollable, text};
 use iced::{Alignment, Element, Length, Task};
 use iced_aw::{TabLabel, tab_bar};
 use settings::{SettingsMessage, SettingsPage};
@@ -1201,25 +1201,28 @@ impl Lineme {
             }
         };
 
-        let content =
-            container(stats_col)
-                .width(Length::Fill)
-                .padding(12)
-                .style(|theme: &iced::Theme| {
-                    // Match details panel style from timeline: use the theme's background
-                    // base color and a subtle strong-color border so the panel reads as
-                    // a cohesive block in the layout.
-                    let palette = theme.extended_palette();
-                    container::Style::default()
-                        .background(palette.background.base.color)
-                        .border(iced::Border {
-                            color: palette.background.strong.color,
-                            width: 1.0,
-                            ..Default::default()
-                        })
-                });
+        let inner = container(stats_col)
+            .width(Length::Fill)
+            .padding(12)
+            .style(|theme: &iced::Theme| {
+                // Match details panel style from timeline: use the theme's background
+                // base color and a subtle strong-color border so the panel reads as
+                // a cohesive block in the layout.
+                let palette = theme.extended_palette();
+                container::Style::default()
+                    .background(palette.background.base.color)
+                    .border(iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        ..Default::default()
+                    })
+            });
 
-        content.into()
+        let scroll = scrollable::Scrollable::new(inner)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        scroll.into()
     }
 
     fn timeline_view<'a>(&self, file: &'a FileTab) -> Element<'a, Message> {

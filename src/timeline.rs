@@ -400,58 +400,70 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
     let details_panel: Element<'a, Message> = if let Some(event) = display_event {
         // Also compute float-precision viewport endpoints (not truncated to u64)
         let zoom_level = zoom_level.max(1e-9);
-        let view_start_f = scroll_offset_x.max(0.0) + timeline_data.min_ns as f64;
-        let view_end_f =
+        let _view_start_f = scroll_offset_x.max(0.0) + timeline_data.min_ns as f64;
+        let _view_end_f =
             (scroll_offset_x + viewport_width / zoom_level).max(0.0) + timeline_data.min_ns as f64;
-        // Build details column, including one row per additional_data item.
-        let mut details_col = column![
-            row![
-                text("Label:").width(Length::Fixed(80.0)).size(12),
-                text(symbols.resolve(event.label)).size(12)
-            ],
-            row![
-                text("Kind:").width(Length::Fixed(80.0)).size(12),
-                // Look up the kind symbol from the precomputed kinds table by
-                // per-event index. Fall back to the event label if the index is
-                // out of range (shouldn't happen).
-                text(
-                    symbols.resolve(
-                        kinds
-                            .get(event.kind_index as usize)
-                            .map(|k| k.kind)
-                            .unwrap_or(event.label),
-                    )
-                )
-                .size(12)
-            ],
-            row![
+        // Build details column. Thread-root events are shown more compactly:
+        // show only the thread id as the primary label. For all events show
+        // Start/End/Duration. The debug "View (ns)" field was removed.
+        let mut details_col = column![];
+
+        if event.is_thread_root {
+            // Thread-root events: compact view showing only the thread id.
+            details_col = details_col.push(row![
                 text("Thread:").width(Length::Fixed(80.0)).size(12),
                 text(format!("{}", event.thread_id)).size(12)
-            ],
-            row![
-                text("Start:").width(Length::Fixed(80.0)).size(12),
-                text(format_duration(
-                    event.start_ns.saturating_sub(timeline_data.min_ns)
-                ))
-                .size(12)
-            ],
-            row![
-                text("Duration:").width(Length::Fixed(80.0)).size(12),
-                text(format_duration(event.duration_ns)).size(12)
-            ],
-            // Debug: show current visible view start/end with float precision
-            row![
-                text("View (ns):").width(Length::Fixed(80.0)).size(12),
-                text(format!(
-                    "{:.12} — {:.12}",
-                    view_start_f - timeline_data.min_ns as f64,
-                    view_end_f - timeline_data.min_ns as f64
-                ))
-                .size(12)
-            ],
-        ]
-        .spacing(5)
-        .padding(10);
+            ]);
+        } else {
+            details_col = details_col
+                .push(row![
+                    text("Label:").width(Length::Fixed(80.0)).size(12),
+                    text(symbols.resolve(event.label)).size(12)
+                ])
+                .push(row![
+                    text("Kind:").width(Length::Fixed(80.0)).size(12),
+                    // Look up the kind symbol from the precomputed kinds table by
+                    // per-event index. Fall back to the event label if the index is
+                    // out of range (shouldn't happen).
+                    text(
+                        symbols.resolve(
+                            kinds
+                                .get(event.kind_index as usize)
+                                .map(|k| k.kind)
+                                .unwrap_or(event.label),
+                        )
+                    )
+                    .size(12)
+                ])
+                .push(row![
+                    text("Thread:").width(Length::Fixed(80.0)).size(12),
+                    text(format!("{}", event.thread_id)).size(12)
+                ])
+                .push(row![
+                    text("Start:").width(Length::Fixed(80.0)).size(12),
+                    text(format_duration(
+                        event.start_ns.saturating_sub(timeline_data.min_ns)
+                    ))
+                    .size(12)
+                ])
+                .push(row![
+                    text("End:").width(Length::Fixed(80.0)).size(12),
+                    text(format_duration(
+                        event.start_ns
+                            .saturating_add(event.duration_ns)
+                            .saturating_sub(timeline_data.min_ns)
+                    ))
+                    .size(12)
+                ])
+                .push(row![
+                    text("Duration:").width(Length::Fixed(80.0)).size(12),
+                    text(format_duration(event.duration_ns)).size(12)
+                ]);
+
+            // Ensure additional fields are shown below for non-thread-root events.
+        }
+
+        details_col = details_col.spacing(5).padding(10);
 
         if let Some(slice) = &event.additional_data {
             for item in slice.iter() {
