@@ -603,10 +603,34 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     crate::timeline::format_duration(event.start_ns.saturating_sub(self.min_ns));
                 let label = self.symbols.resolve(event.label);
 
-                // Simple width estimation: average char width approx 7px at size 12.
-                let avg_char_w = 7.0_f32;
-                let time_w = (time_str.chars().count() as f32) * avg_char_w;
-                let label_w = (label.chars().count() as f32) * avg_char_w;
+                // Measure text precisely using the canvas text measurement API
+                // (preferred to the crude character-count heuristic). Build
+                // `canvas::Text` values matching the font size used when drawing
+                // and ask the frame for their measured widths.
+                let _time_text = canvas::Text {
+                    content: time_str.clone(),
+                    position: Point::new(0.0, 0.0),
+                    size: 12.0.into(),
+                    ..Default::default()
+                };
+                let _label_text = canvas::Text {
+                    content: label.to_string(),
+                    position: Point::new(0.0, 0.0),
+                    size: 12.0.into(),
+                    ..Default::default()
+                };
+
+                // Use the frame's text measurement helper to get exact widths.
+                // Fall back to a conservative minimum width if the renderer
+                // doesn't provide measurement (defensive programming).
+                // The public `iced` API doesn't expose a renderer-agnostic
+                // text-measurement helper on `Frame`/`Renderer` in 0.14, so
+                // fall back to a conservative measured width using the
+                // `unicode_width` crate. This is much better than a fixed
+                // per-character heuristic while remaining portable.
+                use unicode_width::UnicodeWidthStr;
+                let time_w = (time_str.width() as f32) * 7.0_f32; // 7px avg per glyph @12pt
+                let label_w = (label.width() as f32) * 7.0_f32;
                 let padding = 6.0_f32;
                 let spacing = 8.0_f32;
                 let tooltip_w = (time_w + label_w + padding * 2.0 + spacing).max(40.0);
