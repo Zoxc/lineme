@@ -6,6 +6,7 @@ mod scrollbar;
 mod settings;
 mod symbols;
 mod timeline;
+mod tooltip;
 mod ui;
 use crate::data::EventId;
 use crate::file::{FileLoadState, FileTab};
@@ -168,7 +169,10 @@ enum Message {
     OpenSettings,
     EventSelected(EventId),
     EventDoubleClicked(EventId),
-    EventHovered(Option<EventId>),
+    EventHovered {
+        event: Option<EventId>,
+        position: Option<iced::Point>,
+    },
     TimelineZoomed {
         delta: f32,
         x: f32,
@@ -295,6 +299,13 @@ impl Lineme {
             Message::TabSelected(index) => {
                 self.active_tab = index;
                 self.show_settings = false;
+
+                if let Some(file) = self.files.get_mut(self.active_tab)
+                    && let FileLoadState::Ready(stats) = &mut file.load_state
+                {
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
+                }
             }
             Message::OpenFile => {
                 return Task::perform(
@@ -351,6 +362,13 @@ impl Lineme {
                     if self.active_tab >= self.files.len() && !self.files.is_empty() {
                         self.active_tab = self.files.len() - 1;
                     }
+                }
+
+                if let Some(file) = self.files.get_mut(self.active_tab)
+                    && let FileLoadState::Ready(stats) = &mut file.load_state
+                {
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
                 }
             }
             Message::OpenSettings => {
@@ -448,10 +466,13 @@ impl Lineme {
                     return Task::none();
                 }
             }
-            Message::EventHovered(event) => {
+            Message::EventHovered { event, position } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     match &mut file.load_state {
-                        FileLoadState::Ready(stats) => stats.ui.hovered_event = event,
+                        FileLoadState::Ready(stats) => {
+                            stats.ui.hovered_event = event;
+                            stats.ui.hovered_event_position = position;
+                        }
                         _ => {
                             // Hover before load ignored
                         }
@@ -1138,7 +1159,48 @@ impl Lineme {
                 .into()
         };
 
-        column![header, content].height(Length::Fill).into()
+        let root = column![header, content].height(Length::Fill);
+
+        // Tooltip overlay: show event details on hover.
+        // This is message-driven and intentionally non-interactive so it does
+        // not interfere with timeline mouse events.
+        let tooltip_underlay: Element<'_, Message> = root.into();
+        if let Some(file) = self.files.get(self.active_tab)
+            && let FileLoadState::Ready(stats) = &file.load_state
+            && let (Some(event_id), Some(position)) =
+                (stats.ui.hovered_event, stats.ui.hovered_event_position)
+            && let Some(event) = stats.data.events.get(event_id.index())
+        {
+            crate::tooltip::Tooltip::new(tooltip_underlay, || {
+                let label = stats.data.symbols.resolve(event.label);
+                let time_str = crate::timeline::format_duration(
+                    event.start_ns.saturating_sub(stats.data.timeline.min_ns),
+                );
+
+                let content = row![
+                    text(time_str).size(12).style(|_t: &iced::Theme| text::Style {
+                        color: Some(iced::Color::from_rgb(0.408, 0.322, 0.459)),
+                        ..Default::default()
+                    }),
+                    text(label).size(12).style(|_t: &iced::Theme| text::Style {
+                        color: Some(iced::Color::from_rgb(0.15, 0.15, 0.15)),
+                        ..Default::default()
+                    }),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center);
+
+                container(content)
+                    .padding(0)
+                    .style(|_theme: &iced::Theme| container::Style::default())
+                    .into()
+            })
+            .show(true)
+            .position(position)
+            .into()
+        } else {
+            tooltip_underlay
+        }
     }
 
     fn file_view<'a>(&self, file: &'a FileTab) -> Element<'a, Message> {

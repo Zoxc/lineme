@@ -266,10 +266,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
-        // Use two geometry layers so the tooltip can be rendered above all
-        // event text. Some render backends batch text separately from shapes,
-        // which can otherwise cause event labels to appear on top of the
-        // tooltip background even when the tooltip is drawn last.
+        // Draw the events base layer. Tooltip is a separate widget overlay now.
         let mut base_frame = canvas::Frame::new(renderer, bounds.size());
 
         if self.thread_groups.is_empty() {
@@ -601,92 +598,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             y_offset += lane_total_height + super::LANE_SPACING;
         }
 
-        // Draw immediate tooltip following the cursor when hovering an event.
-        // Drawn in its own geometry layer to guarantee it appears above all event text.
-        let mut tooltip_frame = canvas::Frame::new(renderer, bounds.size());
-        if let (Some(hovered_id), Some(cursor_pos)) = (state.hovered_event, state.hovered_position)
-            && let Some(event) = self.events.get(hovered_id.index())
-        {
-            // Format time relative to the timeline min_ns.
-            let time_str =
-                crate::timeline::format_duration(event.start_ns.saturating_sub(self.min_ns));
-            let label = self.symbols.resolve(event.label);
+        // Tooltip is now a widget overlay (see `src/tooltip.rs`).
 
-            // Measure text precisely using the canvas text measurement API
-            // (preferred to the crude character-count heuristic). Build
-            // `canvas::Text` values matching the font size used when drawing
-            // and ask the frame for their widths.
-
-            // Use the frame's text measurement helper to get exact widths.
-            // Fall back to a conservative minimum width if the renderer
-            // doesn't provide measurement (defensive programming).
-            // The public `iced` API doesn't expose a renderer-agnostic
-            // text-measurement helper on `Frame`/`Renderer` in 0.14, so
-            // fall back to a conservative measured width using the
-            // `unicode_width` crate. This is much better than a fixed
-            // per-character heuristic while remaining portable.
-            use unicode_width::UnicodeWidthStr;
-            let time_w = (time_str.width() as f32) * 7.0_f32; // 7px avg per glyph @12pt
-            let label_w = (label.width() as f32) * 7.0_f32;
-            let padding = 6.0_f32;
-            let spacing = 8.0_f32;
-            let tooltip_w = (time_w + label_w + padding * 2.0 + spacing).max(40.0);
-            let tooltip_h = 20.0_f32;
-
-            // Position tooltip near cursor but keep inside visible bounds.
-            let mut tx = cursor_pos.x + 10.0;
-            let mut ty = cursor_pos.y + 10.0;
-            if tx + tooltip_w > visible_bounds.width {
-                tx = cursor_pos.x - tooltip_w - 10.0;
-            }
-            if ty + tooltip_h > visible_bounds.height {
-                ty = cursor_pos.y - tooltip_h - 10.0;
-            }
-
-            // Draw drop shadow for depth.
-            let shadow_offset = 2.0_f32;
-            tooltip_frame.fill_rectangle(
-                Point::new(tx + shadow_offset, ty + shadow_offset),
-                Size::new(tooltip_w, tooltip_h),
-                Color::from_rgba(0.0, 0.0, 0.0, 0.15),
-            );
-
-            // Draw tooltip background (fully opaque to cover underlying content).
-            tooltip_frame.fill_rectangle(
-                Point::new(tx, ty),
-                Size::new(tooltip_w, tooltip_h),
-                Color::from_rgb(1.0, 1.0, 1.0),
-            );
-
-            // Draw border.
-            tooltip_frame.stroke(
-                &canvas::Path::rectangle(Point::new(tx, ty), Size::new(tooltip_w, tooltip_h)),
-                canvas::Stroke::default()
-                    .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.4))
-                    .with_width(1.0),
-            );
-
-            // Draw time (purple) then label.
-            tooltip_frame.fill_text(canvas::Text {
-                content: time_str,
-                position: Point::new(tx + padding, ty + 3.0),
-                color: Color::from_rgb(0.408, 0.322, 0.459),
-                size: 12.0.into(),
-                ..Default::default()
-            });
-
-            tooltip_frame.fill_text(canvas::Text {
-                content: label.to_string(),
-                position: Point::new(tx + padding + time_w + spacing, ty + 3.0),
-                color: Color::from_rgb(0.15, 0.15, 0.15),
-                size: 12.0.into(),
-                ..Default::default()
-            });
-        }
-
-        let tooltip_geometry = tooltip_frame.into_geometry();
-
-        // Draw right-button selection rectangle (above base, below tooltip)
+        // Draw right-button selection rectangle (above base)
         if state.selecting_right {
             if let (Some(start), Some(end)) = (state.selection_start, state.selection_end) {
                 let raw_x_start = start.x.min(end.x);
@@ -706,18 +620,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             .with_width(1.0),
                     );
                     let sel_geom = sel_frame.into_geometry();
-                    // Return geometry layers: base, selection, tooltip (tooltip should be above selection)
-                    return vec![base_frame.into_geometry(), sel_geom, tooltip_geometry];
+                    // Return geometry layers: base, selection.
+                    return vec![base_frame.into_geometry(), sel_geom];
                 }
             }
         }
 
-        // Avoid returning an extra empty geometry layer when not hovering.
-        if state.hovered_event.is_some() && state.hovered_position.is_some() {
-            vec![base_frame.into_geometry(), tooltip_geometry]
-        } else {
-            vec![base_frame.into_geometry()]
-        }
+        vec![base_frame.into_geometry()]
     }
 
     fn update(
@@ -797,7 +706,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         state.dragging = true;
                     }
                 }
-                // Track cursor position (canvas-local) for the tooltip to follow
+                // Track cursor position (canvas-local) for hit testing
                 let prev_pos = state.hovered_position;
                 state.hovered_position = cursor.position_in(bounds);
 
@@ -809,17 +718,16 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
                 let new_hovered = state.hovered_position.and_then(|p| self.find_event_at(p));
 
-                if new_hovered != state.hovered_event {
-                    state.hovered_event = new_hovered;
-                    return Some(canvas::Action::publish(Message::EventHovered(
-                        state.hovered_event,
-                    )));
-                }
+                let cursor_abs = cursor.position();
 
-                // If still hovering the same event, request a redraw so the tooltip
-                // follows the cursor even when hover target hasn't changed.
-                if state.hovered_event.is_some() && state.hovered_position != prev_pos {
-                    return Some(canvas::Action::request_redraw());
+                // Publish hover changes and also track cursor movement while hovering
+                // so the UI tooltip can follow the cursor.
+                if new_hovered != state.hovered_event || (state.hovered_event.is_some() && state.hovered_position != prev_pos) {
+                    state.hovered_event = new_hovered;
+                    return Some(canvas::Action::publish(Message::EventHovered {
+                        event: state.hovered_event,
+                        position: cursor_abs,
+                    }));
                 }
             }
             iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Right)) => {
