@@ -264,17 +264,17 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
     let mut events = collected.events;
     // Assign per-event kind indices from the precomputed kind map using the
     // parallel `collected.event_kinds` array recorded during parsing.
-    for (i, event) in events.iter_mut().enumerate() {
+    events.par_iter_mut().enumerate().for_each(|(i, event)| {
         let kind_sym = collected.event_kinds.get(i).copied();
         if let Some(kind_sym) = kind_sym {
             if let Some(&idx) = kind_map.get(&kind_sym) {
                 event.kind_index = idx as u16;
-                continue;
+                return;
             }
         }
         // Fallback to first kind (shouldn't happen since map built from events)
         event.kind_index = 0u16;
-    }
+    });
     let mut threads = build_threads_index(&events);
     assign_event_depths(&mut events, &mut threads);
     let thread_data_vec = build_thread_data(&mut events, threads, &mut symbols);
@@ -468,31 +468,75 @@ fn build_thread_data(
     symbols: &mut crate::symbols::Symbols,
 ) -> Vec<Arc<ThreadData>> {
     let mut thread_data_vec = Vec::new();
-    for (thread_id, event_ids) in threads {
-        let thread_root = build_thread_root(events, thread_id, &event_ids, symbols);
-        let thread_root_mipmap = thread_root.map(|root_id| {
-            let bucket = duration_bucket(events[root_id.index()].duration_ns) as usize;
-            let max_duration_ns = if bucket >= 63 {
-                u64::MAX
-            } else {
-                (1u64 << (bucket as u32 + 1)).saturating_sub(1)
-            };
-            let bucket_events = vec![root_id];
-            let (_events_by_start, _events_by_end, events_tree) =
-                build_event_indices(events, &bucket_events);
-            ThreadGroupMipMap {
-                max_duration_ns,
-                events: bucket_events,
-                shadows: ThreadGroupMipMapShadows::default(),
-                events_tree,
-            }
-        });
-        let max_depth = event_ids
-            .iter()
-            .map(|event_id| events[event_id.index()].depth)
-            .max()
-            .unwrap_or(0);
-        let mipmaps = build_thread_group_mipmaps(events, &event_ids);
+
+    // Phase 1: Build thread roots and collect thread root event IDs
+    // This must be done sequentially since it modifies `events` and `symbols`
+    let mut thread_roots: Vec<(u32, Option<EventId>)> = Vec::with_capacity(threads.len());
+    for (thread_id, event_ids) in &threads {
+        let thread_root = build_thread_root(events, *thread_id, event_ids, symbols);
+        thread_roots.push((*thread_id, thread_root));
+    }
+
+    // Phase 2: Build thread data in parallel using immutable references to events
+    // and pre-computed thread roots
+    let threads_for_parallel: Vec<(u32, Vec<EventId>, Option<EventId>)> = thread_roots
+        .into_iter()
+        .map(|(thread_id, thread_root)| {
+            let event_ids = threads.get(&thread_id).unwrap().clone();
+            (thread_id, event_ids, thread_root)
+        })
+        .collect();
+
+    let thread_data_parts: Vec<(
+        u32,
+        Option<EventId>,
+        u32,
+        Vec<ThreadGroupMipMap>,
+        Option<ThreadGroupMipMap>,
+    )> = threads_for_parallel
+        .par_iter()
+        .map(|(thread_id, event_ids, thread_root)| {
+            // Build thread root mipmap (immutable access to events)
+            let thread_root_mipmap = thread_root.map(|root_id| {
+                let bucket = duration_bucket(events[root_id.index()].duration_ns) as usize;
+                let max_duration_ns = if bucket >= 63 {
+                    u64::MAX
+                } else {
+                    (1u64 << (bucket as u32 + 1)).saturating_sub(1)
+                };
+                let bucket_events = vec![root_id];
+                let (_events_by_start, _events_by_end, events_tree) =
+                    build_event_indices(events, &bucket_events);
+                ThreadGroupMipMap {
+                    max_duration_ns,
+                    events: bucket_events,
+                    shadows: ThreadGroupMipMapShadows::default(),
+                    events_tree,
+                }
+            });
+
+            // Calculate max depth (immutable access to events)
+            let max_depth = event_ids
+                .iter()
+                .map(|event_id| events[event_id.index()].depth)
+                .max()
+                .unwrap_or(0);
+
+            // Build mipmaps for this thread (immutable access to events)
+            let mipmaps = build_thread_group_mipmaps(events, event_ids);
+
+            (
+                *thread_id,
+                *thread_root,
+                max_depth,
+                mipmaps,
+                thread_root_mipmap,
+            )
+        })
+        .collect();
+
+    // Phase 3: Construct final ThreadData objects
+    for (thread_id, thread_root, max_depth, mipmaps, thread_root_mipmap) in thread_data_parts {
         thread_data_vec.push(Arc::new(ThreadData {
             thread_id,
             thread_root,
