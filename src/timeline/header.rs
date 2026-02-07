@@ -41,9 +41,33 @@ impl Program<Message> for HeaderProgram {
         let ns_interval = pixel_interval * ns_per_pixel;
         let nice_interval = nice_interval(ns_interval);
 
-        let mut relative_ns = 0.0;
+        // Convert an absolute timestamp (ns) into a screen-space x position.
+        // Do the subtraction in ns first to avoid cancellation/precision issues
+        // when panning far into large timelines.
+        let scroll_offset_x_ns = (self.scroll_offset_x / self.zoom_level.max(1e-9)).max(0.0);
+        let screen_x = |relative_ns: f64| -> f32 {
+            ((relative_ns - scroll_offset_x_ns) * self.zoom_level) as f32
+        };
+
+        // Start drawing at the first visible tick to avoid iterating the whole
+        // timeline (and to keep tick motion stable).
+        let mut relative_ns = if nice_interval > 0.0 {
+            (scroll_offset_x_ns / nice_interval).floor() * nice_interval
+        } else {
+            0.0
+        };
+
         while relative_ns <= total_ns {
-            let x = (relative_ns * self.zoom_level) as f32 - self.scroll_offset_x as f32;
+            let x = screen_x(relative_ns);
+
+            if x > bounds.width {
+                break;
+            }
+
+            if x < 0.0 {
+                relative_ns += nice_interval;
+                continue;
+            }
 
             if x >= 0.0 && x <= bounds.width {
                 frame.stroke(

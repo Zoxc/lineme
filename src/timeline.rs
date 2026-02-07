@@ -5,13 +5,11 @@ mod threads;
 mod ticks;
 
 use crate::Message;
-use crate::data::{
-    EventId, ThreadGroup, ThreadGroupMipMapShadows, TimelineData, TimelineEvent,
-};
+use crate::data::{EventId, ThreadGroup, ThreadGroupMipMapShadows, TimelineData, TimelineEvent};
 // Removed unused imports: kinds lookup uses are performed via passed-in `kinds`
 // and `symbols` variables; avoid importing Symbol/HashMap here.
-use intervaltree::IntervalTree;
 pub use crate::data::{ThreadGroupKey, thread_group_key};
+use intervaltree::IntervalTree;
 // Re-export ColorMode from the data module so other modules can import it via
 // `crate::timeline::ColorMode` (keeps existing import sites working).
 pub use crate::data::ColorMode;
@@ -24,7 +22,7 @@ use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Canvas;
 use iced::widget::{Space, button, column, container, row, text};
-use iced::{Element, Event, Length, Point, Rectangle, Size, Theme, Color};
+use iced::{Color, Element, Event, Length, Point, Rectangle, Size, Theme};
 use mini_timeline::MiniTimelineProgram;
 use threads::ThreadsProgram;
 
@@ -143,16 +141,17 @@ pub fn visible_shadows_in<'a>(
     ns_max: u64,
 ) -> impl Iterator<Item = (u32, u64, u64)> + 'a {
     let q_end = ns_max.saturating_add(1);
-    shadows.levels.iter().enumerate().flat_map(move |(depth, level)| {
-        level
-            .events_tree
-            .query(ns_min..q_end)
-            .map(move |elem| {
+    shadows
+        .levels
+        .iter()
+        .enumerate()
+        .flat_map(move |(depth, level)| {
+            level.events_tree.query(ns_min..q_end).map(move |elem| {
                 let start = elem.range.start;
                 let duration = elem.range.end.saturating_sub(elem.range.start);
                 (depth as u32, start, duration)
             })
-    })
+        })
 }
 
 pub fn format_duration(ns: u64) -> String {
@@ -408,13 +407,12 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
                 // per-event index. Fall back to the event label if the index is
                 // out of range (shouldn't happen).
                 text(
-                    symbols
-                        .resolve(
-                            kinds
-                                .get(event.kind_index as usize)
-                                .map(|k| k.kind)
-                                .unwrap_or(event.label),
-                        )
+                    symbols.resolve(
+                        kinds
+                            .get(event.kind_index as usize)
+                            .map(|k| k.kind)
+                            .unwrap_or(event.label),
+                    )
                 )
                 .size(12)
             ],
@@ -497,7 +495,9 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
             .into()
     };
 
-    column![main_view, details_panel].height(Length::Fill).into()
+    column![main_view, details_panel]
+        .height(Length::Fill)
+        .into()
 }
 
 fn group_contains_thread(group: &ThreadGroup, thread_id: u32) -> bool {

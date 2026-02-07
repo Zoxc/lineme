@@ -128,8 +128,15 @@ impl<'a> EventsProgram<'a> {
     // Lookup a kind color from the precomputed kinds table by per-event index.
     // If the index is out of range fall back to deriving a color from the
     // event label.
-    fn kind_color_from_table(kinds: &'a [crate::data::KindInfo], idx: u16, fallback_label: &str) -> iced::Color {
-        kinds.get(idx as usize).map(|k| k.color).unwrap_or_else(|| color_from_label(fallback_label))
+    fn kind_color_from_table(
+        kinds: &'a [crate::data::KindInfo],
+        idx: u16,
+        fallback_label: &str,
+    ) -> iced::Color {
+        kinds
+            .get(idx as usize)
+            .map(|k| k.color)
+            .unwrap_or_else(|| color_from_label(fallback_label))
     }
     fn find_event_at(&self, position: Point) -> Option<EventId> {
         let zoom_level = self.zoom_level.max(1e-9);
@@ -168,14 +175,16 @@ impl<'a> EventsProgram<'a> {
                             if group.is_collapsed && depth > 0 {
                                 continue;
                             }
-                            let width =
-                                crate::timeline::duration_to_width(event.duration_ns, self.zoom_level)
-                                    as f32;
+                            let width = crate::timeline::duration_to_width(
+                                event.duration_ns,
+                                self.zoom_level,
+                            ) as f32;
                             if width < 5.0 {
                                 continue;
                             }
-                            let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level)
-                                as f32;
+                            let x =
+                                crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level)
+                                    as f32;
                             let y = y_offset as f32 + depth as f32 * (LANE_HEIGHT as f32);
                             let height = (LANE_HEIGHT - 2.0) as f32;
                             let rect = Rectangle {
@@ -207,15 +216,17 @@ impl<'a> EventsProgram<'a> {
                                 continue;
                             }
 
-                            let width =
-                                crate::timeline::duration_to_width(event.duration_ns, self.zoom_level)
-                                    as f32;
+                            let width = crate::timeline::duration_to_width(
+                                event.duration_ns,
+                                self.zoom_level,
+                            ) as f32;
                             if width < 5.0 {
                                 continue;
                             }
 
-                            let x = crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level)
-                                as f32;
+                            let x =
+                                crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level)
+                                    as f32;
                             let y = y_offset as f32 + depth as f32 * (LANE_HEIGHT as f32);
                             let height = (LANE_HEIGHT - 2.0) as f32;
 
@@ -281,10 +292,18 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         // Draw vertical tick guide lines matching the header ticks.
         let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
         let zoom_level = self.zoom_level.max(1e-9);
-        let scroll_offset_x_px = self.scroll_offset_x * zoom_level;
-        let ns_min = self.scroll_offset_x.max(0.0) as u64 + self.min_ns;
+        let scroll_offset_x_ns = self.scroll_offset_x.max(0.0);
+        let ns_min = scroll_offset_x_ns as u64 + self.min_ns;
         let ns_max =
-            (self.scroll_offset_x + viewport_width / zoom_level).max(0.0) as u64 + self.min_ns;
+            (scroll_offset_x_ns + viewport_width / zoom_level).max(0.0) as u64 + self.min_ns;
+
+        // Convert an absolute timestamp (ns) into a screen-space x position.
+        // Do the subtraction in ns first to avoid catastrophic cancellation when
+        // panning far into large timelines.
+        let screen_x = |start_ns: u64| -> f32 {
+            let rel_ns = start_ns.saturating_sub(self.min_ns) as f64;
+            ((rel_ns - scroll_offset_x_ns) * zoom_level) as f32
+        };
 
         if total_ns > 0.0 {
             // ns per pixel given current zoom: 1 / zoom_level
@@ -294,13 +313,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             let nice_interval = crate::timeline::ticks::nice_interval(ns_interval);
 
             let mut relative_ns = if viewport_width > 0.0 {
-                (scroll_offset_x_px / zoom_level / nice_interval).floor() * nice_interval
+                (scroll_offset_x_ns / nice_interval).floor() * nice_interval
             } else {
                 0.0
             };
 
             while relative_ns <= total_ns {
-                let x_screen = (relative_ns * zoom_level - scroll_offset_x_px) as f32;
+                let x_screen = ((relative_ns - scroll_offset_x_ns) * zoom_level) as f32;
                 if viewport_width > 0.0 && (x_screen as f64) > viewport_width {
                     break;
                 }
@@ -366,14 +385,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         }
 
                         let width =
-                            crate::timeline::duration_to_width(event.duration_ns, zoom_level) as f32;
+                            crate::timeline::duration_to_width(event.duration_ns, zoom_level)
+                                as f32;
                         if width < 1.0 {
                             continue;
                         }
 
-                        let x =
-                            crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level) as f32;
-                        let x_screen = x - scroll_offset_x_px as f32;
+                        let x_screen = screen_x(event.start_ns);
                         if viewport_width > 0.0
                             && ((x_screen + width) < 0.0 || (x_screen as f64) > viewport_width)
                         {
@@ -424,14 +442,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         }
 
                         let width =
-                            crate::timeline::duration_to_width(event.duration_ns, zoom_level) as f32;
+                            crate::timeline::duration_to_width(event.duration_ns, zoom_level)
+                                as f32;
                         if width < 1.0 {
                             continue;
                         }
 
-                        let x =
-                            crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level) as f32;
-                        let x_screen = x - scroll_offset_x_px as f32;
+                        let x_screen = screen_x(event.start_ns);
                         if viewport_width > 0.0
                             && ((x_screen + width) < 0.0 || (x_screen as f64) > viewport_width)
                         {
@@ -443,7 +460,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             Color::from_rgb(0.85, 0.87, 0.9)
                         } else {
                             match self.color_mode {
-                                ColorMode::Kind => Self::kind_color_from_table(self.kinds, event.kind_index, self.symbols.resolve(event.label)),
+                                ColorMode::Kind => Self::kind_color_from_table(
+                                    self.kinds,
+                                    event.kind_index,
+                                    self.symbols.resolve(event.label),
+                                ),
                                 ColorMode::Event => {
                                     let label = self.symbols.resolve(event.label);
                                     color_from_label(label)
@@ -470,7 +491,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
 
                 if let Some(shadow_level) = smallest_visible_level {
-                    for (depth, start_ns, duration_ns) in visible_shadows_in(&shadow_level.shadows, ns_min, ns_max) {
+                    for (depth, start_ns, duration_ns) in
+                        visible_shadows_in(&shadow_level.shadows, ns_min, ns_max)
+                    {
                         // The depth from visible_shadows_in is the raw depth.
                         // Adjust for thread root display.
                         let adjusted_depth = if group.show_thread_roots {
@@ -482,20 +505,13 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             continue;
                         }
 
-                        let width = crate::timeline::duration_to_width(
-                            duration_ns,
-                            zoom_level,
-                        ) as f32;
+                        let width =
+                            crate::timeline::duration_to_width(duration_ns, zoom_level) as f32;
                         if width < 1.0 {
                             continue;
                         }
 
-                        let x = crate::timeline::ns_to_x(
-                            start_ns,
-                            self.min_ns,
-                            zoom_level,
-                        ) as f32;
-                        let x_screen = x - scroll_offset_x_px as f32;
+                        let x_screen = screen_x(start_ns);
                         if viewport_width > 0.0
                             && ((x_screen + width) < 0.0 || (x_screen as f64) > viewport_width)
                         {
@@ -526,11 +542,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 if super::group_contains_thread(group, hovered.thread_id)
                     && (!group.is_collapsed || hovered_depth == 0)
                 {
-                    let x =
-                        crate::timeline::ns_to_x(hovered.start_ns, self.min_ns, zoom_level) as f32;
                     let width =
                         crate::timeline::duration_to_width(hovered.duration_ns, zoom_level) as f32;
-                    let x_screen = x - scroll_offset_x_px as f32;
+                    let x_screen = screen_x(hovered.start_ns);
                     let y = y_offset as f32 - self.scroll_offset_y as f32
                         + hovered_depth as f32 * (LANE_HEIGHT as f32);
 
@@ -552,11 +566,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 if super::group_contains_thread(group, selected.thread_id)
                     && (!group.is_collapsed || selected_depth == 0)
                 {
-                    let x =
-                        crate::timeline::ns_to_x(selected.start_ns, self.min_ns, zoom_level) as f32;
                     let width =
                         crate::timeline::duration_to_width(selected.duration_ns, zoom_level) as f32;
-                    let x_screen = x - scroll_offset_x_px as f32;
+                    let x_screen = screen_x(selected.start_ns);
                     let y = y_offset as f32 - self.scroll_offset_y as f32
                         + selected_depth as f32 * (LANE_HEIGHT as f32);
 
