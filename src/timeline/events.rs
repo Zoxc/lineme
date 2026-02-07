@@ -177,7 +177,7 @@ impl<'a> EventsProgram<'a> {
                                 continue;
                             }
                             let width = crate::timeline::duration_to_width(
-                                event.duration_ns,
+                                event.duration_ns.max(1),
                                 self.zoom_level,
                             ) as f32;
                             if width < 1.0 {
@@ -218,7 +218,7 @@ impl<'a> EventsProgram<'a> {
                             }
 
                             let width = crate::timeline::duration_to_width(
-                                event.duration_ns,
+                                event.duration_ns.max(1),
                                 self.zoom_level,
                             ) as f32;
                             if width < 1.0 {
@@ -298,9 +298,10 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         let total_ns = self.max_ns.saturating_sub(self.min_ns) as f64;
         let zoom_level = self.zoom_level.max(1e-9);
         let scroll_offset_x_ns = self.scroll_offset_x.max(0.0);
-        let ns_min = scroll_offset_x_ns as u64 + self.min_ns;
-        let ns_max =
-            (scroll_offset_x_ns + viewport_width / zoom_level).max(0.0) as u64 + self.min_ns;
+        let rel_min = scroll_offset_x_ns as u64;
+        let rel_max = (scroll_offset_x_ns + viewport_width / zoom_level).max(0.0) as u64;
+        let ns_min = self.min_ns.saturating_add(rel_min);
+        let ns_max = self.min_ns.saturating_add(rel_max);
 
         // Convert an absolute timestamp (ns) into a screen-space x position.
         // Do the subtraction in ns first to avoid catastrophic cancellation when
@@ -389,9 +390,10 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             continue;
                         }
 
-                        let width =
-                            crate::timeline::duration_to_width(event.duration_ns, zoom_level)
-                                as f32;
+                        let width = crate::timeline::duration_to_width(
+                            event.duration_ns.max(1),
+                            zoom_level,
+                        ) as f32;
                         if width < 1.0 {
                             continue;
                         }
@@ -446,9 +448,10 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             continue;
                         }
 
-                        let width =
-                            crate::timeline::duration_to_width(event.duration_ns, zoom_level)
-                                as f32;
+                        let width = crate::timeline::duration_to_width(
+                            event.duration_ns.max(1),
+                            zoom_level,
+                        ) as f32;
                         if width < 1.0 {
                             continue;
                         }
@@ -547,8 +550,10 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 if super::group_contains_thread(group, hovered.thread_id)
                     && (!group.is_collapsed || hovered_depth == 0)
                 {
-                    let width =
-                        crate::timeline::duration_to_width(hovered.duration_ns, zoom_level) as f32;
+                    let width = crate::timeline::duration_to_width(
+                        hovered.duration_ns.max(1),
+                        zoom_level,
+                    ) as f32;
                     let x_screen = screen_x(hovered.start_ns);
                     let y = y_offset as f32 - self.scroll_offset_y as f32
                         + hovered_depth as f32 * (LANE_HEIGHT as f32);
@@ -571,8 +576,10 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 if super::group_contains_thread(group, selected.thread_id)
                     && (!group.is_collapsed || selected_depth == 0)
                 {
-                    let width =
-                        crate::timeline::duration_to_width(selected.duration_ns, zoom_level) as f32;
+                    let width = crate::timeline::duration_to_width(
+                        selected.duration_ns.max(1),
+                        zoom_level,
+                    ) as f32;
                     let x_screen = screen_x(selected.start_ns);
                     let y = y_offset as f32 - self.scroll_offset_y as f32
                         + selected_depth as f32 * (LANE_HEIGHT as f32);

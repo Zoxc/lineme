@@ -445,11 +445,26 @@ fn build_threads_index(events: &[TimelineEvent]) -> HashMap<u32, Vec<EventId>> {
 
 fn assign_event_depths(events: &mut [TimelineEvent], threads: &mut HashMap<u32, Vec<EventId>>) {
     for thread_events in threads.values_mut() {
-        thread_events.sort_by_key(|event_id| events[event_id.index()].start_ns);
+        // Sort primarily by start time. For events that share the same start,
+        // sort longer events first so the simple stack-based nesting algorithm
+        // assigns parents before children.
+        thread_events.sort_by(|a, b| {
+            let a_event = &events[a.index()];
+            let b_event = &events[b.index()];
+
+            match a_event.start_ns.cmp(&b_event.start_ns) {
+                std::cmp::Ordering::Equal => {
+                    let a_end = a_event.start_ns.saturating_add(a_event.duration_ns);
+                    let b_end = b_event.start_ns.saturating_add(b_event.duration_ns);
+                    b_end.cmp(&a_end)
+                }
+                other => other,
+            }
+        });
         let mut stack: Vec<u64> = Vec::new();
         for event_id in thread_events.iter() {
             let event = &mut events[event_id.index()];
-            let end_ns = event.start_ns + event.duration_ns;
+            let end_ns = event.start_ns.saturating_add(event.duration_ns);
             while let Some(&last_end) = stack.last() {
                 if last_end <= event.start_ns {
                     stack.pop();
@@ -471,13 +486,17 @@ fn build_thread_data(
     let mut thread_data_vec = Vec::new();
 
     // Phase 1: Compute thread root info in parallel (immutable access to events)
-    let thread_root_infos: Vec<(u32, Option<ThreadRootInfo>)> = threads
+    let mut thread_root_infos: Vec<(u32, Option<ThreadRootInfo>)> = threads
         .par_iter()
         .map(|(&thread_id, event_ids)| {
             let info = compute_thread_root_info(events, thread_id, event_ids);
             (thread_id, info)
         })
         .collect();
+
+    // Keep event ids stable across runs by building thread-root events in a
+    // deterministic order.
+    thread_root_infos.sort_by_key(|(thread_id, _)| *thread_id);
 
     // Phase 2: Build thread root events and add them to events sequentially
     // (requires mutable access to events and symbols)
@@ -497,7 +516,7 @@ fn build_thread_data(
     let threads_for_parallel: Vec<(u32, Vec<EventId>, Option<EventId>)> = thread_roots
         .into_iter()
         .map(|(thread_id, thread_root)| {
-            let event_ids = threads.get(&thread_id).unwrap().clone();
+            let event_ids = threads.get(&thread_id).cloned().unwrap_or_default();
             (thread_id, event_ids, thread_root)
         })
         .collect();

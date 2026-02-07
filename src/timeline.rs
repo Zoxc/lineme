@@ -104,8 +104,10 @@ pub fn viewport_ns_range(
     min_ns: u64,
 ) -> (u64, u64) {
     let zoom_level = zoom_level.max(1e-9);
-    let ns_min = scroll_offset_ns.max(0.0) as u64 + min_ns;
-    let ns_max = (scroll_offset_ns + viewport_width / zoom_level).max(0.0) as u64 + min_ns;
+    let rel_min = scroll_offset_ns.max(0.0) as u64;
+    let rel_max = (scroll_offset_ns + viewport_width / zoom_level).max(0.0) as u64;
+    let ns_min = min_ns.saturating_add(rel_min);
+    let ns_max = min_ns.saturating_add(rel_max);
     (ns_min, ns_max)
 }
 
@@ -200,8 +202,7 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
         symbols,
         kinds,
     } = args;
-    let total_ns = timeline_data.max_ns - timeline_data.min_ns;
-    if total_ns == 0 {
+    if events.is_empty() || thread_groups.is_empty() {
         return container(text("No events to display"))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -209,6 +210,13 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
             .center_y(Length::Fill)
             .into();
     }
+
+    // A fully zero-span timeline can happen when all events are instantaneous.
+    // Keep the UI functional by treating the span as 1ns.
+    let total_ns = timeline_data
+        .max_ns
+        .saturating_sub(timeline_data.min_ns)
+        .max(1);
 
     let total_height = total_timeline_height(thread_groups) as f32;
 
@@ -268,7 +276,7 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
     .height(Length::Fill)
     .clip(true);
 
-    let total_ns = timeline_data.max_ns.saturating_sub(timeline_data.min_ns) as f64;
+    let total_ns = total_ns as f64;
     let visible_ns = if zoom_level > 0.0 {
         (viewport_width / zoom_level).max(1.0)
     } else {

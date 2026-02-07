@@ -36,16 +36,19 @@ impl Program<Message> for HeaderProgram {
             return vec![frame.into_geometry()];
         }
 
-        let ns_per_pixel = 1.0 / self.zoom_level;
+        let zoom_level = self.zoom_level.max(1e-9);
+        let ns_per_pixel = 1.0 / zoom_level;
         let pixel_interval = 100.0;
         let ns_interval = pixel_interval * ns_per_pixel;
         let nice_interval = nice_interval(ns_interval);
+        if nice_interval <= 0.0 {
+            return vec![frame.into_geometry()];
+        }
 
         // Convert an absolute timestamp (ns) into a screen-space x position.
-        let scroll_offset_x_ns = (self.scroll_offset_x / self.zoom_level.max(1e-9)).max(0.0);
-        let screen_x = |relative_ns: f64| -> f32 {
-            ((relative_ns - scroll_offset_x_ns) * self.zoom_level) as f32
-        };
+        let scroll_offset_x_ns = (self.scroll_offset_x / zoom_level).max(0.0);
+        let screen_x =
+            |relative_ns: f64| -> f32 { ((relative_ns - scroll_offset_x_ns) * zoom_level) as f32 };
 
         // Calculate the first visible tick position
         let mut relative_ns = if nice_interval > 0.0 {

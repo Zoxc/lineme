@@ -413,7 +413,7 @@ impl Lineme {
                     let half_pad = padding_ns / 2;
 
                     let start_ns = event_rel_start.saturating_sub(half_pad).min(total_ns);
-                    let end_ns = (event_rel_end + half_pad).min(total_ns);
+                    let end_ns = event_rel_end.saturating_add(half_pad).min(total_ns);
 
                     // Zoom so the selected range fills the viewport.
                     let target_ns = (end_ns.saturating_sub(start_ns)).max(1) as f64;
@@ -724,6 +724,7 @@ impl Lineme {
                     Lineme::clamp_vertical_scroll_if_needed(
                         &mut stats.ui.scroll_offset_y,
                         total_height,
+                        stats.ui.viewport_height,
                     );
                 }
             }
@@ -746,6 +747,7 @@ impl Lineme {
                     Lineme::clamp_vertical_scroll_if_needed(
                         &mut stats.ui.scroll_offset_y,
                         total_height,
+                        stats.ui.viewport_height,
                     );
                 }
             }
@@ -768,6 +770,7 @@ impl Lineme {
                     Lineme::clamp_vertical_scroll_if_needed(
                         &mut stats.ui.scroll_offset_y,
                         total_height,
+                        stats.ui.viewport_height,
                     );
                 }
             }
@@ -790,6 +793,7 @@ impl Lineme {
                     Lineme::clamp_vertical_scroll_if_needed(
                         &mut stats.ui.scroll_offset_y,
                         total_height,
+                        stats.ui.viewport_height,
                     );
                 }
             }
@@ -846,12 +850,27 @@ impl Lineme {
     // Helper used after operations that can change the total vertical height of
     // the timeline (collapse/expand, merge threads, ...). If the current
     // vertical scroll is beyond the new total height, clamp it.
-    fn clamp_vertical_scroll_if_needed(scroll_offset_y: &mut f64, total_height: f64) -> bool {
-        if *scroll_offset_y > total_height {
-            *scroll_offset_y = total_height;
+    fn clamp_vertical_scroll_if_needed(
+        scroll_offset_y: &mut f64,
+        total_height: f64,
+        viewport_height: f64,
+    ) -> bool {
+        if !scroll_offset_y.is_finite() {
+            *scroll_offset_y = 0.0;
             return true;
         }
-        false
+
+        let total_height = total_height.max(0.0);
+        let viewport_height = viewport_height.max(1.0);
+        let max_scroll_y = (total_height - viewport_height).max(0.0);
+
+        let clamped = scroll_offset_y.clamp(0.0, max_scroll_y);
+        if clamped != *scroll_offset_y {
+            *scroll_offset_y = clamped;
+            true
+        } else {
+            false
+        }
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -1116,14 +1135,18 @@ impl Lineme {
                         })
                         .size(12)
                     ],
-                    row![
-                        text("Total duration:").width(Length::Fixed(120.0)).size(12),
-                        text(format_duration(
-                            stats.data.timeline.max_ns - stats.data.timeline.min_ns
-                        ))
-                        .size(12)
-                    ],
-                ]
+                     row![
+                         text("Total duration:").width(Length::Fixed(120.0)).size(12),
+                         text(format_duration(
+                            stats
+                                .data
+                                .timeline
+                                .max_ns
+                                .saturating_sub(stats.data.timeline.min_ns)
+                         ))
+                         .size(12)
+                     ],
+                 ]
                 .spacing(8)
                 .padding(10)
             }

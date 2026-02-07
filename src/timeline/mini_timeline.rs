@@ -23,7 +23,7 @@ pub(crate) struct MiniTimelineState {
 
 impl MiniTimelineProgram {
     fn fallback_viewport_width(&self, bounds: Rectangle) -> f32 {
-        (bounds.width - super::LABEL_WIDTH as f32).max(0.0)
+        bounds.width.max(0.0)
     }
 
     fn viewport_width_for_bounds(&self, bounds: Rectangle) -> f32 {
@@ -89,6 +89,9 @@ impl Program<Message> for MiniTimelineProgram {
         let pixel_interval = 120.0;
         let ns_interval = pixel_interval * ns_per_pixel;
         let nice_interval = nice_interval(ns_interval);
+        if nice_interval <= 0.0 {
+            return vec![frame.into_geometry()];
+        }
 
         let mut relative_ns = 0.0;
         while relative_ns <= total_ns {
