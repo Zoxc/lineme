@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// A compact identifier for an interned string.
 ///
@@ -20,8 +21,8 @@ impl std::fmt::Display for Symbol {
 /// cheaply copied and compared.
 #[derive(Default, Debug, Clone)]
 pub struct Symbols {
-    map: HashMap<String, Symbol>,
-    vec: Vec<String>,
+    map: HashMap<Arc<str>, Symbol>,
+    vec: Vec<Arc<str>>,
 }
 
 impl Symbols {
@@ -41,13 +42,11 @@ impl Symbols {
             return sym;
         }
 
-        let owned = s.to_string();
+        let arc: Arc<str> = s.into();
         let idx = self.vec.len() as u32;
-        self.vec.push(owned.clone());
+        self.vec.push(arc.clone());
         let sym = Symbol(idx);
-        // We store a clone as the key; the string in `vec` owns the same contents
-        // but keeping the map key simplifies lookup by &str.
-        self.map.insert(owned, sym);
+        self.map.insert(arc, sym);
         sym
     }
 
@@ -57,9 +56,6 @@ impl Symbols {
     /// is unknown — callers must only request symbols that were previously
     /// returned by `intern`.
     pub fn resolve(&self, symbol: Symbol) -> &str {
-        self.vec
-            .get(symbol.0 as usize)
-            .expect("unknown Symbol")
-            .as_str()
+        self.vec.get(symbol.0 as usize).expect("unknown Symbol")
     }
 }
