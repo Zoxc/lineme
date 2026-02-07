@@ -822,13 +822,13 @@ fn build_thread_group_mipmaps(
     // markers when zooming out.
     //
     // For each level i (in increasing duration order), build a cumulative shadow
-    // representation of all real events in levels [0..=i], inflated to at least
+    // representation of all real events in levels [0..i), inflated to at least
     // that level's max_duration and merged per depth level.
     //
-    // Build this incrementally: start from the lowest level's real events, then
-    // for each higher level merge in the previous level's shadows (re-inflated
-    // to the new minimum duration) plus only the real events that belong to the
-    // current level.
+    // Build this incrementally: for each level, first re-inflate the accumulated
+    // shadows from previous levels to the new minimum duration, store those as
+    // the current level's shadows, then merge in the current level's real events
+    // so the next level sees them.
     //
     // Shadows are stored separately per mip level so the main `events` list
     // remains purely "real" events.
@@ -843,8 +843,8 @@ fn build_thread_group_mipmaps(
             out.push((start, end));
         }
 
-        // Cumulative merged shadow ranges per depth, sorted by start and
-        // non-overlapping.
+        // Cumulative merged shadow ranges per depth for *previous* levels,
+        // sorted by start and non-overlapping.
         let mut merged_by_depth: Vec<Vec<(u64, u64)>> = Vec::new();
 
         for level in mipmaps.iter_mut() {
@@ -875,9 +875,10 @@ fn build_thread_group_mipmaps(
                 new_by_depth.resize_with(depth_count, Vec::new);
             }
 
+            // Re-inflate the previous shadows to the new min duration and merge
+            // any overlaps introduced by the increased duration.
+            let mut reinflated_by_depth: Vec<Vec<(u64, u64)>> = Vec::with_capacity(depth_count);
             for depth in 0..depth_count {
-                // Re-inflate the previous shadows to the new min duration and
-                // merge any overlaps introduced by the increased duration.
                 let old = std::mem::take(&mut merged_by_depth[depth]);
                 let mut reinflated: Vec<(u64, u64)> = Vec::with_capacity(old.len());
                 for (start, end) in old {
@@ -887,12 +888,32 @@ fn build_thread_group_mipmaps(
                     new_end = new_end.max(start.saturating_add(1));
                     push_merged(&mut reinflated, start, new_end);
                 }
+                reinflated_by_depth.push(reinflated);
+            }
 
+            // Store shadows for this level as the cumulative result of previous
+            // levels only. This avoids drawing a shadow for events that are
+            // already visible in this mip level.
+            level.shadows.levels = reinflated_by_depth
+                .iter()
+                .map(|ranges| {
+                    let intervals: Vec<_> = ranges
+                        .iter()
+                        .map(|&(start, end)| (start..end, ()))
+                        .collect();
+                    ShadowLevel {
+                        events_tree: IntervalTree::from_iter(intervals),
+                    }
+                })
+                .collect();
+
+            // Merge the reinflated previous shadows with the current level's real
+            // events, producing the cumulative state for the next level.
+            for depth in 0..depth_count {
                 let mut new = std::mem::take(&mut new_by_depth[depth]);
                 new.sort_by_key(|&(start, _end)| start);
 
-                // Merge two sorted lists (previous shadows + new real events),
-                // coalescing overlaps.
+                let reinflated = &reinflated_by_depth[depth];
                 let mut merged: Vec<(u64, u64)> = Vec::with_capacity(reinflated.len() + new.len());
                 let mut i = 0;
                 let mut j = 0;
@@ -913,19 +934,6 @@ fn build_thread_group_mipmaps(
 
                 merged_by_depth[depth] = merged;
             }
-
-            level.shadows.levels = merged_by_depth
-                .iter()
-                .map(|ranges| {
-                    let intervals: Vec<_> = ranges
-                        .iter()
-                        .map(|&(start, end)| (start..end, ()))
-                        .collect();
-                    ShadowLevel {
-                        events_tree: IntervalTree::from_iter(intervals),
-                    }
-                })
-                .collect();
         }
     }
 
