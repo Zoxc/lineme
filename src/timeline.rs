@@ -27,7 +27,7 @@ use mini_timeline::MiniTimelineProgram;
 use threads::ThreadsProgram;
 
 pub const LABEL_WIDTH: f64 = 150.0_f64;
-pub const HEADER_HEIGHT: f64 = 30.0_f64;
+pub const HEADER_HEIGHT: f64 = 55.0_f64;
 pub const MINI_TIMELINE_HEIGHT: f64 = 40.0_f64;
 pub const LANE_HEIGHT: f64 = 20.0_f64;
 pub const LANE_SPACING: f64 = 5.0_f64;
