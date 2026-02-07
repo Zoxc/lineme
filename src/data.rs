@@ -29,6 +29,7 @@ impl From<UnalignedU64> for u64 {
 use analyzeme::ProfilingData;
 use iced::Color;
 use intervaltree::IntervalTree;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -469,15 +470,29 @@ fn build_thread_data(
 ) -> Vec<Arc<ThreadData>> {
     let mut thread_data_vec = Vec::new();
 
-    // Phase 1: Build thread roots and collect thread root event IDs
-    // This must be done sequentially since it modifies `events` and `symbols`
+    // Phase 1: Compute thread root info in parallel (immutable access to events)
+    let thread_root_infos: Vec<(u32, Option<ThreadRootInfo>)> = threads
+        .par_iter()
+        .map(|(&thread_id, event_ids)| {
+            let info = compute_thread_root_info(events, thread_id, event_ids);
+            (thread_id, info)
+        })
+        .collect();
+
+    // Phase 2: Build thread root events and add them to events sequentially
+    // (requires mutable access to events and symbols)
     let mut thread_roots: Vec<(u32, Option<EventId>)> = Vec::with_capacity(threads.len());
-    for (thread_id, event_ids) in &threads {
-        let thread_root = build_thread_root(events, *thread_id, event_ids, symbols);
-        thread_roots.push((*thread_id, thread_root));
+    for (thread_id, info) in thread_root_infos {
+        let event_id = info.map(|root_info| {
+            let event = build_thread_root_event(&root_info, symbols);
+            let event_id = EventId(events.len() as u32);
+            events.push(event);
+            event_id
+        });
+        thread_roots.push((thread_id, event_id));
     }
 
-    // Phase 2: Build thread data in parallel using immutable references to events
+    // Phase 3: Build thread data in parallel using immutable references to events
     // and pre-computed thread roots
     let threads_for_parallel: Vec<(u32, Vec<EventId>, Option<EventId>)> = thread_roots
         .into_iter()
@@ -535,7 +550,7 @@ fn build_thread_data(
         })
         .collect();
 
-    // Phase 3: Construct final ThreadData objects
+    // Phase 4: Construct final ThreadData objects
     for (thread_id, thread_root, max_depth, mipmaps, thread_root_mipmap) in thread_data_parts {
         thread_data_vec.push(Arc::new(ThreadData {
             thread_id,
@@ -657,12 +672,19 @@ fn build_merged_thread_groups(
     thread_groups
 }
 
-fn build_thread_root(
-    events: &mut Vec<TimelineEvent>,
+/// Information needed to build a thread root event.
+#[derive(Debug)]
+struct ThreadRootInfo {
+    thread_id: u32,
+    start_ns: u64,
+    duration_ns: u64,
+}
+
+fn compute_thread_root_info(
+    events: &[TimelineEvent],
     thread_id: u32,
     event_ids: &[EventId],
-    symbols: &mut crate::symbols::Symbols,
-) -> Option<EventId> {
+) -> Option<ThreadRootInfo> {
     let mut start_ns = u64::MAX;
     let mut end_ns = 0u64;
 
@@ -676,23 +698,28 @@ fn build_thread_root(
         return None;
     }
 
-    let event_id = EventId(events.len() as u32);
-    let event = TimelineEvent {
-        label: symbols.intern(&format!("Thread {}", thread_id)),
+    Some(ThreadRootInfo {
+        thread_id,
         start_ns,
         duration_ns: end_ns.saturating_sub(start_ns),
+    })
+}
+
+fn build_thread_root_event(
+    info: &ThreadRootInfo,
+    symbols: &mut crate::symbols::Symbols,
+) -> TimelineEvent {
+    TimelineEvent {
+        label: symbols.intern(&format!("Thread {}", info.thread_id)),
+        start_ns: info.start_ns,
+        duration_ns: info.duration_ns,
         depth: 0,
-        thread_id,
-        // Thread-root events don't have a meaningful kind index; they use
-        // a fixed color during rendering. Leave kind_index as 0.
+        thread_id: info.thread_id,
         kind_index: 0u16,
         additional_data: None,
         payload_integer: None,
         is_thread_root: true,
-    };
-    events.push(event);
-
-    Some(event_id)
+    }
 }
 
 pub fn format_panic_payload(payload: Box<dyn std::any::Any + Send>) -> String {
