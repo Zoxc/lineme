@@ -247,8 +247,22 @@ impl Lineme {
             iced::Event::Window(iced::window::Event::FileDropped(path)) => {
                 Some(Message::FileSelected(path))
             }
+            // Track modifier changes for mouse-wheel & pan behavior
             iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) => {
                 Some(Message::ModifiersChanged(modifiers))
+            }
+            // Pressing Escape resets the current view (zoom/scroll)
+            // Fallback keyboard handling: avoid referencing keyboard key enums
+            // directly (iced's key enums vary by backend). Match on the debug
+            // representation and look for an Escape key press. This is defensive
+            // but reliable across backends used by iced 0.14.
+            iced::Event::Keyboard(ev) => {
+                let s = format!("{:?}", ev);
+                if s.contains("KeyPressed") && s.contains("Escape") {
+                    Some(Message::ResetView)
+                } else {
+                    None
+                }
             }
             _ => None,
         })
