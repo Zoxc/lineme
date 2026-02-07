@@ -262,10 +262,14 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
-        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        // Use two geometry layers so the tooltip can be rendered above all
+        // event text. Some render backends batch text separately from shapes,
+        // which can otherwise cause event labels to appear on top of the
+        // tooltip background even when the tooltip is drawn last.
+        let mut base_frame = canvas::Frame::new(renderer, bounds.size());
 
         if self.thread_groups.is_empty() {
-            return vec![frame.into_geometry()];
+            return vec![base_frame.into_geometry()];
         }
 
         let viewport_width = if self.viewport_width > 0.0 {
@@ -331,7 +335,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
 
                 // Draw faint vertical line across the events area.
-                frame.stroke(
+                base_frame.stroke(
                     &canvas::Path::line(
                         Point::new(x_screen, 0.0),
                         Point::new(x_screen, bounds.height),
@@ -361,7 +365,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
 
             let row_y = y_offset as f32 - self.scroll_offset_y as f32;
-            frame.stroke(
+            base_frame.stroke(
                 &canvas::Path::line(Point::new(0.0, row_y), Point::new(bounds.width, row_y)),
                 canvas::Stroke::default()
                     .with_color(Color::from_rgb(0.9, 0.9, 0.9))
@@ -406,7 +410,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         let y_screen = y_offset as f32 - self.scroll_offset_y as f32
                             + depth as f32 * (LANE_HEIGHT as f32);
                         draw_event_rect(DrawEventRectArgs {
-                            frame: &mut frame,
+                            frame: &mut base_frame,
                             x: x_screen,
                             width,
                             y: y_screen,
@@ -478,7 +482,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         let y_screen = y_offset as f32 - self.scroll_offset_y as f32
                             + depth as f32 * (LANE_HEIGHT as f32);
                         draw_event_rect(DrawEventRectArgs {
-                            frame: &mut frame,
+                            frame: &mut base_frame,
                             x: x_screen,
                             width,
                             y: y_screen,
@@ -523,7 +527,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         let y_screen = y_offset as f32 - self.scroll_offset_y as f32
                             + adjusted_depth as f32 * (LANE_HEIGHT as f32);
                         draw_event_rect(DrawEventRectArgs {
-                            frame: &mut frame,
+                            frame: &mut base_frame,
                             x: x_screen,
                             width,
                             y: y_screen,
@@ -549,7 +553,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     let y = y_offset as f32 - self.scroll_offset_y as f32
                         + hovered_depth as f32 * (LANE_HEIGHT as f32);
 
-                    frame.stroke(
+                    base_frame.stroke(
                         &canvas::Path::rectangle(
                             Point::new(x_screen, y + 1.0),
                             Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
@@ -573,7 +577,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     let y = y_offset as f32 - self.scroll_offset_y as f32
                         + selected_depth as f32 * (LANE_HEIGHT as f32);
 
-                    frame.stroke(
+                    base_frame.stroke(
                         &canvas::Path::rectangle(
                             Point::new(x_screen, y + 1.0),
                             Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
@@ -589,6 +593,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         }
 
         // Draw immediate tooltip following the cursor when hovering an event.
+        // Drawn in its own geometry layer to guarantee it appears above all event text.
+        let mut tooltip_frame = canvas::Frame::new(renderer, bounds.size());
         if let (Some(hovered_id), Some(cursor_pos)) = (state.hovered_event, state.hovered_position)
         {
             if let Some(event) = self.events.get(hovered_id.index()) {
@@ -617,15 +623,31 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     ty = cursor_pos.y - tooltip_h - 10.0;
                 }
 
-                // Draw tooltip background and border.
-                frame.fill_rectangle(Point::new(tx, ty), Size::new(tooltip_w, tooltip_h), Color::from_rgba(1.0, 1.0, 1.0, 0.95));
-                frame.stroke(
+                // Draw drop shadow for depth.
+                let shadow_offset = 2.0_f32;
+                tooltip_frame.fill_rectangle(
+                    Point::new(tx + shadow_offset, ty + shadow_offset),
+                    Size::new(tooltip_w, tooltip_h),
+                    Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+                );
+
+                // Draw tooltip background (fully opaque to cover underlying content).
+                tooltip_frame.fill_rectangle(
+                    Point::new(tx, ty),
+                    Size::new(tooltip_w, tooltip_h),
+                    Color::from_rgb(1.0, 1.0, 1.0),
+                );
+
+                // Draw border.
+                tooltip_frame.stroke(
                     &canvas::Path::rectangle(Point::new(tx, ty), Size::new(tooltip_w, tooltip_h)),
-                    canvas::Stroke::default().with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.15)).with_width(1.0),
+                    canvas::Stroke::default()
+                        .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.2))
+                        .with_width(1.0),
                 );
 
                 // Draw time (purple) then label.
-                frame.fill_text(canvas::Text {
+                tooltip_frame.fill_text(canvas::Text {
                     content: time_str,
                     position: Point::new(tx + padding, ty + 3.0),
                     color: Color::from_rgb(0.6, 0.0, 0.8),
@@ -633,7 +655,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     ..Default::default()
                 });
 
-                frame.fill_text(canvas::Text {
+                tooltip_frame.fill_text(canvas::Text {
                     content: label.to_string(),
                     position: Point::new(tx + padding + time_w + spacing, ty + 3.0),
                     color: Color::from_rgb(0.15, 0.15, 0.15),
@@ -643,7 +665,14 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
         }
 
-        vec![frame.into_geometry()]
+        let tooltip_geometry = tooltip_frame.into_geometry();
+
+        // Avoid returning an extra empty geometry layer when not hovering.
+        if state.hovered_event.is_some() && state.hovered_position.is_some() {
+            vec![base_frame.into_geometry(), tooltip_geometry]
+        } else {
+            vec![base_frame.into_geometry()]
+        }
     }
 
     fn update(
