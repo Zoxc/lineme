@@ -118,6 +118,7 @@ pub struct EventsProgram<'a> {
 pub struct EventsState {
     pub modifiers: keyboard::Modifiers,
     pub hovered_event: Option<EventId>,
+    pub hovered_position: Option<Point>,
     pub last_click: Option<(EventId, std::time::Instant)>,
     pub press_position: Option<Point>,
     pub pressed_event: Option<EventId>,
@@ -179,7 +180,7 @@ impl<'a> EventsProgram<'a> {
                                 event.duration_ns,
                                 self.zoom_level,
                             ) as f32;
-                            if width < 5.0 {
+                            if width < 1.0 {
                                 continue;
                             }
                             let x =
@@ -220,7 +221,7 @@ impl<'a> EventsProgram<'a> {
                                 event.duration_ns,
                                 self.zoom_level,
                             ) as f32;
-                            if width < 5.0 {
+                            if width < 1.0 {
                                 continue;
                             }
 
@@ -587,6 +588,61 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             y_offset += lane_total_height + super::LANE_SPACING;
         }
 
+        // Draw immediate tooltip following the cursor when hovering an event.
+        if let (Some(hovered_id), Some(cursor_pos)) = (state.hovered_event, state.hovered_position)
+        {
+            if let Some(event) = self.events.get(hovered_id.index()) {
+                // Format time relative to the timeline min_ns.
+                let time_str = crate::timeline::format_duration(
+                    event.start_ns.saturating_sub(self.min_ns),
+                );
+                let label = self.symbols.resolve(event.label);
+
+                // Simple width estimation: average char width approx 7px at size 12.
+                let avg_char_w = 7.0_f32;
+                let time_w = (time_str.chars().count() as f32) * avg_char_w;
+                let label_w = (label.chars().count() as f32) * avg_char_w;
+                let padding = 6.0_f32;
+                let spacing = 8.0_f32;
+                let tooltip_w = (time_w + label_w + padding * 2.0 + spacing).max(40.0);
+                let tooltip_h = 20.0_f32;
+
+                // Position tooltip near cursor but keep inside visible bounds.
+                let mut tx = cursor_pos.x + 10.0;
+                let mut ty = cursor_pos.y + 10.0;
+                if tx + tooltip_w > visible_bounds.width {
+                    tx = cursor_pos.x - tooltip_w - 10.0;
+                }
+                if ty + tooltip_h > visible_bounds.height {
+                    ty = cursor_pos.y - tooltip_h - 10.0;
+                }
+
+                // Draw tooltip background and border.
+                frame.fill_rectangle(Point::new(tx, ty), Size::new(tooltip_w, tooltip_h), Color::from_rgba(1.0, 1.0, 1.0, 0.95));
+                frame.stroke(
+                    &canvas::Path::rectangle(Point::new(tx, ty), Size::new(tooltip_w, tooltip_h)),
+                    canvas::Stroke::default().with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.15)).with_width(1.0),
+                );
+
+                // Draw time (purple) then label.
+                frame.fill_text(canvas::Text {
+                    content: time_str,
+                    position: Point::new(tx + padding, ty + 3.0),
+                    color: Color::from_rgb(0.6, 0.0, 0.8),
+                    size: 12.0.into(),
+                    ..Default::default()
+                });
+
+                frame.fill_text(canvas::Text {
+                    content: label.to_string(),
+                    position: Point::new(tx + padding + time_w + spacing, ty + 3.0),
+                    color: Color::from_rgb(0.15, 0.15, 0.15),
+                    size: 12.0.into(),
+                    ..Default::default()
+                });
+            }
+        }
+
         vec![frame.into_geometry()]
     }
 
@@ -612,8 +668,12 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         state.dragging = true;
                     }
                 }
-                let new_hovered = cursor
-                    .position_in(bounds)
+                // Track cursor position (canvas-local) for the tooltip to follow
+                let prev_pos = state.hovered_position;
+                state.hovered_position = cursor.position_in(bounds);
+
+                let new_hovered = state
+                    .hovered_position
                     .and_then(|p| self.find_event_at(p));
 
                 if new_hovered != state.hovered_event {
@@ -621,6 +681,12 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     return Some(canvas::Action::publish(Message::EventHovered(
                         state.hovered_event,
                     )));
+                }
+
+                // If still hovering the same event, request a redraw so the tooltip
+                // follows the cursor even when hover target hasn't changed.
+                if state.hovered_event.is_some() && state.hovered_position != prev_pos {
+                    return Some(canvas::Action::request_redraw());
                 }
             }
             iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
