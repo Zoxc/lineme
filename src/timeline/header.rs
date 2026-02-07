@@ -57,14 +57,23 @@ impl Program<Message> for HeaderProgram {
         // Layer heights
         let layer_height = bounds.height / 3.0;
 
+        // Estimate how much horizontal space a label can occupy so we keep
+        // drawing ticks until their labels are fully out of view. This avoids
+        // truncating ticks whose text would still be visible at the edges.
+        let label_padding: f32 = 64.0;
+
         while relative_ns <= total_ns {
             let x = screen_x(relative_ns);
 
-            if x > bounds.width {
+            // Stop once the tick and its label would be completely off the right
+            // edge of the header.
+            if x > bounds.width + label_padding {
                 break;
             }
 
-            if x < 0.0 {
+            // Skip ticks that are fully left of the visible area (including
+            // their label width).
+            if x + label_padding < 0.0 {
                 relative_ns += nice_interval;
                 continue;
             }

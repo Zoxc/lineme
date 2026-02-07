@@ -599,9 +599,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         {
             if let Some(event) = self.events.get(hovered_id.index()) {
                 // Format time relative to the timeline min_ns.
-                let time_str = crate::timeline::format_duration(
-                    event.start_ns.saturating_sub(self.min_ns),
-                );
+                let time_str =
+                    crate::timeline::format_duration(event.start_ns.saturating_sub(self.min_ns));
                 let label = self.symbols.resolve(event.label);
 
                 // Simple width estimation: average char width approx 7px at size 12.
@@ -628,7 +627,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 tooltip_frame.fill_rectangle(
                     Point::new(tx + shadow_offset, ty + shadow_offset),
                     Size::new(tooltip_w, tooltip_h),
-                    Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+                    Color::from_rgba(0.0, 0.0, 0.0, 0.15),
                 );
 
                 // Draw tooltip background (fully opaque to cover underlying content).
@@ -642,7 +641,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 tooltip_frame.stroke(
                     &canvas::Path::rectangle(Point::new(tx, ty), Size::new(tooltip_w, tooltip_h)),
                     canvas::Stroke::default()
-                        .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.2))
+                        .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.4))
                         .with_width(1.0),
                 );
 
@@ -650,7 +649,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 tooltip_frame.fill_text(canvas::Text {
                     content: time_str,
                     position: Point::new(tx + padding, ty + 3.0),
-                    color: Color::from_rgb(0.6, 0.0, 0.8),
+                    color: Color::from_rgb(0.408, 0.322, 0.459),
                     size: 12.0.into(),
                     ..Default::default()
                 });
@@ -701,9 +700,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 let prev_pos = state.hovered_position;
                 state.hovered_position = cursor.position_in(bounds);
 
-                let new_hovered = state
-                    .hovered_position
-                    .and_then(|p| self.find_event_at(p));
+                let new_hovered = state.hovered_position.and_then(|p| self.find_event_at(p));
 
                 if new_hovered != state.hovered_event {
                     state.hovered_event = new_hovered;
