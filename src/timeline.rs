@@ -552,7 +552,7 @@ where
     Renderer: iced::advanced::Renderer,
 {
     fn tag(&self) -> widget::tree::Tag {
-        self.content.as_widget().tag()
+        widget::tree::Tag::of::<Option<Size<f32>>>()
     }
 
     fn state(&self) -> widget::tree::State {
