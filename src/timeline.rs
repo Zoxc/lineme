@@ -18,7 +18,6 @@ use events::EventsProgram;
 use header::HeaderProgram;
 use iced::advanced::widget::{self, Tree, Widget};
 use iced::advanced::{Clipboard, Layout, Shell, layout, renderer};
-use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::Canvas;
 use iced::widget::{Space, button, column, container, row, text};
@@ -169,12 +168,10 @@ pub struct TimelineViewArgs<'a> {
     pub kinds: &'a [crate::data::KindInfo],
     pub zoom_level: f64,
     pub selected_event: &'a Option<EventId>,
-    pub hovered_event: &'a Option<EventId>,
     pub scroll_offset_x: f64,
     pub scroll_offset_y: f64,
     pub viewport_width: f64,
     pub viewport_height: f64,
-    pub modifiers: keyboard::Modifiers,
     pub color_mode: ColorMode,
     pub symbols: &'a crate::symbols::Symbols,
 }
@@ -186,12 +183,10 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
         thread_groups,
         zoom_level,
         selected_event,
-        hovered_event: _hovered_event,
         scroll_offset_x,
         scroll_offset_y,
         viewport_width,
         viewport_height,
-        modifiers: _modifiers,
         color_mode,
         symbols,
         kinds,
