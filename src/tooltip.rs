@@ -38,22 +38,16 @@ impl Default for TooltipStyle {
 ///
 /// - `show` and `position` are controlled externally (e.g. by app state)
 /// - The overlay is intentionally non-interactive (does not capture mouse events)
-pub(crate) struct Tooltip<'a, OverlayFn>
-where
-    OverlayFn: Fn() -> Element<'a, crate::Message>,
-{
+pub(crate) struct Tooltip<'a> {
     underlay: Element<'a, crate::Message>,
-    overlay: OverlayFn,
+    overlay_content: Element<'a, crate::Message>,
     show: bool,
     position: Point,
     offset: Vector,
     style: TooltipStyle,
 }
 
-impl<'a, OverlayFn> std::fmt::Debug for Tooltip<'a, OverlayFn>
-where
-    OverlayFn: Fn() -> Element<'a, crate::Message>,
-{
+impl std::fmt::Debug for Tooltip<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Tooltip")
             .field("show", &self.show)
@@ -62,14 +56,14 @@ where
     }
 }
 
-impl<'a, OverlayFn> Tooltip<'a, OverlayFn>
-where
-    OverlayFn: Fn() -> Element<'a, crate::Message>,
-{
-    pub fn new(underlay: impl Into<Element<'a, crate::Message>>, overlay: OverlayFn) -> Self {
+impl<'a> Tooltip<'a> {
+    pub fn new(
+        underlay: impl Into<Element<'a, crate::Message>>,
+        overlay_content: impl Into<Element<'a, crate::Message>>,
+    ) -> Self {
         Self {
             underlay: underlay.into(),
-            overlay,
+            overlay_content: overlay_content.into(),
             show: false,
             position: Point::ORIGIN,
             offset: Vector::new(10.0, 10.0),
@@ -92,10 +86,7 @@ where
     // Keep these as private for now; we can expose them once we have a use.
 }
 
-impl<'a, OverlayFn> Widget<crate::Message, Theme, Renderer> for Tooltip<'a, OverlayFn>
-where
-    OverlayFn: 'a + Fn() -> Element<'a, crate::Message>,
-{
+impl<'a> Widget<crate::Message, Theme, Renderer> for Tooltip<'a> {
     fn tag(&self) -> widget::tree::Tag {
         widget::tree::Tag::of::<State>()
     }
@@ -105,11 +96,11 @@ where
     }
 
     fn children(&self) -> Vec<Tree> {
-        vec![Tree::new(&self.underlay), Tree::new((self.overlay)())]
+        vec![Tree::new(&self.underlay), Tree::new(&self.overlay_content)]
     }
 
     fn diff(&self, tree: &mut Tree) {
-        tree.diff_children(&[&self.underlay, &(self.overlay)()]);
+        tree.diff_children(&[&self.underlay, &self.overlay_content]);
     }
 
     fn size(&self) -> Size<Length> {
@@ -218,8 +209,9 @@ where
             );
         }
 
-        let mut content = (self.overlay)();
-        content.as_widget_mut().diff(&mut tree.children[1]);
+        self.overlay_content
+            .as_widget_mut()
+            .diff(&mut tree.children[1]);
 
         Some(
             TooltipOverlay::new(
@@ -227,18 +219,15 @@ where
                 self.offset,
                 self.style,
                 &mut tree.children[1],
-                content,
+                &mut self.overlay_content,
             )
             .overlay(),
         )
     }
 }
 
-impl<'a, OverlayFn> From<Tooltip<'a, OverlayFn>> for Element<'a, crate::Message>
-where
-    OverlayFn: 'a + Fn() -> Element<'a, crate::Message>,
-{
-    fn from(widget: Tooltip<'a, OverlayFn>) -> Self {
+impl<'a> From<Tooltip<'a>> for Element<'a, crate::Message> {
+    fn from(widget: Tooltip<'a>) -> Self {
         Element::new(widget)
     }
 }
@@ -246,21 +235,21 @@ where
 #[derive(Debug, Default)]
 struct State;
 
-struct TooltipOverlay<'a> {
+struct TooltipOverlay<'a, 'b> {
     anchor: Point,
     offset: Vector,
     style: TooltipStyle,
-    tree: &'a mut Tree,
-    content: Element<'a, crate::Message>,
+    tree: &'b mut Tree,
+    content: &'b mut Element<'a, crate::Message>,
 }
 
-impl<'a> TooltipOverlay<'a> {
+impl<'a, 'b> TooltipOverlay<'a, 'b> {
     fn new(
         anchor: Point,
         offset: Vector,
         style: TooltipStyle,
-        tree: &'a mut Tree,
-        content: Element<'a, crate::Message>,
+        tree: &'b mut Tree,
+        content: &'b mut Element<'a, crate::Message>,
     ) -> Self {
         Self {
             anchor,
@@ -271,12 +260,12 @@ impl<'a> TooltipOverlay<'a> {
         }
     }
 
-    fn overlay(self) -> overlay::Element<'a, crate::Message, Theme, Renderer> {
+    fn overlay(self) -> overlay::Element<'b, crate::Message, Theme, Renderer> {
         overlay::Element::new(Box::new(self))
     }
 }
 
-impl Overlay<crate::Message, Theme, Renderer> for TooltipOverlay<'_> {
+impl Overlay<crate::Message, Theme, Renderer> for TooltipOverlay<'_, '_> {
     fn layout(&mut self, renderer: &Renderer, bounds: Size) -> layout::Node {
         let limits = layout::Limits::new(Size::ZERO, bounds);
 

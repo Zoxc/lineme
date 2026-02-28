@@ -1179,14 +1179,20 @@ impl Lineme {
         // Tooltip overlay: show event details on hover.
         // This is message-driven and intentionally non-interactive so it does
         // not interfere with timeline mouse events.
+        //
+        // Always wrap in Tooltip so the widget tree structure stays stable
+        // regardless of hover state.  Changing the root widget between Tooltip
+        // and a bare Element causes iced to recreate the tree (tags differ),
+        // which resets the canvas EventsState and creates an oscillation where
+        // the hover is repeatedly rediscovered and cleared every frame.
         let tooltip_underlay: Element<'_, Message> = root.into();
-        if let Some(file) = self.files.get(self.active_tab)
-            && let FileLoadState::Ready(stats) = &file.load_state
-            && let (Some(event_id), Some(position)) =
-                (stats.ui.hovered_event, stats.ui.hovered_event_position)
-            && let Some(event) = stats.data.events.get(event_id.index())
-        {
-            crate::tooltip::Tooltip::new(tooltip_underlay, || {
+        let (show_tooltip, tooltip_position, tooltip_content): (bool, iced::Point, Element<'_, Message>) =
+            if let Some(file) = self.files.get(self.active_tab)
+                && let FileLoadState::Ready(stats) = &file.load_state
+                && let (Some(event_id), Some(position)) =
+                    (stats.ui.hovered_event, stats.ui.hovered_event_position)
+                && let Some(event) = stats.data.events.get(event_id.index())
+            {
                 let label = stats.data.symbols.resolve(event.label);
                 let duration_str =
                     crate::timeline::format_duration(event.duration_ns);
@@ -1204,17 +1210,19 @@ impl Lineme {
                 .spacing(8)
                 .align_y(Alignment::Center);
 
-                container(content)
+                let tooltip_el: Element<'_, Message> = container(content)
                     .padding(0)
                     .style(|_theme: &iced::Theme| container::Style::default())
-                    .into()
-            })
-            .show(true)
-            .position(position)
+                    .into();
+                (true, position, tooltip_el)
+            } else {
+                (false, iced::Point::ORIGIN, text("").into())
+            };
+
+        crate::tooltip::Tooltip::new(tooltip_underlay, tooltip_content)
+            .show(show_tooltip)
+            .position(tooltip_position)
             .into()
-        } else {
-            tooltip_underlay
-        }
     }
 
     fn file_view<'a>(&self, file: &'a FileTab) -> Element<'a, Message> {
