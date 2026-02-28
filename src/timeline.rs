@@ -339,31 +339,40 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
                 // Header remains aligned with the events area (leaving space for labels).
                 row![
                     // Left area above the thread labels: collapse/expand all buttons
-                    container(
-                        row![
-                            // Collapse button with short text
-                            button(
+                    row![
+                        // Collapse button
+                        button(
+                            container(
                                 row![text("-").size(18), text("Collapse").size(12)]
                                     .spacing(4)
                                     .align_y(iced::Alignment::Center),
                             )
-                            .padding(6)
-                            .style(crate::ui::neutral_button_style)
-                            .on_press(Message::CollapseAllThreads),
-                            // Expand button with short text
-                            button(
+                            .center_x(Length::Fill)
+                            .center_y(Length::Fill),
+                        )
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .padding(0)
+                        .style(crate::ui::neutral_button_style)
+                        .on_press(Message::CollapseAllThreads),
+                        // Expand button
+                        button(
+                            container(
                                 row![text("+").size(18), text("Expand").size(12)]
                                     .spacing(4)
                                     .align_y(iced::Alignment::Center),
                             )
-                            .padding(6)
-                            .style(crate::ui::neutral_button_style)
-                            .on_press(Message::ExpandAllThreads),
-                        ]
-                        .spacing(5)
-                        .align_y(iced::Alignment::Center),
-                    )
-                    .width(Length::Fixed(LABEL_WIDTH as f32)),
+                            .center_x(Length::Fill)
+                            .center_y(Length::Fill),
+                        )
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .padding(0)
+                        .style(crate::ui::neutral_button_style)
+                        .on_press(Message::ExpandAllThreads),
+                    ]
+                    .width(Length::Fixed(LABEL_WIDTH as f32))
+                    .height(Length::Fill),
                     header_canvas
                 ]
                 .height(Length::Fixed(HEADER_HEIGHT as f32)),
