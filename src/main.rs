@@ -26,9 +26,6 @@ const SETTINGS_ICON: char = '\u{e8b8}';
 const OPEN_ICON: char = '\u{e2c7}';
 const FILE_ICON: char = '\u{e873}';
 const RESET_ICON: char = '\u{e5d5}';
-// Use explicit plus/minus codepoints (visible in normal UI fonts)
-pub const COLLAPSE_ICON: char = '\u{2212}'; // '−' minus sign
-pub const EXPAND_ICON: char = '\u{002B}'; // '+' plus sign
 
 // Try to register the .mm_profdata extension to open with the current executable.
 // On Windows this writes under HKCU\Software\Classes so admin rights aren't required.
