@@ -26,11 +26,17 @@ This document provides context and guidelines for AI agents working on the `line
 - `src/timeline/threads.rs`: Handles thread label rendering and interaction (collapse/expand).
 - `src/timeline/mini_timeline.rs`: Implements the high-level overview for quick navigation and zooming.
 - `src/settings.rs`: Encapsulates the settings view and logic (register file extension, hint list).
-- `src/file.rs`: Manages tab state helpers and helpers delegating to `data::FileTab`.
+- `src/file.rs`: Manages tab state helpers and helpers delegating to `data::ProfileData`.
+- `src/data.rs`: Data loading and model definitions (`ProfileData`, `TimelineEvent`, `ThreadGroup`, mipmaps).
+- `src/tooltip.rs`: Custom tooltip overlay widget for hover information display.
+- `src/symbols.rs`: String interner for deduplicating event labels and kind names.
+- `src/ui.rs`: Small UI helper utilities.
+- `src/timeline/events.rs`: Canvas program for drawing timeline events, handling hover/selection and scrolling.
+- `src/timeline/ticks.rs`: Shared helpers for computing nice time tick intervals and formatting labels.
 
 ## Development Guidelines for Agents
 - **Update File Overview:** If you create, rename, or significantly change the responsibility of a file, update the "File Overview" section above.
-- **Dependency Management:** Always check `Cargo.toml` before assuming a crate is available. Note that `analyzeme` is used for reading files, while `measureme` provides low-level definitions.
+- **Dependency Management:** Always check `Cargo.toml` before assuming a crate is available. Note that `analyzeme` is used for reading files; `measureme` is a transitive dependency via `analyzeme`.
 - **Iced API:** We use the `application(...)` builder pattern introduced in later `iced` versions. Avoid the older `Application` trait implementation if possible.
 - **Lifetimes:** When defining `view` or sub-view functions, explicitly use `Element<'_, Message>` to handle elided lifetimes correctly in `iced`.
 - **Error Handling:** Use `Message::ErrorOccurred(String)` to propagate errors to the UI.
