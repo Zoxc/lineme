@@ -802,16 +802,26 @@ fn build_thread_group_mipmaps(
 
     let mut mipmaps = Vec::new();
     for (bucket, bucket_events) in buckets.into_iter().enumerate() {
-        if bucket_events.is_empty() {
-            continue;
-        }
-        let (_events_by_start, _events_by_end, events_tree) =
-            build_event_indices(events, &bucket_events);
         let max_duration_ns = if bucket >= 63 {
             u64::MAX
         } else {
             (1u64 << (bucket as u32 + 1)).saturating_sub(1)
         };
+        if bucket_events.is_empty() {
+            // Keep empty levels so the shadow system has intermediate
+            // levels between populated buckets.  Without these the
+            // smallest-visible-level selection can jump across a large
+            // gap, causing shadows to be inflated far beyond ~1 px.
+            mipmaps.push(ThreadGroupMipMap {
+                max_duration_ns,
+                events: Vec::new(),
+                shadows: ThreadGroupMipMapShadows::default(),
+                events_tree: IntervalTree::from_iter(std::iter::empty::<(std::ops::Range<u64>, EventId)>()),
+            });
+            continue;
+        }
+        let (_events_by_start, _events_by_end, events_tree) =
+            build_event_indices(events, &bucket_events);
         mipmaps.push(ThreadGroupMipMap {
             max_duration_ns,
             events: bucket_events,
