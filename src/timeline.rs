@@ -838,7 +838,7 @@ where
     Renderer: iced::advanced::Renderer,
 {
     fn tag(&self) -> widget::tree::Tag {
-        self.content.as_widget().tag()
+        widget::tree::Tag::of::<PanState>()
     }
 
     fn state(&self) -> widget::tree::State {
