@@ -8,9 +8,12 @@ pub fn nice_interval(ns_interval: f64) -> f64 {
 
     let log10 = ns_interval.log10().floor();
     let base = 10.0f64.powf(log10);
-    if ns_interval / base < 2.0 {
+    let ratio = ns_interval / base;
+    if ratio <= 1.0 {
+        base
+    } else if ratio <= 2.0 {
         base * 2.0
-    } else if ns_interval / base < 5.0 {
+    } else if ratio <= 5.0 {
         base * 5.0
     } else {
         base * 10.0
