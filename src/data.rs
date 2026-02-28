@@ -9,10 +9,6 @@ impl UnalignedU64 {
     pub fn get(&self) -> u64 {
         u64::from_le_bytes(self.0)
     }
-
-    pub fn set(&mut self, v: u64) {
-        self.0 = v.to_le_bytes();
-    }
 }
 
 impl From<u64> for UnalignedU64 {
