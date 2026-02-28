@@ -196,8 +196,9 @@ impl<'a> EventsProgram<'a> {
                                 continue;
                             }
                             let x = screen_x(event.start_ns);
-                            let y = (y_offset - self.scroll_offset_y) as f32
-                                + depth as f32 * (LANE_HEIGHT as f32);
+                            let y = y_offset as f32 - self.scroll_offset_y as f32
+                                + depth as f32 * (LANE_HEIGHT as f32)
+                                + 1.0;
                             let height = (LANE_HEIGHT - 2.0) as f32;
                             let rect = Rectangle {
                                 x,
@@ -235,8 +236,9 @@ impl<'a> EventsProgram<'a> {
                             }
 
                             let x = screen_x(event.start_ns);
-                            let y = (y_offset - self.scroll_offset_y) as f32
-                                + depth as f32 * (LANE_HEIGHT as f32);
+                            let y = y_offset as f32 - self.scroll_offset_y as f32
+                                + depth as f32 * (LANE_HEIGHT as f32)
+                                + 1.0;
                             let height = (LANE_HEIGHT - 2.0) as f32;
 
                             let rect = Rectangle {
@@ -734,6 +736,16 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     return Some(canvas::Action::publish(Message::EventHovered {
                         event: state.hovered_event,
                         position: cursor_abs,
+                    }));
+                }
+            }
+            iced::Event::Mouse(iced::mouse::Event::CursorLeft) => {
+                state.hovered_position = None;
+                if state.hovered_event.is_some() {
+                    state.hovered_event = None;
+                    return Some(canvas::Action::publish(Message::EventHovered {
+                        event: None,
+                        position: None,
                     }));
                 }
             }
