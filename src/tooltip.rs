@@ -38,7 +38,6 @@ impl Default for TooltipStyle {
 ///
 /// - `show` and `position` are controlled externally (e.g. by app state)
 /// - The overlay is intentionally non-interactive (does not capture mouse events)
-#[allow(missing_debug_implementations)]
 pub(crate) struct Tooltip<'a, OverlayFn>
 where
     OverlayFn: Fn() -> Element<'a, crate::Message>,
@@ -49,6 +48,18 @@ where
     position: Point,
     offset: Vector,
     style: TooltipStyle,
+}
+
+impl<'a, OverlayFn> std::fmt::Debug for Tooltip<'a, OverlayFn>
+where
+    OverlayFn: Fn() -> Element<'a, crate::Message>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tooltip")
+            .field("show", &self.show)
+            .field("position", &self.position)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a, OverlayFn> Tooltip<'a, OverlayFn>
