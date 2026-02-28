@@ -3,6 +3,9 @@ use iced::mouse;
 use iced::widget::canvas::{self, Geometry, Program};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
 
+/// Fixed light color used for thread-root events in the timeline.
+const THREAD_ROOT_COLOR: Color = Color::from_rgb(0.85, 0.87, 0.9);
+
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 use super::{
     EventId, ThreadGroup, TimelineEvent, color_from_label, group_total_height,
@@ -407,7 +410,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         }
 
                         // Thread-root events use a fixed light color.
-                        let color = Color::from_rgb(0.85, 0.87, 0.9);
+                        let color = THREAD_ROOT_COLOR;
                         let label = self.symbols.resolve(event.label);
 
                         let y_screen = y_offset as f32 - self.scroll_offset_y as f32
@@ -465,7 +468,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
                         let color = if event.is_thread_root {
                             // Thread roots use a fixed light color
-                            Color::from_rgb(0.85, 0.87, 0.9)
+                            THREAD_ROOT_COLOR
                         } else {
                             match self.color_mode {
                                 ColorMode::Kind => Self::kind_color_from_table(
