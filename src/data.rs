@@ -393,9 +393,9 @@ fn build_kind_table(
     event_kinds: &[crate::symbols::Symbol],
     symbols: &crate::symbols::Symbols,
 ) -> (Vec<KindInfo>, HashMap<crate::symbols::Symbol, usize>) {
-    let mut kinds_set: std::collections::HashSet<crate::symbols::Symbol> =
+    let kinds_set: std::collections::HashSet<crate::symbols::Symbol> =
         event_kinds.iter().copied().collect();
-    let mut kinds: Vec<crate::symbols::Symbol> = kinds_set.drain().collect();
+    let mut kinds: Vec<crate::symbols::Symbol> = kinds_set.into_iter().collect();
     kinds.sort_by_key(|s| symbols.resolve(*s));
 
     let kind_count = kinds.len().max(1);
