@@ -176,8 +176,6 @@ impl<'a> EventsProgram<'a> {
                         && let Some(root_level) = thread.thread_root_mipmap.as_ref()
                     {
                         for event_id in visible_event_indices_in(
-                            self.events,
-                            &root_level.events,
                             &root_level.events_tree,
                             ns_min,
                             ns_max,
@@ -215,8 +213,6 @@ impl<'a> EventsProgram<'a> {
                             continue;
                         }
                         for event_id in visible_event_indices_in(
-                            self.events,
-                            &level.events,
                             &level.events_tree,
                             ns_min,
                             ns_max,
@@ -384,8 +380,6 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     && let Some(root_level) = thread.thread_root_mipmap.as_ref()
                 {
                     for event_id in visible_event_indices_in(
-                        self.events,
-                        &root_level.events,
                         &root_level.events_tree,
                         ns_min,
                         ns_max,
@@ -443,8 +437,6 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     }
 
                     for event_id in visible_event_indices_in(
-                        self.events,
-                        &level.events,
                         &level.events_tree,
                         ns_min,
                         ns_max,

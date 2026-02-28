@@ -118,8 +118,6 @@ pub fn group_total_height(group: &ThreadGroup) -> f64 {
 }
 
 fn visible_event_indices_in<'a>(
-    _events: &'a [TimelineEvent],
-    _event_ids: &'a [EventId],
     events_tree: &'a IntervalTree<u64, EventId>,
     ns_min: u64,
     ns_max: u64,
