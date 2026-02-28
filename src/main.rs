@@ -219,7 +219,6 @@ struct Lineme {
     files: Vec<FileTab>,
     show_settings: bool,
     modifiers: iced::keyboard::Modifiers,
-    #[allow(dead_code)]
     settings: SettingsPage,
     next_file_id: u64,
 }
