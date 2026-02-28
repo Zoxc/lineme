@@ -1173,12 +1173,11 @@ impl Lineme {
         {
             crate::tooltip::Tooltip::new(tooltip_underlay, || {
                 let label = stats.data.symbols.resolve(event.label);
-                let time_str = crate::timeline::format_duration(
-                    event.start_ns.saturating_sub(stats.data.timeline.min_ns),
-                );
+                let duration_str =
+                    crate::timeline::format_duration(event.duration_ns);
 
                 let content = row![
-                    text(time_str).size(12).style(|_t: &iced::Theme| text::Style {
+                    text(duration_str).size(12).style(|_t: &iced::Theme| text::Style {
                         color: Some(iced::Color::from_rgb(0.408, 0.322, 0.459)),
                         ..Default::default()
                     }),
