@@ -532,7 +532,7 @@ fn build_thread_data(
                     (1u64 << (bucket as u32 + 1)).saturating_sub(1)
                 };
                 let bucket_events = vec![root_id];
-                let (_events_by_start, _events_by_end, events_tree) =
+                let events_tree =
                     build_event_indices(events, &bucket_events);
                 ThreadGroupMipMap {
                     max_duration_ns,
@@ -756,10 +756,7 @@ pub fn format_panic_payload(payload: Box<dyn std::any::Any + Send>) -> String {
 fn build_event_indices(
     events: &[TimelineEvent],
     event_ids: &[EventId],
-) -> (Vec<usize>, Vec<usize>, IntervalTree<u64, EventId>) {
-    // We no longer maintain start/end index arrays; the interval tree
-    // provides fast queries for overlapping intervals.
-
+) -> IntervalTree<u64, EventId> {
     // Build an interval tree mapping each event interval to its index in
     // `event_ids` so callers can quickly query overlapping intervals.
     let iter = event_ids.iter().map(|&event_id| {
@@ -768,9 +765,7 @@ fn build_event_indices(
         let duration = event.duration_ns.max(1);
         (start..start.saturating_add(duration), event_id)
     });
-    let events_tree = IntervalTree::from_iter(iter);
-
-    (Vec::new(), Vec::new(), events_tree)
+    IntervalTree::from_iter(iter)
 }
 
 fn duration_bucket(duration_ns: u64) -> u32 {
@@ -816,7 +811,7 @@ fn build_thread_group_mipmaps(
             });
             continue;
         }
-        let (_events_by_start, _events_by_end, events_tree) =
+        let events_tree =
             build_event_indices(events, &bucket_events);
         mipmaps.push(ThreadGroupMipMap {
             max_duration_ns,
