@@ -158,7 +158,7 @@ enum Message {
     OpenFile,
     FileSelected(PathBuf),
     FileLoaded(u64, Box<FileTabData>, u64),
-    FileLoadFailed(u64, String, u64),
+    FileLoadFailed(u64, String),
     ViewChanged(ViewType),
     ColorModeChanged(ColorMode),
     CloseTab(usize),
@@ -322,7 +322,7 @@ impl Lineme {
                     file.load_state = FileLoadState::Ready(stats);
                 }
             }
-            Message::FileLoadFailed(id, error, _duration_ns) => {
+            Message::FileLoadFailed(id, error) => {
                 if let Some(file) = self.files.iter_mut().find(|file| file.id == id) {
                     file.load_state = FileLoadState::Error(error);
                 }
@@ -888,11 +888,10 @@ impl Lineme {
 
                 match rx.await {
                     Ok((Ok(stats), duration)) => Message::FileLoaded(id, Box::new(stats), duration),
-                    Ok((Err(error), duration)) => Message::FileLoadFailed(id, error, duration),
+                    Ok((Err(error), _)) => Message::FileLoadFailed(id, error),
                     Err(_) => Message::FileLoadFailed(
                         id,
                         "Loading thread exited before sending results".to_string(),
-                        0,
                     ),
                 }
             },
