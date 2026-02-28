@@ -274,7 +274,7 @@ impl<'a, Message> Program<Message> for ScrollbarProgram<'a, Message> {
         frame.fill_rectangle(
             thumb.position(),
             thumb.size(),
-            iced::Color::from_rgb(0.75, 0.75, 0.78),
+            iced::Color::from_rgb(0.75, 0.75, 0.75),
         );
 
         frame.stroke(

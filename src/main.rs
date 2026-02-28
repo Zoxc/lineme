@@ -279,7 +279,20 @@ impl Lineme {
     }
 
     fn theme(&self) -> iced::Theme {
-        iced::Theme::Light
+        use iced::theme::Palette;
+        use iced::Color;
+
+        iced::Theme::custom(
+            "Grey".to_string(),
+            Palette {
+                background: Color::WHITE,
+                text: Color::BLACK,
+                primary: Color::from_rgb(0.45, 0.45, 0.45),
+                success: Color::from_rgb(0.07, 0.40, 0.31),
+                warning: Color::from_rgb(0.72, 0.49, 0.20),
+                danger: Color::from_rgb(0.76, 0.26, 0.25),
+            },
+        )
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {

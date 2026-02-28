@@ -4,7 +4,7 @@ use iced::widget::canvas::{self, Geometry, Program};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector, keyboard};
 
 /// Fixed light color used for thread-root events in the timeline.
-const THREAD_ROOT_COLOR: Color = Color::from_rgb(0.85, 0.87, 0.9);
+const THREAD_ROOT_COLOR: Color = Color::from_rgb(0.87, 0.87, 0.87);
 
 use super::{EVENT_LEFT_PADDING, LANE_HEIGHT};
 use super::{
