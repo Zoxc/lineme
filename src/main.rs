@@ -502,7 +502,7 @@ impl Lineme {
                 viewport_height,
             } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let thread_groups = file.thread_groups();
                     let total_height = timeline::total_timeline_height(thread_groups);
 
                     let stats = match &mut file.load_state {
@@ -656,7 +656,7 @@ impl Lineme {
             }
             Message::TimelineVerticalScrolled { scroll_y } => {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
-                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let thread_groups = file.thread_groups();
                     let total_height = timeline::total_timeline_height(thread_groups);
 
                     let stats = match &mut file.load_state {
@@ -708,7 +708,7 @@ impl Lineme {
                 if let Some(file) = self.files.get_mut(self.active_tab) {
                     // Get thread_groups and compute total height before taking a
                     // mutable borrow of file.load_state to avoid borrow conflicts.
-                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let thread_groups = file.thread_groups();
                     let total_height = timeline::total_timeline_height(thread_groups);
 
                     let stats = match &mut file.load_state {
@@ -773,7 +773,7 @@ impl Lineme {
                         group.is_collapsed = !group.is_collapsed;
                     }
 
-                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let thread_groups = file.thread_groups();
                     let total_height = timeline::total_timeline_height(thread_groups);
                     let stats = match &mut file.load_state {
                         FileLoadState::Ready(stats) => stats,
@@ -796,7 +796,7 @@ impl Lineme {
                         group.is_collapsed = true;
                     }
 
-                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let thread_groups = file.thread_groups();
                     let total_height = timeline::total_timeline_height(thread_groups);
                     let stats = match &mut file.load_state {
                         FileLoadState::Ready(stats) => stats,
@@ -819,7 +819,7 @@ impl Lineme {
                         group.is_collapsed = false;
                     }
 
-                    let thread_groups = file.thread_groups().unwrap_or_default();
+                    let thread_groups = file.thread_groups();
                     let total_height = timeline::total_timeline_height(thread_groups);
                     let stats = match &mut file.load_state {
                         FileLoadState::Ready(stats) => stats,
@@ -839,10 +839,7 @@ impl Lineme {
                         stats.ui.merge_threads = enabled;
                     }
 
-                    let thread_groups = match file.thread_groups() {
-                        Some(groups) => groups,
-                        None => return Task::none(),
-                    };
+                    let thread_groups = file.thread_groups();
                     let total_height = timeline::total_timeline_height(thread_groups);
                     let stats = match &mut file.load_state {
                         FileLoadState::Ready(stats) => stats,
@@ -1297,7 +1294,7 @@ impl Lineme {
             FileLoadState::Ready(stats) => timeline::view(timeline::TimelineViewArgs {
                 timeline_data: &stats.data.timeline,
                 events: &stats.data.events,
-                thread_groups: file.thread_groups().unwrap_or_default(),
+                thread_groups: file.thread_groups(),
                 kinds: &stats.data.kinds,
                 zoom_level: stats.ui.zoom_level,
                 selected_event: &stats.ui.selected_event,

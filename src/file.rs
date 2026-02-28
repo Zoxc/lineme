@@ -24,12 +24,14 @@ impl FileTab {
         }
     }
 
-    pub fn thread_groups(&self) -> Option<&[ThreadGroup]> {
-        let stats = self.stats()?;
+    pub fn thread_groups(&self) -> &[ThreadGroup] {
+        let Some(stats) = self.stats() else {
+            return &[];
+        };
         if stats.ui.merge_threads {
-            Some(&stats.data.merged_thread_groups)
+            &stats.data.merged_thread_groups
         } else {
-            Some(&stats.data.timeline.thread_groups)
+            &stats.data.timeline.thread_groups
         }
     }
 
