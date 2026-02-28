@@ -387,11 +387,6 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
     // By always returning the same root `column![main_view, details_panel]`, the
     // canvas state persists and the first double-click works as expected.
     let details_panel: Element<'a, Message> = if let Some(event) = display_event {
-        // Also compute float-precision viewport endpoints (not truncated to u64)
-        let zoom_level = zoom_level.max(1e-9);
-        let _view_start_f = scroll_offset_x.max(0.0) + timeline_data.min_ns as f64;
-        let _view_end_f =
-            (scroll_offset_x + viewport_width / zoom_level).max(0.0) + timeline_data.min_ns as f64;
         // Build details column. Thread-root events are shown more compactly:
         // show only the thread id as the primary label. For all events show
         // Start/End/Duration. The debug "View (ns)" field was removed.
