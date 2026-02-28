@@ -71,7 +71,7 @@ fn register_file_extension_impl() -> Result<(), String> {
         let (cmd_key, _disp) = hkcu
             .create_subkey("Software\\Classes\\lineme.mm_profdata\\shell\\open\\command")
             .map_err(|e| format!("registry create failed: {}", e))?;
-        let cmd = format!("\"{}\" \"%1\"", exe_str.replace('/', "\\\\"));
+        let cmd = format!("\"{}\" \"%1\"", exe_str.replace('/', "\\"));
         cmd_key
             .set_value("", &cmd)
             .map_err(|e| format!("registry set failed: {}", e))?;
