@@ -439,7 +439,7 @@ impl Lineme {
                     let event_rel_end = event_rel_start.saturating_add(event.duration_ns);
 
                     // Add padding of 20% of event duration (10% on each side)
-                    let padding_ns = ((event.duration_ns as f32) * 0.2).round() as u64;
+                    let padding_ns = ((event.duration_ns as f64) * 0.2).round() as u64;
                     let half_pad = padding_ns / 2;
 
                     let start_ns = event_rel_start.saturating_sub(half_pad).min(total_ns);
