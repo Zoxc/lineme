@@ -89,10 +89,6 @@ pub fn clamp_scroll_offset_ns(
     scroll_offset_ns.clamp(0.0, max_start_ns)
 }
 
-pub fn ns_to_x(start_ns: u64, min_ns: u64, zoom_level: f64) -> f64 {
-    (start_ns.saturating_sub(min_ns) as f64) * zoom_level
-}
-
 pub fn duration_to_width(duration_ns: u64, zoom_level: f64) -> f64 {
     duration_ns as f64 * zoom_level
 }

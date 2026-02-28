@@ -145,18 +145,25 @@ impl<'a> EventsProgram<'a> {
     }
     fn find_event_at(&self, position: Point) -> Option<EventId> {
         let zoom_level = self.zoom_level.max(1e-9);
-        let scroll_offset_x_px = (self.scroll_offset_x * zoom_level) as f32;
-        let content_position = Point::new(
-            position.x + scroll_offset_x_px,
-            position.y + self.scroll_offset_y as f32,
-        );
+        let scroll_offset_x_ns = self.scroll_offset_x.max(0.0);
+
+        // Work in screen space: subtract the scroll offset in f64 *before*
+        // casting to f32 so we don't lose precision when zoomed in far (large
+        // content-space coordinates would exceed f32's ~7-digit mantissa).
+        let screen_x = |start_ns: u64| -> f32 {
+            let rel_ns = start_ns.saturating_sub(self.min_ns) as f64;
+            ((rel_ns - scroll_offset_x_ns) * zoom_level) as f32
+        };
+
+        // The mouse position is already in screen (canvas-local) space; only
+        // the vertical axis needs the content-space scroll adjustment.
+        let content_y = position.y as f64 + self.scroll_offset_y;
+
         let mut y_offset: f64 = 0.0;
         for group in self.thread_groups {
             let lane_total_height = group_total_height(group);
 
-            if (content_position.y as f64) >= y_offset
-                && (content_position.y as f64) < y_offset + lane_total_height
-            {
+            if content_y >= y_offset && content_y < y_offset + lane_total_height {
                 let (ns_min, ns_max) = crate::timeline::viewport_ns_range(
                     self.scroll_offset_x,
                     self.viewport_width,
@@ -187,10 +194,9 @@ impl<'a> EventsProgram<'a> {
                             if width < 1.0 {
                                 continue;
                             }
-                            let x =
-                                crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level)
-                                    as f32;
-                            let y = y_offset as f32 + depth as f32 * (LANE_HEIGHT as f32);
+                            let x = screen_x(event.start_ns);
+                            let y = (y_offset - self.scroll_offset_y) as f32
+                                + depth as f32 * (LANE_HEIGHT as f32);
                             let height = (LANE_HEIGHT - 2.0) as f32;
                             let rect = Rectangle {
                                 x,
@@ -198,7 +204,7 @@ impl<'a> EventsProgram<'a> {
                                 width: width.max(1.0),
                                 height,
                             };
-                            if rect.contains(content_position) {
+                            if rect.contains(position) {
                                 return Some(event_id);
                             }
                         }
@@ -229,10 +235,9 @@ impl<'a> EventsProgram<'a> {
                                 continue;
                             }
 
-                            let x =
-                                crate::timeline::ns_to_x(event.start_ns, self.min_ns, zoom_level)
-                                    as f32;
-                            let y = y_offset as f32 + depth as f32 * (LANE_HEIGHT as f32);
+                            let x = screen_x(event.start_ns);
+                            let y = (y_offset - self.scroll_offset_y) as f32
+                                + depth as f32 * (LANE_HEIGHT as f32);
                             let height = (LANE_HEIGHT - 2.0) as f32;
 
                             let rect = Rectangle {
@@ -242,7 +247,7 @@ impl<'a> EventsProgram<'a> {
                                 height,
                             };
 
-                            if rect.contains(content_position) {
+                            if rect.contains(position) {
                                 return Some(event_id);
                             }
                         }
