@@ -32,7 +32,6 @@ pub const EXPAND_ICON: char = '\u{002B}'; // '+' plus sign
 
 // Try to register the .mm_profdata extension to open with the current executable.
 // On Windows this writes under HKCU\Software\Classes so admin rights aren't required.
-#[allow(dead_code)]
 fn register_file_extension_impl() -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
