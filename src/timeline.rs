@@ -742,7 +742,7 @@ where
         renderer: &Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
-        _viewport: &Rectangle,
+        viewport: &Rectangle,
     ) {
         self.content.as_widget_mut().update(
             &mut tree.children[0],
@@ -752,7 +752,7 @@ where
             renderer,
             clipboard,
             shell,
-            _viewport,
+            viewport,
         );
 
         if let Event::Mouse(mouse::Event::WheelScrolled { .. }) = event {
