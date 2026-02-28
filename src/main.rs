@@ -451,6 +451,9 @@ impl Lineme {
                         stats.ui.zoom_level,
                     );
 
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
+
                     return Task::none();
                 }
             }
@@ -494,6 +497,10 @@ impl Lineme {
                         viewport_width,
                         stats.ui.zoom_level,
                     );
+
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
+
                     return Task::none();
                 }
             }
@@ -584,6 +591,9 @@ impl Lineme {
                         stats.ui.zoom_level,
                     );
 
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
+
                     return Task::none();
                 }
             }
@@ -621,6 +631,10 @@ impl Lineme {
                             viewport_width,
                             stats.ui.zoom_level,
                         );
+
+                        stats.ui.hovered_event = None;
+                        stats.ui.hovered_event_position = None;
+
                         return Task::none();
                     }
                 }
@@ -651,6 +665,9 @@ impl Lineme {
                         stats.ui.zoom_level,
                     );
 
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
+
                     return Task::none();
                 }
             }
@@ -667,6 +684,9 @@ impl Lineme {
                     let viewport_height = stats.ui.viewport_height.max(1.0);
                     let max_scroll_y = (total_height - viewport_height).max(0.0);
                     stats.ui.scroll_offset_y = scroll_y.clamp(0.0, max_scroll_y);
+
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
 
                     return Task::none();
                 }
@@ -701,6 +721,10 @@ impl Lineme {
                         viewport_width,
                         stats.ui.zoom_level,
                     );
+
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
+
                     return Task::none();
                 }
             }
@@ -732,6 +756,9 @@ impl Lineme {
                     stats.ui.scroll_offset_y =
                         (stats.ui.scroll_offset_y - delta.y as f64).clamp(0.0, max_scroll_y);
 
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
+
                     return Task::none();
                 }
             }
@@ -753,6 +780,10 @@ impl Lineme {
                     }
                     stats.ui.scroll_offset_x = 0.0_f64;
                     stats.ui.scroll_offset_y = 0.0_f64;
+
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
+
                     return Task::none();
                 }
             }
