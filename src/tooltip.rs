@@ -312,10 +312,9 @@ impl Overlay<crate::Message, Theme, Renderer> for TooltipOverlay<'_> {
         _cursor: mouse::Cursor,
     ) {
         let padding = self.style.padding;
-        let content_layout = layout
-            .children()
-            .next()
-            .expect("tooltip: Layout should have a content layout.");
+        let Some(content_layout) = layout.children().next() else {
+            return;
+        };
 
         let content_bounds = content_layout.bounds();
 
