@@ -706,12 +706,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 state.pressed_event = None;
                 state.dragging = false;
             }
-            iced::Event::Mouse(iced::mouse::Event::CursorMoved { .. }) => {
-                if let (
-                    Some(press_position),
-                    iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }),
-                ) = (state.press_position, event)
-                {
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                if let Some(press_position) = state.press_position {
                     let delta = *position - press_position;
                     if !state.dragging && delta.x.hypot(delta.y) > super::DRAG_THRESHOLD as f32 {
                         state.dragging = true;
