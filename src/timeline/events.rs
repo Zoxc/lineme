@@ -188,10 +188,10 @@ impl<'a> EventsProgram<'a> {
                                 continue;
                             }
                             let width = crate::timeline::duration_to_width(
-                                event.duration_ns.max(1),
+                                event.duration_ns,
                                 self.zoom_level,
                             ) as f32;
-                            if width < 1.0 {
+                            if width < 1.0 && event.duration_ns > 0 {
                                 continue;
                             }
                             let x = screen_x(event.start_ns);
@@ -228,10 +228,10 @@ impl<'a> EventsProgram<'a> {
                             }
 
                             let width = crate::timeline::duration_to_width(
-                                event.duration_ns.max(1),
+                                event.duration_ns,
                                 self.zoom_level,
                             ) as f32;
-                            if width < 1.0 {
+                            if width < 1.0 && event.duration_ns > 0 {
                                 continue;
                             }
 
@@ -397,14 +397,15 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         }
 
                         let width = crate::timeline::duration_to_width(
-                            event.duration_ns.max(1),
+                            event.duration_ns,
                             zoom_level,
                         ) as f32;
-                        if width < 1.0 {
+                        if width < 1.0 && event.duration_ns > 0 {
                             continue;
                         }
 
                         let x_screen = screen_x(event.start_ns);
+                        let width = width.max(1.0);
                         if viewport_width > 0.0
                             && ((x_screen + width) < 0.0 || (x_screen as f64) > viewport_width)
                         {
@@ -455,14 +456,15 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                         }
 
                         let width = crate::timeline::duration_to_width(
-                            event.duration_ns.max(1),
+                            event.duration_ns,
                             zoom_level,
                         ) as f32;
-                        if width < 1.0 {
+                        if width < 1.0 && event.duration_ns > 0 {
                             continue;
                         }
 
                         let x_screen = screen_x(event.start_ns);
+                        let width = width.max(1.0);
                         if viewport_width > 0.0
                             && ((x_screen + width) < 0.0 || (x_screen as f64) > viewport_width)
                         {
@@ -557,7 +559,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     && (!group.is_collapsed || hovered_depth == 0)
                 {
                     let width =
-                        crate::timeline::duration_to_width(hovered.duration_ns.max(1), zoom_level)
+                        crate::timeline::duration_to_width(hovered.duration_ns, zoom_level)
                             as f32;
                     let x_screen = screen_x(hovered.start_ns);
                     let y = y_offset as f32 - self.scroll_offset_y as f32
@@ -582,7 +584,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     && (!group.is_collapsed || selected_depth == 0)
                 {
                     let width =
-                        crate::timeline::duration_to_width(selected.duration_ns.max(1), zoom_level)
+                        crate::timeline::duration_to_width(selected.duration_ns, zoom_level)
                             as f32;
                     let x_screen = screen_x(selected.start_ns);
                     let y = y_offset as f32 - self.scroll_offset_y as f32
