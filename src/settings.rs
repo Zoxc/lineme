@@ -49,7 +49,8 @@ impl SettingsPage {
             ],
             row![
                 text("Mouse wheel:").width(Length::Fixed(160.0)).size(12),
-                text("Zoom horizontally centered on the cursor (hold Ctrl to bypass)").size(12)
+                text("Zoom horizontally centered on the cursor (hold Ctrl to scroll vertically)")
+                    .size(12)
             ],
             row![
                 text("Shift + mouse wheel:")
