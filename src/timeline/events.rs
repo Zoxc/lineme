@@ -359,7 +359,18 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         let y_min = self.scroll_offset_y;
         let y_max = self.scroll_offset_y + viewport_height;
 
-        for group in self.thread_groups {
+        // Pre-compute which group contains the hovered/selected events to avoid
+        // scanning all groups on every iteration.
+        let hovered_group_idx = state.hovered_event.and_then(|id| {
+            let tid = self.events[id.index()].thread_id;
+            self.thread_groups.iter().position(|g| super::group_contains_thread(g, tid))
+        });
+        let selected_group_idx = self.selected_event.and_then(|id| {
+            let tid = self.events[id.index()].thread_id;
+            self.thread_groups.iter().position(|g| super::group_contains_thread(g, tid))
+        });
+
+        for (group_idx, group) in self.thread_groups.iter().enumerate() {
             let lane_total_height = group_total_height(group);
 
             // Skip drawing if thread is completely outside vertical viewport
@@ -547,12 +558,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
             }
 
-            if let Some(hovered_id) = state.hovered_event {
+            if hovered_group_idx == Some(group_idx) {
+                let hovered_id = state.hovered_event.unwrap();
                 let hovered = &self.events[hovered_id.index()];
                 let hovered_depth = display_depth(group.show_thread_roots, hovered);
-                if super::group_contains_thread(group, hovered.thread_id)
-                    && (!group.is_collapsed || hovered_depth == 0)
-                {
+                if !group.is_collapsed || hovered_depth == 0 {
                     let width =
                         crate::timeline::duration_to_width(hovered.duration_ns, zoom_level)
                             as f32;
@@ -572,12 +582,11 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 }
             }
 
-            if let Some(selected_id) = self.selected_event {
+            if selected_group_idx == Some(group_idx) {
+                let selected_id = self.selected_event.unwrap();
                 let selected = &self.events[selected_id.index()];
                 let selected_depth = display_depth(group.show_thread_roots, selected);
-                if super::group_contains_thread(group, selected.thread_id)
-                    && (!group.is_collapsed || selected_depth == 0)
-                {
+                if !group.is_collapsed || selected_depth == 0 {
                     let width =
                         crate::timeline::duration_to_width(selected.duration_ns, zoom_level)
                             as f32;
