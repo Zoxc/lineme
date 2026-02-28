@@ -65,55 +65,39 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
                 frame.fill_rectangle(
                     Point::new(0.0, row_top),
                     Size::new(bounds.width, (LANE_HEIGHT + 2.0) as f32),
-                    Color::from_rgb(0.94, 0.94, 0.94),
+                    Color::from_rgb(0.95, 0.95, 0.95),
                 );
             }
 
             frame.stroke(
                 &canvas::Path::line(Point::new(0.0, row_top), Point::new(bounds.width, row_top)),
                 canvas::Stroke::default()
-                    .with_color(Color::from_rgb(0.9, 0.9, 0.9))
+                    .with_color(Color::from_rgb(0.92, 0.92, 0.92))
                     .with_width(1.0),
             );
 
             let icon = if group.is_collapsed { "▶" } else { "▼" };
-            let icon_box = Rectangle {
-                x: 6.0,
-                y: row_top + 3.0,
-                width: 14.0,
-                height: 14.0,
-            };
-
-            let icon_bg = if is_hovered {
-                Color::from_rgb(0.8, 0.86, 0.95)
+            let icon_color = if is_hovered {
+                Color::from_rgb(0.25, 0.25, 0.25)
             } else {
-                Color::from_rgb(0.92, 0.92, 0.92)
+                Color::from_rgb(0.5, 0.5, 0.5)
             };
-
-            frame.fill_rectangle(icon_box.position(), icon_box.size(), icon_bg);
-
-            frame.stroke(
-                &canvas::Path::rectangle(icon_box.position(), icon_box.size()),
-                canvas::Stroke::default()
-                    .with_color(Color::from_rgba(0.0, 0.0, 0.0, 0.2))
-                    .with_width(1.0),
-            );
 
             frame.fill_text(canvas::Text {
                 content: icon.to_string(),
-                position: Point::new(icon_box.x + 3.0, icon_box.y - 1.0),
-                color: Color::from_rgb(0.2, 0.2, 0.2),
-                size: 12.0.into(),
+                position: Point::new(8.0, row_top + 4.0),
+                color: icon_color,
+                size: 10.0.into(),
                 ..Default::default()
             });
 
             frame.fill_text(canvas::Text {
                 content: group_label(group),
-                position: Point::new(26.0, row_top + 5.0),
+                position: Point::new(22.0, row_top + 3.0),
                 color: if is_hovered {
-                    Color::from_rgb(0.1, 0.2, 0.35)
+                    Color::from_rgb(0.1, 0.1, 0.1)
                 } else {
-                    Color::from_rgb(0.2, 0.2, 0.2)
+                    Color::from_rgb(0.3, 0.3, 0.3)
                 },
                 size: 12.0.into(),
                 ..Default::default()
