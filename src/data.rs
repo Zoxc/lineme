@@ -224,14 +224,14 @@ impl Default for FileUi {
 }
 
 #[derive(Debug, Clone)]
-pub struct FileTab {
+pub struct ProfileData {
     pub data: FileData,
     // UI/state fields that are only meaningful once the file is loaded.
     pub ui: FileUi,
     pub load_duration_ns: Option<u64>,
 }
 
-pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
+pub fn load_profiling_data(path: &Path) -> Result<ProfileData, String> {
     let data = load_profiling_source(path)?;
     let metadata = data.metadata();
     let metadata_start_ns = metadata
@@ -273,7 +273,7 @@ pub fn load_profiling_data(path: &Path) -> Result<FileTab, String> {
     let thread_groups = build_thread_groups(&thread_data_vec);
     let merged_thread_groups = build_merged_thread_groups(&events, &thread_data_vec);
 
-    Ok(FileTab {
+    Ok(ProfileData {
         data: FileData {
             event_count: collected.event_count,
             cmd: metadata.cmd.clone(),

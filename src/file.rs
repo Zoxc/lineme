@@ -1,4 +1,4 @@
-use crate::data::FileTab as FileTabData;
+use crate::data::ProfileData;
 use crate::data::ThreadGroup;
 use std::path::PathBuf;
 
@@ -12,12 +12,12 @@ pub struct FileTab {
 #[derive(Debug, Clone)]
 pub enum FileLoadState {
     Loading,
-    Ready(Box<FileTabData>),
+    Ready(Box<ProfileData>),
     Error(String),
 }
 
 impl FileTab {
-    pub fn stats(&self) -> Option<&FileTabData> {
+    pub fn stats(&self) -> Option<&ProfileData> {
         match &self.load_state {
             FileLoadState::Ready(stats) => Some(stats.as_ref()),
             _ => None,

@@ -10,7 +10,7 @@ mod tooltip;
 mod ui;
 use crate::data::EventId;
 use crate::file::{FileLoadState, FileTab};
-use data::{FileTab as FileTabData, format_panic_payload, load_profiling_data};
+use data::{ProfileData, format_panic_payload, load_profiling_data};
 use iced::futures::channel::oneshot;
 use iced::widget::{Space, button, checkbox, column, container, pick_list, row, scrollable, text};
 use iced::{Alignment, Element, Length, Task};
@@ -157,7 +157,7 @@ enum Message {
     TabSelected(usize),
     OpenFile,
     FileSelected(PathBuf),
-    FileLoaded(u64, Box<FileTabData>, u64),
+    FileLoaded(u64, Box<ProfileData>, u64),
     FileLoadFailed(u64, String),
     ViewChanged(ViewType),
     ColorModeChanged(ColorMode),
