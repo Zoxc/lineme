@@ -1,10 +1,13 @@
 //! Shared helpers for computing nice time tick intervals and formatting labels.
 
 /// Choose a "nice" interval (power-of-ten multiplier) for a target ns interval.
+/// The result is a whole number of nanoseconds (at least 1 ns), so tick
+/// positions stay exact integers when summed as f64.
 pub fn nice_interval(ns_interval: f64) -> f64 {
     if !ns_interval.is_finite() || ns_interval <= 0.0 {
         return 0.0;
     }
+    let ns_interval = ns_interval.max(1.0);
 
     let log10 = ns_interval.log10().floor();
     let base = 10.0f64.powf(log10);
