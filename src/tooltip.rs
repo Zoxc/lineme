@@ -7,7 +7,7 @@ use iced::{
 };
 
 use iced::advanced::Overlay;
-use iced::overlay;
+use iced::advanced::overlay;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TooltipStyle {
@@ -199,29 +199,37 @@ impl<'a> Widget<crate::Message, Theme, Renderer> for Tooltip<'a> {
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, crate::Message, Theme, Renderer>> {
+        let [underlay_tree, content_tree] = &mut tree.children[..] else {
+            return None;
+        };
+
+        let underlay = self.underlay.as_widget_mut().overlay(
+            underlay_tree,
+            layout,
+            renderer,
+            viewport,
+            translation,
+        );
+
         if !self.show {
-            return self.underlay.as_widget_mut().overlay(
-                &mut tree.children[0],
-                layout,
-                renderer,
-                viewport,
-                translation,
-            );
+            return underlay;
         }
 
-        self.overlay_content
-            .as_widget_mut()
-            .diff(&mut tree.children[1]);
+        self.overlay_content.as_widget_mut().diff(content_tree);
 
+        let tooltip = TooltipOverlay::new(
+            self.position + translation,
+            self.offset,
+            self.style,
+            content_tree,
+            &mut self.overlay_content,
+        )
+        .overlay();
+
+        // Keep the underlay's overlays (e.g. open pick lists) alongside the tooltip.
         Some(
-            TooltipOverlay::new(
-                self.position + translation,
-                self.offset,
-                self.style,
-                &mut tree.children[1],
-                &mut self.overlay_content,
-            )
-            .overlay(),
+            overlay::Group::with_children(underlay.into_iter().chain([tooltip]).collect())
+                .overlay(),
         )
     }
 }
