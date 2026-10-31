@@ -368,12 +368,12 @@ fn collect_timeline_events(
     symbols: &mut crate::symbols::Symbols,
     metadata_start_ns: u64,
 ) -> CollectedEvents {
-    // Use ProfilingData::num_events() as a fast count for pre-allocation and
-    // for reporting event_count. This avoids walking the iterator twice.
-    let event_count: usize = data.num_events();
-    let mut events = Vec::with_capacity(event_count);
+    // ProfilingData::num_events() counts all raw events, so it is an upper
+    // bound on the number of interval events kept here.
+    let capacity: usize = data.num_events();
+    let mut events = Vec::with_capacity(capacity);
     let mut max_ns: u64 = 0;
-    let mut event_kinds: Vec<crate::symbols::Symbol> = Vec::with_capacity(event_count);
+    let mut event_kinds: Vec<crate::symbols::Symbol> = Vec::with_capacity(capacity);
 
     for lightweight_event in data.iter() {
         let event = data.to_full_event(&lightweight_event);
@@ -428,6 +428,8 @@ fn collect_timeline_events(
     }
 
     events.shrink_to_fit();
+    event_kinds.shrink_to_fit();
+    let event_count = events.len();
 
     CollectedEvents {
         events,
