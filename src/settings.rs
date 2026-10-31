@@ -71,6 +71,18 @@ impl SettingsPage {
                 text("Select a range to zoom the main view to").size(12)
             ],
             row![
+                text("Alt + Left / Right:")
+                    .width(Length::Fixed(160.0))
+                    .size(12),
+                text("Go back / forward in view history").size(12)
+            ],
+            row![
+                text("Mouse back / forward:")
+                    .width(Length::Fixed(160.0))
+                    .size(12),
+                text("Return to the view before / after a double click zoom").size(12)
+            ],
+            row![
                 text("Esc:").width(Length::Fixed(160.0)).size(12),
                 text("Reset the current view (zoom/scroll)").size(12)
             ],

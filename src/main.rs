@@ -28,6 +28,8 @@ const OPEN_ICON: char = '\u{e2c7}';
 const FILE_ICON: char = '\u{e873}';
 const RESET_ICON: char = '\u{e5d5}';
 const CLOSE_ICON: char = '\u{e5cd}';
+const BACK_ICON: char = '\u{e5c4}';
+const FORWARD_ICON: char = '\u{e5c8}';
 const CLOSE_ICON_SIZE: f32 = 16.0;
 const CLOSE_BUTTON_SIZE: f32 = 20.0;
 const TAB_HEIGHT: f32 = 28.0;
@@ -459,6 +461,26 @@ fn neutral_pick_list_style(
     }
 }
 
+fn toolbar_button_style(theme: &iced::Theme, status: button::Status) -> button::Style {
+    let palette = theme.extended_palette();
+    let base = button::Style {
+        text_color: palette.background.base.text,
+        border: crate::ui::rounded(),
+        ..Default::default()
+    };
+    match status {
+        button::Status::Hovered | button::Status::Pressed => button::Style {
+            background: Some(palette.background.weak.color.into()),
+            ..base
+        },
+        button::Status::Disabled => button::Style {
+            text_color: palette.background.strong.color,
+            ..base
+        },
+        _ => base,
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Message {
     TabSelected(usize),
@@ -508,6 +530,8 @@ enum Message {
         delta: iced::Vector,
     },
     ResetView,
+    NavigateBack,
+    NavigateForward,
     ToggleThreadCollapse(timeline::ThreadGroupKey),
     CollapseAllThreads,
     ExpandAllThreads,
@@ -570,6 +594,23 @@ impl Lineme {
                 key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
                 ..
             }) => Some(Message::ResetView),
+            // Alt + Left / Right navigates back / forward
+            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                key: iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft),
+                modifiers,
+                ..
+            }) if modifiers.alt() => Some(Message::NavigateBack),
+            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                key: iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight),
+                modifiers,
+                ..
+            }) if modifiers.alt() => Some(Message::NavigateForward),
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Back)) => {
+                Some(Message::NavigateBack)
+            }
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(
+                iced::mouse::Button::Forward,
+            )) => Some(Message::NavigateForward),
             iced::Event::Keyboard(_) => None,
             _ => None,
         })
@@ -760,6 +801,8 @@ impl Lineme {
                     let max_ns = stats.data.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns).max(1);
                     let viewport_width = stats.ui.viewport_width.max(1.0_f64);
+
+                    stats.ui.push_history();
 
                     let event_rel_start = event.start_ns.saturating_sub(min_ns);
                     let event_rel_end = event_rel_start.saturating_add(event.duration_ns);
@@ -1091,6 +1134,19 @@ impl Lineme {
                     stats.ui.hovered_event_position = None;
 
                     return Task::none();
+                }
+            }
+            Message::NavigateBack | Message::NavigateForward => {
+                if let Some(file) = self.files.get_mut(self.active_tab)
+                    && let FileLoadState::Ready(stats) = &mut file.load_state
+                {
+                    if matches!(message, Message::NavigateBack) {
+                        stats.ui.navigate_back();
+                    } else {
+                        stats.ui.navigate_forward();
+                    }
+                    stats.ui.hovered_event = None;
+                    stats.ui.hovered_event_position = None;
                 }
             }
             Message::ResetView => {
@@ -1483,6 +1539,25 @@ impl Lineme {
                                 .size(14)
                                 .text_size(12)
                                 .on_toggle(Message::MergeThreadsToggled),
+                            row![
+                                button(text(BACK_ICON).font(ICON_FONT))
+                                    .style(toolbar_button_style)
+                                    .padding(3)
+                                    .on_press_maybe(
+                                        file.stats()
+                                            .is_some_and(|s| !s.ui.back_history.is_empty())
+                                            .then_some(Message::NavigateBack),
+                                    ),
+                                button(text(FORWARD_ICON).font(ICON_FONT))
+                                    .style(toolbar_button_style)
+                                    .padding(3)
+                                    .on_press_maybe(
+                                        file.stats()
+                                            .is_some_and(|s| !s.ui.forward_history.is_empty())
+                                            .then_some(Message::NavigateForward),
+                                    ),
+                            ]
+                            .spacing(2),
                             button(
                                 row![
                                     text(RESET_ICON).font(ICON_FONT),
@@ -1491,23 +1566,7 @@ impl Lineme {
                                 .spacing(5)
                                 .align_y(Alignment::Center),
                             )
-                            .style(|theme: &iced::Theme, status: button::Status| {
-                                let palette = theme.extended_palette();
-                                let base = button::Style {
-                                    text_color: palette.background.base.text,
-                                    border: crate::ui::rounded(),
-                                    ..Default::default()
-                                };
-                                match status {
-                                    button::Status::Hovered | button::Status::Pressed => {
-                                        button::Style {
-                                            background: Some(palette.background.weak.color.into()),
-                                            ..base
-                                        }
-                                    }
-                                    _ => base,
-                                }
-                            })
+                            .style(toolbar_button_style)
                             .padding(3)
                             .on_press(Message::ResetView),
                         ]

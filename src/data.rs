@@ -202,6 +202,57 @@ pub struct FileUi {
     pub scroll_offset_y: f64,
     pub viewport_width: f64,
     pub viewport_height: f64,
+    /// Views to return to with back navigation (most recent last).
+    pub back_history: Vec<ViewSnapshot>,
+    /// Views to return to with forward navigation (most recent last).
+    pub forward_history: Vec<ViewSnapshot>,
+}
+
+/// Zoom and pan state saved for back / forward navigation.
+#[derive(Debug, Clone, Copy)]
+pub struct ViewSnapshot {
+    pub zoom_level: f64,
+    pub scroll_offset_x: f64,
+    pub scroll_offset_y: f64,
+}
+
+impl FileUi {
+    pub fn snapshot(&self) -> ViewSnapshot {
+        ViewSnapshot {
+            zoom_level: self.zoom_level,
+            scroll_offset_x: self.scroll_offset_x,
+            scroll_offset_y: self.scroll_offset_y,
+        }
+    }
+
+    pub fn restore(&mut self, snapshot: ViewSnapshot) {
+        self.zoom_level = snapshot.zoom_level;
+        self.scroll_offset_x = snapshot.scroll_offset_x;
+        self.scroll_offset_y = snapshot.scroll_offset_y;
+    }
+
+    /// Records the current view so it can be returned to with back navigation.
+    pub fn push_history(&mut self) {
+        let snapshot = self.snapshot();
+        self.back_history.push(snapshot);
+        self.forward_history.clear();
+    }
+
+    pub fn navigate_back(&mut self) {
+        if let Some(snapshot) = self.back_history.pop() {
+            let current = self.snapshot();
+            self.forward_history.push(current);
+            self.restore(snapshot);
+        }
+    }
+
+    pub fn navigate_forward(&mut self) {
+        if let Some(snapshot) = self.forward_history.pop() {
+            let current = self.snapshot();
+            self.back_history.push(current);
+            self.restore(snapshot);
+        }
+    }
 }
 
 impl Default for FileUi {
@@ -219,6 +270,8 @@ impl Default for FileUi {
             scroll_offset_y: 0.0_f64,
             viewport_width: 0.0_f64,
             viewport_height: 0.0_f64,
+            back_history: Vec::new(),
+            forward_history: Vec::new(),
         }
     }
 }
