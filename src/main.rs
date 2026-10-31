@@ -141,13 +141,21 @@ fn register_file_extension_linux() -> Result<(), String> {
     std::fs::write(&mime_path, mime_xml)
         .map_err(|e| format!("write {} failed: {}", mime_path.display(), e))?;
 
-    // Quote the executable path per the Desktop Entry spec.
+    // Quote the executable path per the Desktop Entry spec. String unescaping
+    // happens before argument quoting, so each quoting backslash is itself
+    // written escaped (a literal backslash becomes four backslashes), and `%`
+    // is doubled so it is not read as a field code.
     let mut quoted_exe = String::from("\"");
     for c in exe_str.chars() {
-        if matches!(c, '"' | '`' | '$' | '\\') {
-            quoted_exe.push('\\');
+        match c {
+            '"' | '`' | '$' => {
+                quoted_exe.push_str("\\\\");
+                quoted_exe.push(c);
+            }
+            '\\' => quoted_exe.push_str("\\\\\\\\"),
+            '%' => quoted_exe.push_str("%%"),
+            _ => quoted_exe.push(c),
         }
-        quoted_exe.push(c);
     }
     quoted_exe.push('"');
 
