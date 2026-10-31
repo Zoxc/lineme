@@ -6,12 +6,10 @@ mod ticks;
 
 use crate::Message;
 use crate::data::{EventId, ThreadGroup, ThreadGroupMipMapShadows, TimelineData, TimelineEvent};
-// Removed unused imports: kinds lookup uses are performed via passed-in `kinds`
-// and `symbols` variables; avoid importing Symbol/HashMap here.
 pub use crate::data::{ThreadGroupKey, thread_group_key};
 use intervaltree::IntervalTree;
 // Re-export ColorMode from the data module so other modules can import it via
-// `crate::timeline::ColorMode` (keeps existing import sites working).
+// `crate::timeline::ColorMode`.
 pub use crate::data::ColorMode;
 use crate::scrollbar;
 use events::EventsProgram;
@@ -35,12 +33,6 @@ pub const EVENT_LEFT_PADDING: f64 = 2.0_f64;
 pub const SCROLLBAR_THICKNESS: f32 = 18.0;
 pub const SCROLLBAR_CORNER_GAP: f32 = 6.0;
 
-// `UnalignedU64` moved to `src/data.rs` so that the profiling data types
-// can be defined without depending on the timeline module.
-
-// The `Events` wrapper type has moved to `src/data.rs` to keep event data
-// colocated with file-loading logic. It's imported at the top of this file.
-
 pub fn color_from_label(label: &str) -> Color {
     let mut hash = 0u64;
     for c in label.chars() {
@@ -55,13 +47,6 @@ pub fn color_from_label(label: &str) -> Color {
     Color::from_rgb(0.6 + r * 0.3, 0.6 + g * 0.3, 0.6 + b * 0.3)
 }
 
-// Previously we used a small fixed palette and hashing. Instead we assign
-// hues evenly around the color wheel based on the number of distinct event
-// kinds. The actual mapping from kind -> color is built during data loading
-// in `src/data.rs` and stored on each `TimelineEvent`.
-
-// Convert HSL to RGB Color. Hue is in degrees [0,360), s and l are [0,1].
-// color_from_hsl is provided by `data.rs` and re-exported above.
 pub fn total_timeline_height(thread_groups: &[ThreadGroup]) -> f64 {
     let mut total_height = 0.0_f64;
     for group in thread_groups {
@@ -401,8 +386,8 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
     // canvas state persists and the first double-click works as expected.
     let details_panel: Element<'a, Message> = if let Some(event) = display_event {
         // Build details column. Thread-root events are shown more compactly:
-        // show only the thread id as the primary label. For all events show
-        // Start/End/Duration. The debug "View (ns)" field was removed.
+        // show only the thread id. Other events show label, kind, thread and
+        // Start/End/Duration.
         let mut details_col = column![];
 
         if event.is_thread_root {
@@ -456,8 +441,6 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
                     text("Duration:").width(Length::Fixed(80.0)).size(12),
                     text(format_duration(event.duration_ns)).size(12)
                 ]);
-
-            // Ensure additional fields are shown below for non-thread-root events.
         }
 
         details_col = details_col.spacing(5).padding(10);
@@ -488,7 +471,7 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
                     let palette = theme.extended_palette();
                     container::Style::default().background(palette.background.strong.color)
                 }),
-            // Details content grows to fit (no fixed height) so debug rows are visible
+            // Details content grows to fit (no fixed height)
             details_col,
         ])
         .width(Length::Fill)
@@ -523,8 +506,6 @@ fn group_contains_thread(group: &ThreadGroup, thread_id: u32) -> bool {
         .iter()
         .any(|thread| thread.thread_id == thread_id)
 }
-
-// display_depth is provided by `data.rs` and re-exported via `crate::data`.
 
 pub struct WheelCatcher<'a, Message, Theme, Renderer> {
     content: Element<'a, Message, Theme, Renderer>,
