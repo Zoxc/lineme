@@ -273,7 +273,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
-        // Draw the events base layer. Tooltip is a separate widget overlay now.
+        // Draw the events base layer.
         let mut base_frame = canvas::Frame::new(renderer, bounds.size());
 
         if self.thread_groups.is_empty() {
@@ -611,8 +611,6 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
             y_offset += lane_total_height + super::LANE_SPACING;
         }
-
-        // Tooltip is now a widget overlay (see `src/tooltip.rs`).
 
         // Draw right-button selection rectangle (above base)
         if state.selecting_right {

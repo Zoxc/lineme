@@ -197,10 +197,8 @@ impl Program<Message> for MiniTimelineProgram {
                     state.selection_end = None;
                     return Some(Action::publish(Message::MiniTimelineJump {
                         fraction,
-                        // Use the actual viewport width when available; otherwise fall back
-                        // to the mini timeline's width. Using `max(events_width)` here
-                        // previously forced the viewport width up to the mini timeline
-                        // width which prevented panning/zooming to the true end.
+                        // Use the actual viewport width so panning can reach the true
+                        // end of the timeline.
                         viewport_width,
                     }));
                 }

@@ -91,8 +91,6 @@ impl Program<Message> for HeaderProgram {
             let ns_remainder = ns_total % 1_000_000_000;
             let ms = ns_remainder / 1_000_000;
             let us_remainder = ns_remainder % 1_000_000;
-            // us value (integer microseconds) intentionally unused; keep us_remainder
-            // for fractional microsecond display below.
 
             // Layer 1 (top): Seconds (display as MM:SS)
             // Use slightly smaller top padding and larger font to fit 55px total height.
