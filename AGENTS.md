@@ -50,7 +50,7 @@ This document provides context and guidelines for AI agents working on the `line
 
 ## Timeline Features
 - **Visualization:** Multi-threaded timeline view using a custom `iced` Canvas program.
-    - **Optimization:** Skip drawing and interaction for events smaller than 5 pixels (calculated using zoom level) to improve performance.
+    - **Optimization:** Skip drawing and interaction for events narrower than 1 pixel (calculated using zoom level) to improve performance. Labels are only drawn on events wider than 5 pixels.
     - **Mipmaps:** Thread groups precompute log2 duration buckets with per-level event lists and sorted indices; levels too small to reach 1px are skipped when zoomed out.
 - **Mini Timeline:** Always-visible overview above the main timeline. It does not scroll or zoom and shows the full timeline range.
     - **Viewport Indicator:** The current main timeline view is highlighted on the mini timeline.
