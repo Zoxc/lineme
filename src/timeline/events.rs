@@ -108,6 +108,7 @@ pub struct EventsProgram<'a> {
     pub max_ns: u64,
     pub zoom_level: f64,
     pub selected_event: Option<EventId>,
+    pub hovered_event: Option<EventId>,
     pub scroll_offset_x: f64,
     pub scroll_offset_y: f64,
     pub viewport_width: f64,
@@ -363,7 +364,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
 
         // Pre-compute which group contains the hovered/selected events to avoid
         // scanning all groups on every iteration.
-        let hovered_group_idx = state.hovered_event.and_then(|id| {
+        let hovered_group_idx = self.hovered_event.and_then(|id| {
             let tid = self.events[id.index()].thread_id;
             self.thread_groups.iter().position(|g| super::group_contains_thread(g, tid))
         });
@@ -561,7 +562,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
 
             if hovered_group_idx == Some(group_idx) {
-                let hovered_id = state.hovered_event.unwrap();
+                let hovered_id = self.hovered_event.unwrap();
                 let hovered = &self.events[hovered_id.index()];
                 let hovered_depth = display_depth(group.show_thread_roots, hovered);
                 if !group.is_collapsed || hovered_depth == 0 {

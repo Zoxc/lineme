@@ -1797,6 +1797,7 @@ impl Lineme {
                 kinds: &stats.data.kinds,
                 zoom_level: stats.ui.zoom_level,
                 selected_event: &stats.ui.selected_event,
+                hovered_event: stats.ui.hovered_event,
                 scroll_offset_x: stats.ui.scroll_offset_x,
                 scroll_offset_y: stats.ui.scroll_offset_y,
                 viewport_width: stats.ui.viewport_width,
