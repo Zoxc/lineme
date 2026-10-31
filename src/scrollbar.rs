@@ -117,7 +117,6 @@ where
 struct ScrollbarState {
     dragging: bool,
     drag_offset: f64,
-    last_position: Option<Point>,
 }
 
 struct ScrollbarProgram<'a, Message> {
@@ -294,10 +293,6 @@ impl<'a, Message> Program<Message> for ScrollbarProgram<'a, Message> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<Action<Message>> {
-        if let Some(position) = cursor.position() {
-            state.last_position = Some(position);
-        }
-
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let position = cursor.position()?;
@@ -332,16 +327,6 @@ impl<'a, Message> Program<Message> for ScrollbarProgram<'a, Message> {
                 }
             }
             _ => {}
-        }
-
-        if state.dragging
-            && let Some(position) = state.last_position
-        {
-            let clamped = self.clamp_local_position(bounds, position);
-            let local = clamped - Vector::new(bounds.x, bounds.y);
-            let value =
-                self.value_from_local_axis(bounds, self.local_axis(local) - state.drag_offset);
-            return Some(Action::publish((self.on_change)(value)).and_capture());
         }
 
         None
