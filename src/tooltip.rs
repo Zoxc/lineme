@@ -82,8 +82,6 @@ impl<'a> Tooltip<'a> {
         self.position = position;
         self
     }
-
-    // Keep these as private for now; we can expose them once we have a use.
 }
 
 impl<'a> Widget<crate::Message, Theme, Renderer> for Tooltip<'a> {
