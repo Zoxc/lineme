@@ -777,55 +777,42 @@ impl<'a> Program<Message> for EventsProgram<'a> {
             }
             iced::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
                 if let Some(position) = cursor.position_in(bounds) {
-                    // Shift + wheel: pan horizontally
+                    // Map wheel "lines" to pixels for a comfortable pan speed;
+                    // pixel deltas are already in pixels.
+                    let (dx, dy) = match delta {
+                        iced::mouse::ScrollDelta::Lines { x, y } => (*x * 30.0, *y * 30.0),
+                        iced::mouse::ScrollDelta::Pixels { x, y } => (*x, *y),
+                    };
+                    let pan = |delta: Vector| {
+                        Some(
+                            canvas::Action::publish(Message::TimelinePanned { delta })
+                                .and_capture(),
+                        )
+                    };
                     if state.modifiers.shift() {
-                        match delta {
-                            iced::mouse::ScrollDelta::Lines { x: _, y }
-                            | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
-                                if y.abs() > 0.0 {
-                                    // Map wheel "lines" to pixels for a comfortable pan speed
-                                    let scroll_amount = *y * 30.0;
-                                    return Some(
-                                        canvas::Action::publish(Message::TimelinePanned {
-                                            delta: Vector::new(scroll_amount, 0.0),
-                                        })
-                                        .and_capture(),
-                                    );
-                                }
-                            }
+                        // Shift + wheel: pan horizontally. Some platforms send
+                        // Shift + wheel as a horizontal delta.
+                        let amount = dx + dy;
+                        if amount.abs() > 0.0 {
+                            return pan(Vector::new(amount, 0.0));
                         }
                     } else if state.modifiers.control() {
-                        match delta {
-                            iced::mouse::ScrollDelta::Lines { x: _, y }
-                            | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
-                                if y.abs() > 0.0 {
-                                    let scroll_amount = *y * 30.0;
-                                    return Some(
-                                        canvas::Action::publish(Message::TimelinePanned {
-                                            delta: Vector::new(0.0, scroll_amount),
-                                        })
-                                        .and_capture(),
-                                    );
-                                }
-                            }
+                        if dx.abs() > 0.0 || dy.abs() > 0.0 {
+                            return pan(Vector::new(dx, dy));
                         }
-                    } else {
-                        match delta {
-                            iced::mouse::ScrollDelta::Lines { x: _, y }
-                            | iced::mouse::ScrollDelta::Pixels { x: _, y } => {
-                                if y.abs() > 0.0 {
-                                    let viewport_width = self.viewport_width.max(0.0);
-                                    let cursor_x = (position.x as f64).clamp(0.0, viewport_width);
-                                    return Some(
-                                        canvas::Action::publish(Message::TimelineZoomed {
-                                            delta: *y,
-                                            x: cursor_x as f32,
-                                        })
-                                        .and_capture(),
-                                    );
-                                }
-                            }
-                        }
+                    } else if dx.abs() > dy.abs() {
+                        // Horizontal wheel / touchpad gesture: pan horizontally
+                        return pan(Vector::new(dx, 0.0));
+                    } else if dy.abs() > 0.0 {
+                        let viewport_width = self.viewport_width.max(0.0);
+                        let cursor_x = (position.x as f64).clamp(0.0, viewport_width);
+                        return Some(
+                            canvas::Action::publish(Message::TimelineZoomed {
+                                delta: dy,
+                                x: cursor_x as f32,
+                            })
+                            .and_capture(),
+                        );
                     }
                 }
             }
