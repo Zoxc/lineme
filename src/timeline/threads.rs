@@ -123,6 +123,7 @@ impl<'a> Program<Message> for ThreadsProgram<'a> {
 
             if state.hovered_group != hovered {
                 state.hovered_group = hovered;
+                return Some(Action::request_redraw());
             }
         }
 
