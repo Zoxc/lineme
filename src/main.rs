@@ -714,13 +714,12 @@ impl Lineme {
                 }
             }
             Message::ColorModeChanged(color_mode) => {
-                if let Some(file) = self.files.get_mut(self.active_tab) {
-                    match &mut file.load_state {
-                        FileLoadState::Ready(stats) => stats.ui.color_mode = color_mode,
-                        _ => {
-                            // Keep color_mode in the UI until file loads; nothing to do here
-                        }
-                    }
+                // The color mode is stored per loaded file; changes made while
+                // the file is still loading are ignored.
+                if let Some(file) = self.files.get_mut(self.active_tab)
+                    && let FileLoadState::Ready(stats) = &mut file.load_state
+                {
+                    stats.ui.color_mode = color_mode;
                 }
             }
             Message::CloseTab(index) => {
@@ -778,21 +777,11 @@ impl Lineme {
                 self.show_settings = true;
             }
             Message::EventSelected(event) => {
-                if let Some(file) = self.files.get_mut(self.active_tab) {
-                    match &mut file.load_state {
-                        FileLoadState::Ready(stats) => {
-                            let was_empty = stats.ui.selected_event.is_none();
-                            stats.ui.selected_event = Some(event);
-                            if was_empty {
-                                return Task::none();
-                            }
-                        }
-                        _ => {
-                            // Selection applies only after load; store temporarily on the
-                            // load thread if necessary. For now, discard selection if not
-                            // yet loaded.
-                        }
-                    }
+                // Selection applies only to loaded files.
+                if let Some(file) = self.files.get_mut(self.active_tab)
+                    && let FileLoadState::Ready(stats) = &mut file.load_state
+                {
+                    stats.ui.selected_event = Some(event);
                 }
             }
             Message::EventDoubleClicked(event) => {
@@ -1553,7 +1542,8 @@ impl Lineme {
                     Element::from(
                         row![
                             text("Color by:").size(12),
-                            // When file is loaded the pick_list reads color mode from Stats.
+                            // The pick_list reads the color mode from Stats once the
+                            // file is loaded and shows no selection while loading.
                             pick_list(
                                 &ColorMode::ALL[..],
                                 file.stats().map(|s| s.ui.color_mode),
