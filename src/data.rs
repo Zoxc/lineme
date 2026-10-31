@@ -1,27 +1,3 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct UnalignedU64([u8; 8]);
-
-impl UnalignedU64 {
-    pub fn new(v: u64) -> Self {
-        Self(v.to_le_bytes())
-    }
-
-    pub fn get(&self) -> u64 {
-        u64::from_le_bytes(self.0)
-    }
-}
-
-impl From<u64> for UnalignedU64 {
-    fn from(v: u64) -> Self {
-        UnalignedU64::new(v)
-    }
-}
-
-impl From<UnalignedU64> for u64 {
-    fn from(v: UnalignedU64) -> Self {
-        v.get()
-    }
-}
 use analyzeme::ProfilingData;
 use iced::Color;
 use intervaltree::IntervalTree;
@@ -121,7 +97,6 @@ pub struct ThreadData {
     pub max_depth: u32,
 }
 
-// Event-related types are defined below in this file.
 pub type ThreadGroupId = Arc<Vec<Arc<ThreadData>>>;
 pub type ThreadGroupKey = usize;
 
@@ -420,8 +395,8 @@ fn collect_timeline_events(
                 kind_index: 0u16,
                 additional_data,
                 payload_integer: event.payload.integer(),
-                // No per-event color stored any more; colors are looked up from
-                // `FileData::kind_color_map` at render time.
+                // Colors are looked up from `FileData::kinds` via `kind_index`
+                // at render time.
                 is_thread_root: false,
             });
         }
@@ -438,9 +413,6 @@ fn collect_timeline_events(
         event_count,
     }
 }
-
-// Legacy helper retained for compatibility with older code paths. New code
-// uses `build_kind_table` which produces a Vec<KindInfo> and a map.
 
 // Build a compact Vec of distinct kinds with assigned colors and a map from
 // kind Symbol -> index in that Vec. Returned Vec order is deterministic.
@@ -471,9 +443,6 @@ fn build_kind_table(
 
     (vec, map)
 }
-
-// `apply_kind_colors` removed: we no longer store per-event colors. Keep no
-// dead-code helpers around.
 
 fn build_threads_index(events: &[TimelineEvent]) -> HashMap<u32, Vec<EventId>> {
     let mut threads: HashMap<u32, Vec<EventId>> = HashMap::new();
@@ -798,15 +767,6 @@ pub fn format_panic_payload(payload: Box<dyn std::any::Any + Send>) -> String {
         "Loading thread panicked with unknown payload".to_string()
     }
 }
-
-// Small helper used during initial event creation before kind colors are
-// computed. We return a neutral grey as a placeholder — the real colors are
-// applied later in `apply_kind_colors`.
-// Small placeholder color used briefly during initial event collection.
-// It is intentionally inlined where necessary; keep the helper removed to
-// avoid an unused function warning.
-
-// helper `event_end_ns` was removed in favor of using event fields directly.
 
 fn build_event_indices(
     events: &[TimelineEvent],
