@@ -8,7 +8,6 @@ This document provides context and guidelines for AI agents working on the `line
 ## Tech Stack
 - **Language:** Rust (Edition 2024)
 - **GUI Framework:** [iced](https://github.com/iced-rs/iced) (v0.14)
-- **UI Components:** [iced_aw](https://github.com/iced-rs/iced_aw) (Tabs widget)
 - **Profiling Data:** [analyzeme](https://github.com/rust-lang/measureme) (Standard reader for `measureme` files)
 - **File Dialogs:** [rfd](https://github.com/PolyFrog/rfd) (Async native dialogs)
 
@@ -19,7 +18,7 @@ This document provides context and guidelines for AI agents working on the `line
 - **Async Operations:** File loading and dialogs are handled via `iced::Task`.
 
 ## File Overview
-- `src/main.rs`: Main application entry point, state management (Elm Architecture), and tab management.
+- `src/main.rs`: Main application entry point, state management (Elm Architecture), and tab management (custom tab bar built from buttons).
 - `src/scrollbar.rs`: Custom canvas-based scrollbar component (unconnected, f64-based).
 - `src/timeline.rs`: Core timeline visualization logic, including event details and coordinate mapping.
 - `src/timeline/header.rs`: Renders the time axis and markers at the top of the timeline.
@@ -33,6 +32,8 @@ This document provides context and guidelines for AI agents working on the `line
 - `src/ui.rs`: Small UI helper utilities.
 - `src/timeline/events.rs`: Canvas program for drawing timeline events, handling hover/selection and scrolling.
 - `src/timeline/ticks.rs`: Shared helpers for computing nice time tick intervals and formatting labels.
+- `build.rs`: Embeds the Windows icon and version resources (`assets/lineme.rc`).
+- `assets/`: App and file icons (`lineme-*.svg` incl. 16x16 variants, `app.ico`, `file.ico`, `lineme-app-16.rgba` Linux window icon), Windows resource script and fonts.
 
 ## Development Guidelines for Agents
 - **Update File Overview:** If you create, rename, or significantly change the responsibility of a file, update the "File Overview" section above.

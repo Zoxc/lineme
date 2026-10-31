@@ -12,9 +12,10 @@ use crate::data::EventId;
 use crate::file::{FileLoadState, FileTab};
 use data::{ProfileData, format_panic_payload, load_profiling_data};
 use iced::futures::channel::oneshot;
-use iced::widget::{Space, button, checkbox, column, container, pick_list, row, scrollable, text};
+use iced::widget::{
+    Space, button, checkbox, column, container, pick_list, row, scrollable, svg, text,
+};
 use iced::{Alignment, Element, Length, Task};
-use iced_aw::{TabLabel, tab_bar};
 use settings::{SettingsMessage, SettingsPage};
 use std::path::PathBuf;
 use std::thread;
@@ -26,13 +27,16 @@ const SETTINGS_ICON: char = '\u{e8b8}';
 const OPEN_ICON: char = '\u{e2c7}';
 const FILE_ICON: char = '\u{e873}';
 const RESET_ICON: char = '\u{e5d5}';
+const CLOSE_ICON: char = '\u{e5cd}';
+const CLOSE_ICON_SIZE: f32 = 16.0;
+const CLOSE_BUTTON_SIZE: f32 = 20.0;
+const TAB_HEIGHT: f32 = 28.0;
 
 // Try to register the .mm_profdata extension to open with the current executable.
 // On Windows this writes under HKCU\Software\Classes so admin rights aren't required.
 fn register_file_extension_impl() -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        use std::path::PathBuf;
         use winreg::RegKey;
         use winreg::enums::*;
 
@@ -60,8 +64,13 @@ fn register_file_extension_impl() -> Result<(), String> {
             .set_value("", &"LineMe measureme profdata")
             .map_err(|e| format!("registry set failed: {}", e))?;
 
-        // Default icon (optional)
-        let _ = hkcu.create_subkey("Software\\Classes\\lineme.mm_profdata\\DefaultIcon");
+        // Default icon: the file icon embedded as the second icon resource in the exe
+        let (icon_key, _disp) = hkcu
+            .create_subkey("Software\\Classes\\lineme.mm_profdata\\DefaultIcon")
+            .map_err(|e| format!("registry create failed: {}", e))?;
+        icon_key
+            .set_value("", &format!("\"{}\",1", exe_str.replace('/', "\\")))
+            .map_err(|e| format!("registry set failed: {}", e))?;
 
         // command to open files
         let (cmd_key, _disp) = hkcu
@@ -75,9 +84,303 @@ fn register_file_extension_impl() -> Result<(), String> {
         Ok(())
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
-        Err("Registering file extensions is only supported on Windows".to_string())
+        register_file_extension_linux()
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        Err("Registering file extensions is not supported on this platform".to_string())
+    }
+}
+
+// On Linux this installs a shared-mime-info type and a .desktop entry under the
+// user's XDG data directory, then sets lineme as the default handler. This works
+// with Dolphin/KDE as well as other XDG-compliant file managers.
+#[cfg(target_os = "linux")]
+fn register_file_extension_linux() -> Result<(), String> {
+    use std::process::Command;
+
+    const MIME_TYPE: &str = "application/x-mm-profdata";
+    const DESKTOP_FILE: &str = "lineme.desktop";
+
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {}", e))?;
+    let exe_str = exe
+        .to_str()
+        .ok_or_else(|| "Executable path contains invalid UTF-8".to_string())?;
+
+    let data_home = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .ok_or_else(|| "Could not determine XDG data directory".to_string())?;
+
+    let mime_dir = data_home.join("mime");
+    let mime_packages = mime_dir.join("packages");
+    let apps_dir = data_home.join("applications");
+    std::fs::create_dir_all(&mime_packages)
+        .map_err(|e| format!("create {} failed: {}", mime_packages.display(), e))?;
+    std::fs::create_dir_all(&apps_dir)
+        .map_err(|e| format!("create {} failed: {}", apps_dir.display(), e))?;
+
+    let mime_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="{MIME_TYPE}">
+    <comment>measureme profiling data</comment>
+    <icon name="application-x-mm-profdata"/>
+    <glob pattern="*.mm_profdata"/>
+  </mime-type>
+</mime-info>
+"#
+    );
+    let mime_path = mime_packages.join("lineme.xml");
+    std::fs::write(&mime_path, mime_xml)
+        .map_err(|e| format!("write {} failed: {}", mime_path.display(), e))?;
+
+    // Quote the executable path per the Desktop Entry spec.
+    let mut quoted_exe = String::from("\"");
+    for c in exe_str.chars() {
+        if matches!(c, '"' | '`' | '$' | '\\') {
+            quoted_exe.push('\\');
+        }
+        quoted_exe.push(c);
+    }
+    quoted_exe.push('"');
+
+    let desktop = format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=LineMe\n\
+         Comment=measureme profile viewer\n\
+         Icon=lineme\n\
+         Exec={quoted_exe} %f\n\
+         Terminal=false\n\
+         NoDisplay=false\n\
+         Categories=Development;Profiling;\n\
+         MimeType={MIME_TYPE};\n"
+    );
+    let desktop_path = apps_dir.join(DESKTOP_FILE);
+    std::fs::write(&desktop_path, desktop)
+        .map_err(|e| format!("write {} failed: {}", desktop_path.display(), e))?;
+
+    // Install app and file type icons into the hicolor theme.
+    let icons_dir = data_home.join("icons/hicolor");
+    // The 16x16 SVGs are pixel-aligned so they stay sharp at small sizes.
+    let icons: [(&str, &str, &[u8]); 4] = [
+        ("scalable/apps", "lineme.svg", include_bytes!("../assets/lineme-app.svg")),
+        ("16x16/apps", "lineme.svg", include_bytes!("../assets/lineme-app-16.svg")),
+        (
+            "scalable/mimetypes",
+            "application-x-mm-profdata.svg",
+            include_bytes!("../assets/lineme-file.svg"),
+        ),
+        (
+            "16x16/mimetypes",
+            "application-x-mm-profdata.svg",
+            include_bytes!("../assets/lineme-file-16.svg"),
+        ),
+    ];
+    // Remove PNG icons installed by earlier versions, they would take precedence.
+    for size in [16, 22, 24, 32, 48] {
+        let dir = icons_dir.join(format!("{size}x{size}"));
+        let _ = std::fs::remove_file(dir.join("apps/lineme.png"));
+        let _ = std::fs::remove_file(dir.join("mimetypes/application-x-mm-profdata.png"));
+    }
+    for (subdir, name, data) in icons {
+        let dir = icons_dir.join(subdir);
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("create {} failed: {}", dir.display(), e))?;
+        let path = dir.join(name);
+        std::fs::write(&path, data).map_err(|e| format!("write {} failed: {}", path.display(), e))?;
+    }
+
+    let run = |cmd: &str, args: &[&std::ffi::OsStr]| -> Result<(), String> {
+        let status = Command::new(cmd)
+            .args(args)
+            .status()
+            .map_err(|e| format!("{} failed: {}", cmd, e))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("{} exited with {}", cmd, status))
+        }
+    };
+
+    run("update-mime-database", &[mime_dir.as_os_str()])?;
+    // Refreshing the desktop database is best-effort; it is not installed everywhere.
+    let _ = run("update-desktop-database", &[apps_dir.as_os_str()]);
+    let _ = run(
+        "gtk-update-icon-cache",
+        &["-f".as_ref(), "-t".as_ref(), icons_dir.as_os_str()],
+    );
+    // Set lineme as the default handler. This is what `xdg-mime default` does, but
+    // that needs `qtpaths` on KDE which isn't always installed.
+    let config_home = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .ok_or_else(|| "Could not determine XDG config directory".to_string())?;
+    std::fs::create_dir_all(&config_home)
+        .map_err(|e| format!("create {} failed: {}", config_home.display(), e))?;
+    let mimeapps_path = config_home.join("mimeapps.list");
+    let mimeapps = match std::fs::read_to_string(&mimeapps_path) {
+        Ok(contents) => contents,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("read {} failed: {}", mimeapps_path.display(), e)),
+    };
+    let mimeapps = set_ini_value(
+        &mimeapps,
+        "Default Applications",
+        MIME_TYPE,
+        DESKTOP_FILE,
+    );
+    std::fs::write(&mimeapps_path, mimeapps)
+        .map_err(|e| format!("write {} failed: {}", mimeapps_path.display(), e))?;
+    // KDE caches rendered icons; drop the cache so updated icons are used.
+    let cache_home = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")));
+    if let Some(cache_home) = cache_home {
+        let _ = std::fs::remove_file(cache_home.join("icon-cache.kcache"));
+    }
+    // Rebuild the KDE service cache so Dolphin picks up the change immediately.
+    if run("kbuildsycoca6", &[]).is_err() {
+        let _ = run("kbuildsycoca5", &[]);
+    }
+    // Tell running KDE apps (Dolphin, KWin) to reload their icons.
+    let _ = run(
+        "dbus-send",
+        &[
+            "--session".as_ref(),
+            "--type=signal".as_ref(),
+            "/KIconLoader".as_ref(),
+            "org.kde.KIconLoader.iconChanged".as_ref(),
+            "int32:0".as_ref(),
+        ],
+    );
+    let _ = run(
+        "dbus-send",
+        &[
+            "--session".as_ref(),
+            "--type=signal".as_ref(),
+            "/KGlobalSettings".as_ref(),
+            "org.kde.KGlobalSettings.notifyChange".as_ref(),
+            // KGlobalSettings::IconChanged
+            "int32:4".as_ref(),
+            "int32:0".as_ref(),
+        ],
+    );
+
+    Ok(())
+}
+
+fn window_settings() -> iced::window::Settings {
+    // On Linux the window icon is only used for small title bar icons (the taskbar
+    // uses the .desktop icon), so use the pixel-snapped 16x16 variant there.
+    // Windows loads the icons from the exe resources instead, see `set_windows_icons`.
+    #[cfg(target_os = "linux")]
+    let icon = iced::window::icon::from_rgba(
+        include_bytes!("../assets/lineme-app-16.rgba").to_vec(),
+        16,
+        16,
+    )
+    .ok();
+    #[cfg(not(target_os = "linux"))]
+    let icon = None;
+
+    iced::window::Settings {
+        icon,
+        #[cfg(target_os = "linux")]
+        platform_specific: iced::window::settings::PlatformSpecific {
+            // Must match the .desktop file basename so the desktop picks up its icon.
+            application_id: "lineme".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+// Sets `key=value` in `[section]` of an INI style file, replacing an existing entry
+// for `key` and creating the section if needed. Other content is kept as is.
+#[cfg(target_os = "linux")]
+fn set_ini_value(contents: &str, section: &str, key: &str, value: &str) -> String {
+    let header = format!("[{section}]");
+    let entry = format!("{key}={value}");
+    let mut lines: Vec<String> = contents.lines().map(str::to_string).collect();
+
+    let Some(start) = lines.iter().position(|l| l.trim() == header) else {
+        if lines.last().is_some_and(|l| !l.trim().is_empty()) {
+            lines.push(String::new());
+        }
+        lines.push(header);
+        lines.push(entry);
+        return lines.join("\n") + "\n";
+    };
+    let end = lines[start + 1..]
+        .iter()
+        .position(|l| l.trim_start().starts_with('['))
+        .map_or(lines.len(), |i| start + 1 + i);
+
+    let existing = lines[start + 1..end].iter().position(|l| {
+        l.split_once('=')
+            .is_some_and(|(k, _)| k.trim() == key)
+    });
+    match existing {
+        Some(i) => lines[start + 1 + i] = entry,
+        None => {
+            // Insert after the last non-empty line of the section.
+            let insert = lines[start + 1..end]
+                .iter()
+                .rposition(|l| !l.trim().is_empty())
+                .map_or(start + 1, |i| start + 2 + i);
+            lines.insert(insert, entry);
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+// Sets the small (title bar) and big (taskbar, Alt+Tab) window icons from the ICO
+// embedded in the exe, so Windows picks the best matching size from it.
+#[cfg(target_os = "windows")]
+fn set_windows_icons(window: &dyn iced::window::Window) {
+    use raw_window_handle::RawWindowHandle;
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, ICON_BIG, ICON_SMALL, IMAGE_ICON, LoadImageW, SM_CXICON, SM_CXSMICON,
+        SM_CYICON, SM_CYSMICON, SendMessageW, WM_SETICON,
+    };
+
+    let Ok(handle) = window.window_handle() else {
+        return;
+    };
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return;
+    };
+    let hwnd = handle.hwnd.get() as windows_sys::Win32::Foundation::HWND;
+
+    // Icon resource id 1 in assets/lineme.rc.
+    let resource = 1usize as windows_sys::core::PCWSTR;
+    unsafe {
+        let module = GetModuleHandleW(std::ptr::null());
+        for (kind, cx, cy) in [
+            (ICON_SMALL, SM_CXSMICON, SM_CYSMICON),
+            (ICON_BIG, SM_CXICON, SM_CYICON),
+        ] {
+            let icon = LoadImageW(
+                module,
+                resource,
+                IMAGE_ICON,
+                GetSystemMetrics(cx),
+                GetSystemMetrics(cy),
+                0,
+            );
+            if !icon.is_null() {
+                SendMessageW(hwnd, WM_SETICON, kind as usize, icon as isize);
+            }
+        }
     }
 }
 
@@ -87,6 +390,7 @@ pub fn main() -> iced::Result {
         .font(include_bytes!("../assets/MaterialIcons-Regular.ttf"))
         .subscription(Lineme::subscription)
         .theme(Lineme::theme)
+        .window(window_settings())
         .run()
 }
 
@@ -238,6 +542,14 @@ impl Lineme {
             Task::none()
         };
 
+        #[cfg(target_os = "windows")]
+        let initial_task = Task::batch([
+            initial_task,
+            iced::window::oldest()
+                .and_then(|id| iced::window::run(id, set_windows_icons))
+                .discard(),
+        ]);
+
         (app, initial_task)
     }
 
@@ -360,7 +672,10 @@ impl Lineme {
             Message::CloseTab(index) => {
                 if index < self.files.len() {
                     self.files.remove(index);
-                    if self.active_tab >= self.files.len() && !self.files.is_empty() {
+                    // Keep the same file selected when closing a tab before it.
+                    if index < self.active_tab {
+                        self.active_tab -= 1;
+                    } else if self.active_tab >= self.files.len() && !self.files.is_empty() {
                         self.active_tab = self.files.len() - 1;
                     }
                 }
@@ -972,40 +1287,24 @@ impl Lineme {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let mut bar = tab_bar::TabBar::new(Message::TabSelected)
-            .on_close(Message::CloseTab)
-            .icon_font(ICON_FONT)
-            .text_size(12.0)
-            .spacing(0.0)
-            .padding(8.0)
-            .style(|theme: &iced::Theme, status: iced_aw::tab_bar::Status| {
-                let palette = theme.extended_palette();
-                let mut style = iced_aw::tab_bar::Style::default();
+        // Background/text colors of a tab, flat for the active tab so it matches the
+        // content below.
+        fn tab_colors(
+            palette: &iced::theme::palette::Extended,
+            active: bool,
+            hovered: bool,
+        ) -> iced::theme::palette::Pair {
+            if active {
+                palette.background.base
+            } else if hovered {
+                palette.background.strong
+            } else {
+                palette.background.weak
+            }
+        }
 
-                match status {
-                    iced_aw::tab_bar::Status::Active => {
-                        // Use flat styling for active tab — remove the strong
-                        // accent border by setting border width to 0 so there's
-                        // no blue highlight.
-                        style.background = Some(palette.background.base.color.into());
-                        style.text_color = palette.background.base.text;
-                        style.tab_label_background = palette.background.base.color.into();
-                        style.tab_label_border_width = 0.0;
-                    }
-                    iced_aw::tab_bar::Status::Hovered => {
-                        style.tab_label_background = palette.background.strong.color.into();
-                        style.text_color = palette.background.strong.text;
-                    }
-                    _ => {
-                        style.tab_label_background = palette.background.weak.color.into();
-                        style.text_color = palette.background.weak.text;
-                        style.tab_label_border_width = 0.0;
-                    }
-                }
-                style
-            });
-
-        for (i, file) in self.files.iter().enumerate() {
+        let file_icon = svg::Handle::from_memory(include_bytes!("../assets/lineme-file-16.svg"));
+        let tabs = self.files.iter().enumerate().map(|(i, file)| {
             let label = file
                 .path
                 .file_name()
@@ -1018,23 +1317,85 @@ impl Lineme {
                 FileLoadState::Ready(_) => label,
             };
 
-            bar = bar.push(i, TabLabel::IconText(FILE_ICON, label));
-        }
+            let active = !self.show_settings && i == self.active_tab;
+            let close = button(
+                text(CLOSE_ICON)
+                    .font(ICON_FONT)
+                    .size(CLOSE_ICON_SIZE)
+                    .line_height(1.0)
+                    .center(),
+            )
+            .width(Length::Fixed(CLOSE_BUTTON_SIZE))
+            .height(Length::Fixed(CLOSE_BUTTON_SIZE))
+            .padding(0)
+            .style(move |theme: &iced::Theme, status: button::Status| {
+                let palette = theme.extended_palette();
+                // Hovered inactive tabs already use `strong`, so use the strongest
+                // shade there to stand out.
+                let hover = if active {
+                    palette.background.strong
+                } else {
+                    palette.background.strongest
+                };
+                let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                button::Style {
+                    background: hovered.then(|| hover.color.into()),
+                    text_color: if hovered {
+                        hover.text
+                    } else {
+                        tab_colors(palette, active, false).text
+                    },
+                    ..Default::default()
+                }
+            })
+            .on_press(Message::CloseTab(i));
 
-        if !self.files.is_empty() && !self.show_settings {
-            bar = bar.set_active_tab(&self.active_tab);
-        }
+            button(
+                row![
+                    svg(file_icon.clone())
+                        .width(Length::Fixed(16.0))
+                        .height(Length::Fixed(16.0)),
+                    text(label).size(12.0).wrapping(text::Wrapping::None),
+                    close,
+                ]
+                .spacing(6)
+                .height(Length::Fill)
+                .align_y(Alignment::Center),
+            )
+            // A fixed tab height with the close button centered vertically, and the
+            // right padding matching the space above and below it.
+            .height(Length::Fixed(TAB_HEIGHT))
+            .padding(iced::Padding {
+                top: 0.0,
+                right: (TAB_HEIGHT - CLOSE_BUTTON_SIZE) / 2.0,
+                bottom: 0.0,
+                left: 8.0,
+            })
+            .style(move |theme: &iced::Theme, status: button::Status| {
+                let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                let pair = tab_colors(theme.extended_palette(), active, hovered);
+                button::Style {
+                    background: Some(pair.color.into()),
+                    text_color: pair.text,
+                    ..Default::default()
+                }
+            })
+            .on_press(Message::TabSelected(i))
+            .into()
+        });
+        let bar = row(tabs.collect::<Vec<Element<'_, Message>>>()).align_y(Alignment::Center);
 
         // Move the Open button left of the Settings toggle and make the header
         // bar background/border a neutral grey.
         let header = container(
             row![
-                // Make the tab bar only take the space it needs instead of
-                // expanding to fill the header. Wrapping the `tab_bar` in a
-                // `container` with `Length::Shrink` forces it to size to its
-                // content.
-                container(bar).width(Length::Shrink),
-                Space::new().width(Length::Fill),
+                // Tabs take the remaining width and scroll horizontally (without a
+                // visible scrollbar) when they don't fit, so the buttons stay visible.
+                scrollable(bar)
+                    .direction(scrollable::Direction::Horizontal(
+                        scrollable::Scrollbar::new().width(0).scroller_width(0),
+                    ))
+                    .width(Length::Fill),
                 // Use the same font size as thread labels for button text
                 button(
                     row![text(OPEN_ICON).font(ICON_FONT), text("Open").size(12.0)]
