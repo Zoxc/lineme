@@ -1137,14 +1137,32 @@ impl Lineme {
                 }
             }
             Message::NavigateBack | Message::NavigateForward => {
-                if let Some(file) = self.files.get_mut(self.active_tab)
-                    && let FileLoadState::Ready(stats) = &mut file.load_state
-                {
+                if let Some(file) = self.files.get_mut(self.active_tab) {
+                    let total_height = timeline::total_timeline_height(file.thread_groups());
+                    let FileLoadState::Ready(stats) = &mut file.load_state else {
+                        return Task::none();
+                    };
                     if matches!(message, Message::NavigateBack) {
                         stats.ui.navigate_back();
                     } else {
                         stats.ui.navigate_forward();
                     }
+                    // The content or viewport may have changed since the snapshot was taken.
+                    let total_ns = crate::timeline::total_ns(
+                        stats.data.timeline.min_ns,
+                        stats.data.timeline.max_ns,
+                    );
+                    stats.ui.scroll_offset_x = crate::timeline::clamp_scroll_offset_ns(
+                        stats.ui.scroll_offset_x,
+                        total_ns,
+                        stats.ui.viewport_width.max(0.0),
+                        stats.ui.zoom_level,
+                    );
+                    Lineme::clamp_vertical_scroll_if_needed(
+                        &mut stats.ui.scroll_offset_y,
+                        total_height,
+                        stats.ui.viewport_height,
+                    );
                     stats.ui.hovered_event = None;
                     stats.ui.hovered_event_position = None;
                 }
