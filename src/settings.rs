@@ -13,6 +13,9 @@ pub struct SettingsPage {
     last_action_message: Option<String>,
 }
 
+/// Wide enough for the longest hint label at text size 12.
+const HINT_LABEL_WIDTH: f32 = 250.0;
+
 impl SettingsPage {
     pub fn new() -> Self {
         Self {
@@ -28,78 +31,78 @@ impl SettingsPage {
         let hints = column![
             text("Hints").size(16),
             row![
-                text("Left click:").width(Length::Fixed(160.0)).size(12),
+                text("Left click:").width(Length::Fixed(HINT_LABEL_WIDTH)).size(12),
                 text("Select an event and show details").size(12)
             ],
             row![
-                text("Double click:").width(Length::Fixed(160.0)).size(12),
+                text("Double click:").width(Length::Fixed(HINT_LABEL_WIDTH)).size(12),
                 text("Zoom to the clicked event (with padding)").size(12)
             ],
             row![
                 text("Left click + drag (events area):")
-                    .width(Length::Fixed(160.0))
+                    .width(Length::Fixed(HINT_LABEL_WIDTH))
                     .size(12),
                 text("Pan the timeline").size(12)
             ],
             row![
                 text("Right click + drag (events area):")
-                    .width(Length::Fixed(160.0))
+                    .width(Length::Fixed(HINT_LABEL_WIDTH))
                     .size(12),
                 text("Select a range to zoom the main view").size(12)
             ],
             row![
-                text("Mouse wheel:").width(Length::Fixed(160.0)).size(12),
+                text("Mouse wheel:").width(Length::Fixed(HINT_LABEL_WIDTH)).size(12),
                 text("Zoom horizontally centered on the cursor (hold Ctrl to scroll vertically)")
                     .size(12)
             ],
             row![
                 text("Shift + mouse wheel:")
-                    .width(Length::Fixed(160.0))
+                    .width(Length::Fixed(HINT_LABEL_WIDTH))
                     .size(12),
                 text("Pan horizontally").size(12)
             ],
             row![
                 text("Mini timeline — left click:")
-                    .width(Length::Fixed(160.0))
+                    .width(Length::Fixed(HINT_LABEL_WIDTH))
                     .size(12),
                 text("Jump the main view to that position").size(12)
             ],
             row![
                 text("Mini timeline — right click + drag:")
-                    .width(Length::Fixed(160.0))
+                    .width(Length::Fixed(HINT_LABEL_WIDTH))
                     .size(12),
                 text("Select a range to zoom the main view to").size(12)
             ],
             row![
                 text("Alt + Left / Right:")
-                    .width(Length::Fixed(160.0))
+                    .width(Length::Fixed(HINT_LABEL_WIDTH))
                     .size(12),
                 text("Go back / forward in view history").size(12)
             ],
             row![
                 text("Mouse back / forward:")
-                    .width(Length::Fixed(160.0))
+                    .width(Length::Fixed(HINT_LABEL_WIDTH))
                     .size(12),
                 text("Return to the view before / after a double click zoom").size(12)
             ],
             row![
-                text("Esc:").width(Length::Fixed(160.0)).size(12),
+                text("Esc:").width(Length::Fixed(HINT_LABEL_WIDTH)).size(12),
                 text("Reset the current view (zoom/scroll)").size(12)
             ],
             row![
                 text("Thread label click:")
-                    .width(Length::Fixed(160.0))
+                    .width(Length::Fixed(HINT_LABEL_WIDTH))
                     .size(12),
                 text("Toggle collapse/expand for that thread").size(12)
             ],
             row![
                 text("Collapse/Expand buttons:")
-                    .width(Length::Fixed(160.0))
+                    .width(Length::Fixed(HINT_LABEL_WIDTH))
                     .size(12),
                 text("Collapse or expand all threads").size(12)
             ],
             row![
-                text("Scrollbars:").width(Length::Fixed(160.0)).size(12),
+                text("Scrollbars:").width(Length::Fixed(HINT_LABEL_WIDTH)).size(12),
                 text("Use scrollbars for precise horizontal/vertical navigation").size(12)
             ],
         ]
