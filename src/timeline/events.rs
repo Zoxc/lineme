@@ -602,7 +602,7 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                             Size::new(width.max(1.0), (LANE_HEIGHT - 2.0) as f32),
                         ),
                         canvas::Stroke::default()
-                            .with_color(Color::from_rgb(0.0, 0.4, 0.8))
+                            .with_color(Color::from_rgb(0.32, 0.36, 0.42))
                             .with_width(2.0),
                     );
                 }
