@@ -942,6 +942,7 @@ impl Lineme {
                     };
                     let min_ns = stats.data.timeline.min_ns;
                     let max_ns = stats.data.timeline.max_ns;
+                    stats.ui.push_history();
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
                     let provided_viewport_width = stats.ui.viewport_width.max(1.0);
 
@@ -1077,6 +1078,7 @@ impl Lineme {
                     let min_ns = stats.data.timeline.min_ns;
                     let max_ns = stats.data.timeline.max_ns;
                     let total_ns = crate::timeline::total_ns(min_ns, max_ns);
+                    stats.ui.push_history();
                     let total_ns_f64 = total_ns.max(1) as f64;
                     let range_fraction = (end_fraction - start_fraction).max(0.0) as f64;
                     let target_ns = (range_fraction * total_ns_f64).max(1.0);
