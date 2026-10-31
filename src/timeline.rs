@@ -256,6 +256,7 @@ pub fn view<'a>(args: TimelineViewArgs<'a>) -> Element<'a, Message> {
 
     let events_view = container(ViewportCatcher::new(
         WheelCatcher::new(events_canvas),
+        Size::new(viewport_width as f32, viewport_height as f32),
         |size| Message::TimelineViewportChanged {
             viewport_width: size.width,
             viewport_height: size.height,
@@ -528,16 +529,19 @@ pub struct WheelCatcher<'a, Message, Theme, Renderer> {
 
 pub struct ViewportCatcher<'a, Message, Theme, Renderer> {
     content: Element<'a, Message, Theme, Renderer>,
+    known_size: Size<f32>,
     on_resize: Box<dyn Fn(Size<f32>) -> Message + 'a>,
 }
 
 impl<'a, Message, Theme, Renderer> ViewportCatcher<'a, Message, Theme, Renderer> {
     pub fn new(
         content: impl Into<Element<'a, Message, Theme, Renderer>>,
+        known_size: Size<f32>,
         on_resize: impl Fn(Size<f32>) -> Message + 'a,
     ) -> Self {
         Self {
             content: content.into(),
+            known_size,
             on_resize: Box::new(on_resize),
         }
     }
@@ -548,14 +552,6 @@ impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
 where
     Renderer: iced::advanced::Renderer,
 {
-    fn tag(&self) -> widget::tree::Tag {
-        widget::tree::Tag::of::<Option<Size<f32>>>()
-    }
-
-    fn state(&self) -> widget::tree::State {
-        widget::tree::State::new(Option::<Size<f32>>::None)
-    }
-
     fn children(&self) -> Vec<Tree> {
         vec![Tree::new(&self.content)]
     }
@@ -624,13 +620,9 @@ where
 
         let bounds = layout.bounds();
         let new_size = Size::new(bounds.width, bounds.height);
-        let last_size = tree.state.downcast_mut::<Option<Size<f32>>>();
-        let changed = match *last_size {
-            Some(size) => size != new_size,
-            None => true,
-        };
-        if changed {
-            *last_size = Some(new_size);
+        // Compare against the size stored in the application state rather than
+        // widget state, so tabs sharing this widget tree each get their size.
+        if new_size.width > 0.0 && new_size.height > 0.0 && new_size != self.known_size {
             shell.publish((self.on_resize)(new_size));
         }
     }
