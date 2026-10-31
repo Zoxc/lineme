@@ -105,6 +105,10 @@ impl SettingsPage {
                     .spacing(6)
                     .align_y(Alignment::Center),
                 )
+                .style(|theme: &iced::Theme, status| button::Style {
+                    border: crate::ui::rounded(),
+                    ..button::primary(theme, status)
+                })
                 .on_press(SettingsMessage::RegisterFileExtension),
                 if let Some(msg) = &self.last_action_message {
                     Element::from(text(msg).size(12))
@@ -115,7 +119,9 @@ impl SettingsPage {
             .spacing(10)
             .align_y(Alignment::Center),
             container(hints).padding(6).style(|_theme: &iced::Theme| {
-                container::Style::default().background(iced::Color::from_rgb(0.99, 0.99, 0.99))
+                container::Style::default()
+                    .background(iced::Color::from_rgb(0.99, 0.99, 0.99))
+                    .border(crate::ui::rounded())
             }),
         ]
         .spacing(8)

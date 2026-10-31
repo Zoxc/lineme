@@ -25,7 +25,7 @@ impl Default for TooltipStyle {
             border: Border {
                 color: Color::from_rgba(0.0, 0.0, 0.0, 0.35),
                 width: 1.0,
-                radius: 4.0.into(),
+                radius: crate::ui::UI_RADIUS.into(),
             },
             shadow_color: Color::from_rgba(0.0, 0.0, 0.0, 0.15),
             shadow_offset: Vector::new(2.0, 2.0),

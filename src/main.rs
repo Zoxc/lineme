@@ -436,7 +436,7 @@ fn neutral_pick_list_style(
             handle_color: base_text,
             background: base_bg.into(),
             border: iced::Border {
-                radius: 3.0.into(),
+                radius: crate::ui::UI_RADIUS.into(),
                 width: 1.0,
                 color: border_grey,
             },
@@ -450,7 +450,7 @@ fn neutral_pick_list_style(
                 handle_color: base_text,
                 background: hover_bg.into(),
                 border: iced::Border {
-                    radius: 3.0.into(),
+                    radius: crate::ui::UI_RADIUS.into(),
                     width: 1.0,
                     color: iced::Color::from_rgb(0.72, 0.72, 0.72),
                 },
@@ -1348,6 +1348,7 @@ impl Lineme {
                     } else {
                         tab_colors(palette, active, false).text
                     },
+                    border: crate::ui::rounded(),
                     ..Default::default()
                 }
             })
@@ -1380,6 +1381,7 @@ impl Lineme {
                 button::Style {
                     background: Some(pair.color.into()),
                     text_color: pair.text,
+                    border: crate::ui::rounded(),
                     ..Default::default()
                 }
             })
@@ -1417,6 +1419,7 @@ impl Lineme {
                             return button::Style {
                                 background: Some(palette.background.strong.color.into()),
                                 text_color: palette.background.weak.text,
+                                border: crate::ui::rounded(),
                                 ..Default::default()
                             };
                         }
@@ -1492,6 +1495,7 @@ impl Lineme {
                                 let palette = theme.extended_palette();
                                 let base = button::Style {
                                     text_color: palette.background.base.text,
+                                    border: crate::ui::rounded(),
                                     ..Default::default()
                                 };
                                 match status {
