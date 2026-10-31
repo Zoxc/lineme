@@ -581,7 +581,7 @@ impl Lineme {
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
-        iced::event::listen_with(|event, _status, _id| match event {
+        iced::event::listen_with(|event, status, _id| match event {
             iced::Event::Window(iced::window::Event::FileDropped(path)) => {
                 Some(Message::FileSelected(path))
             }
@@ -589,6 +589,8 @@ impl Lineme {
             iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) => {
                 Some(Message::ModifiersChanged(modifiers))
             }
+            // Shortcuts below only apply when no widget handled the event
+            _ if status == iced::event::Status::Captured => None,
             // Pressing Escape resets the current view (zoom/scroll)
             iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
                 key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
