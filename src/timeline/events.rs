@@ -720,8 +720,9 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                 state.hovered_position = cursor.position_in(bounds);
 
                 // Update right-button selection while dragging
-                if let Some(position) = cursor.position_in(bounds) && state.selecting_right {
-                    state.selection_end = Some(position);
+                // Keep tracking outside the bounds; the selection is clamped on use
+                if state.selecting_right {
+                    state.selection_end = Some(*position - Vector::new(bounds.x, bounds.y));
                     return Some(canvas::Action::publish(Message::None));
                 }
 
@@ -757,8 +758,8 @@ impl<'a> Program<Message> for EventsProgram<'a> {
                     {
                         // Compute ns range from screen x positions
                         let zoom_level = self.zoom_level.max(1e-9);
-                        let px_start = start.x.min(end.x).max(0.0);
-                        let px_end = start.x.max(end.x).max(0.0);
+                        let px_start = start.x.min(end.x).clamp(0.0, bounds.width);
+                        let px_end = start.x.max(end.x).clamp(0.0, bounds.width);
                         let rel_start_ns = px_start as f64 / zoom_level + self.scroll_offset_x;
                         let rel_end_ns = px_end as f64 / zoom_level + self.scroll_offset_x;
                         // Publish zoom-to-range using ns relative to timeline min
