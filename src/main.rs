@@ -1557,6 +1557,17 @@ impl Lineme {
                                 .size(14)
                                 .text_size(12)
                                 .on_toggle(Message::MergeThreadsToggled),
+                            button(
+                                row![
+                                    text(RESET_ICON).font(ICON_FONT),
+                                    text("Reset View").size(12.0)
+                                ]
+                                .spacing(5)
+                                .align_y(Alignment::Center),
+                            )
+                            .style(toolbar_button_style)
+                            .padding(3)
+                            .on_press(Message::ResetView),
                             row![
                                 button(text(BACK_ICON).font(ICON_FONT))
                                     .style(toolbar_button_style)
@@ -1576,17 +1587,6 @@ impl Lineme {
                                     ),
                             ]
                             .spacing(2),
-                            button(
-                                row![
-                                    text(RESET_ICON).font(ICON_FONT),
-                                    text("Reset View").size(12.0)
-                                ]
-                                .spacing(5)
-                                .align_y(Alignment::Center),
-                            )
-                            .style(toolbar_button_style)
-                            .padding(3)
-                            .on_press(Message::ResetView),
                         ]
                         .spacing(10)
                         .align_y(Alignment::Center),
