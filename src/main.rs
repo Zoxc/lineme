@@ -391,6 +391,9 @@ pub fn main() -> iced::Result {
         .subscription(Lineme::subscription)
         .theme(Lineme::theme)
         .window(window_settings())
+        // wgpu's GL backend clips the MSAA resolve to the last scissor rect,
+        // which drops most canvas geometry.
+        .antialiasing(false)
         .run()
 }
 
