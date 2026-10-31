@@ -772,8 +772,9 @@ fn build_event_indices(
     events: &[TimelineEvent],
     event_ids: &[EventId],
 ) -> IntervalTree<u64, EventId> {
-    // Build an interval tree mapping each event interval to its index in
-    // `event_ids` so callers can quickly query overlapping intervals.
+    // Build an interval tree mapping each event interval to its `EventId`
+    // (an index into `events`) so callers can quickly query overlapping
+    // intervals.
     let iter = event_ids.iter().map(|&event_id| {
         let event = &events[event_id.index()];
         let start = event.start_ns;
