@@ -3,7 +3,7 @@ use crate::Message;
 use crate::timeline::ticks::{format_time_label, nice_interval};
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Geometry, Program};
-use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme};
+use iced::{Color, Event, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 pub(crate) struct MiniTimelineProgram {
     pub(crate) min_ns: u64,
@@ -215,7 +215,11 @@ impl Program<Message> for MiniTimelineProgram {
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                if let Some(position) = cursor.position_in(bounds)
+                // Keep tracking drags outside the bounds; positions are clamped below
+                let local = cursor
+                    .position()
+                    .map(|position| position - Vector::new(bounds.x, bounds.y));
+                if let Some(position) = local
                     && state.dragging
                     && bounds.width > 0.0
                 {
@@ -229,7 +233,7 @@ impl Program<Message> for MiniTimelineProgram {
                     }));
                 }
 
-                if let Some(position) = cursor.position_in(bounds)
+                if let Some(position) = local
                     && state.selecting
                 {
                     state.selection_end = Some(position);
